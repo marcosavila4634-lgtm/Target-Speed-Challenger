@@ -22,6 +22,7 @@ var _rpm := 0.15
 var _marcha := 1
 var _no_ar_ant := 0.0
 var _vy_ant := 0.0
+var _nitro_ant := false
 var _vel_ant := Vector3.ZERO
 var _espera_batida := 0.0
 var _ativo := true
@@ -160,7 +161,10 @@ func _process(delta: float) -> void:
 		_nivel(_vento, clampf((rapidez - 8.0) / 55.0, 0.0, 1.0) * ar * 0.7)
 		_vento.pitch_scale = lerpf(0.85, 1.25, clampf(rapidez / 70.0, 0.0, 1.0))
 
-	# ---- Nitro
+	# ---- Nitro: rajada de ar (whoosh) ao ligar e o som contínuo enquanto ele está ativo
+	if v.nitro_ativo and not _nitro_ant:
+		Audio.tocar("efeitos/whoosh.wav", v.global_position, -4.0, 1.3, 0.05, "Efeitos", 14.0)
+	_nitro_ant = v.nitro_ativo
 	_nivel(_nitro, 0.8 if v.nitro_ativo else 0.0)
 
 	# ---- Pouso: batida da carroceria e mola da suspensão, pela velocidade de queda
