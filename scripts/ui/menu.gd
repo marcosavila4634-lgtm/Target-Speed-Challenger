@@ -531,11 +531,11 @@ func _montar_painel_direito() -> void:
 func _preencher_atributos(d: Dictionary) -> void:
 	for f in _atributos.get_children():
 		f.queue_free()
-	var atr: Dictionary = d.get("atributos", {})
-	for par: Array in [["velocidade", "VELOCIDADE"], ["aceleracao", "ACELERAÇÃO"], ["peso", "PESO"], ["planeio", "PLANEIO"]]:
-		var n := Estilo.rotulo(par[1], 17, Estilo.TEXTO, 600)
+	# Notas calculadas dos valores reais, com os upgrades instalados (sobem conforme o tuning)
+	for b in Progresso.barras(Progresso.dados_jogador(d.id)):
+		var n := Estilo.rotulo(b.nome, 17, Estilo.TEXTO, 600)
 		n.custom_minimum_size.x = 118
-		var valor := int(atr.get(par[0], 3))
+		var valor: int = b.nota
 		var num := Estilo.rotulo("%d/5" % valor, 17, Estilo.TEXTO_FRACO, 600)
 		_atributos.add_child(_linha([n, Estilo.barra_segmentos(valor, 5, Estilo.AZUL_NEON, 170), num], 10))
 
@@ -596,6 +596,8 @@ func _fechar_tuning() -> void:
 	for n in _nos_inicio:
 		n.visible = true
 	_marcar_aba_garagem()
+	if not _veiculos.is_empty():
+		_preencher_atributos(_veiculos[_indice])   # barras com os upgrades novos
 
 
 func _tuning_aberto() -> bool:

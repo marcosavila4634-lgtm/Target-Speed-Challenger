@@ -14,6 +14,16 @@
 		"bots": "espelhar"
 	},
 
+	"barras": {
+		"_barras": "Barras de 1 a 5 do menu, calculadas dos valores reais do carro (com upgrades): nota = 1 + (valor - base) / passo, arredondada para baixo. Carros de fábrica ficam em no máximo 2; os upgrades sobem até 5.",
+		"lista": [
+			{ "id": "velocidade", "nome": "VELOCIDADE", "atributo": "velocidade_max_kmh", "base": 120, "passo": 30 },
+			{ "id": "aceleracao", "nome": "ACELERAÇÃO", "atributo": "aceleracao", "base": 3.5, "passo": 1.0 },
+			{ "id": "aderencia", "nome": "ADERÊNCIA", "atributo": "aderencia", "base": 1.0, "passo": 0.1 },
+			{ "id": "planeio", "nome": "PLANEIO", "atributo": "paraquedas_sustentacao", "base": 0.8, "passo": 0.1 }
+		]
+	},
+
 	"categorias": [
 		{
 			"id": "motor",
@@ -21,9 +31,9 @@
 			"icone": "motor",
 			"descricao": "Mais velocidade máxima e arrancada na descida.",
 			"niveis": [
-				{ "nivel_veiculo": 2, "efeito": { "velocidade_max_kmh": { "mult": 1.04 }, "aceleracao": { "mult": 1.06 } } },
-				{ "nivel_veiculo": 4, "efeito": { "velocidade_max_kmh": { "mult": 1.08 }, "aceleracao": { "mult": 1.12 } } },
-				{ "nivel_veiculo": 7, "efeito": { "velocidade_max_kmh": { "mult": 1.12 }, "aceleracao": { "mult": 1.18 } } }
+				{ "nivel_veiculo": 2, "efeito": { "velocidade_max_kmh": { "mult": 1.12 }, "aceleracao": { "mult": 1.12 } } },
+				{ "nivel_veiculo": 4, "efeito": { "velocidade_max_kmh": { "mult": 1.25 }, "aceleracao": { "mult": 1.25 } } },
+				{ "nivel_veiculo": 7, "efeito": { "velocidade_max_kmh": { "mult": 1.40 }, "aceleracao": { "mult": 1.40 } } }
 			]
 		},
 		{
@@ -32,9 +42,9 @@
 			"icone": "pneus",
 			"descricao": "Mais aderência nas curvas da pista e no alvo.",
 			"niveis": [
-				{ "nivel_veiculo": 1, "efeito": { "aderencia": { "mult": 1.05 } } },
-				{ "nivel_veiculo": 3, "efeito": { "aderencia": { "mult": 1.10 } } },
-				{ "nivel_veiculo": 6, "efeito": { "aderencia": { "mult": 1.15 } } }
+				{ "nivel_veiculo": 1, "efeito": { "aderencia": { "mult": 1.08 } } },
+				{ "nivel_veiculo": 3, "efeito": { "aderencia": { "mult": 1.16 } } },
+				{ "nivel_veiculo": 6, "efeito": { "aderencia": { "mult": 1.25 } } }
 			]
 		},
 		{
@@ -43,9 +53,9 @@
 			"icone": "paraquedas",
 			"descricao": "Mais sustentação, controle e velocidade de voo.",
 			"niveis": [
-				{ "nivel_veiculo": 2, "efeito": { "paraquedas_sustentacao": { "mult": 1.05 }, "paraquedas_controle": { "mult": 1.05 }, "paraquedas_velocidade": { "mult": 1.03 } } },
-				{ "nivel_veiculo": 5, "efeito": { "paraquedas_sustentacao": { "mult": 1.10 }, "paraquedas_controle": { "mult": 1.10 }, "paraquedas_velocidade": { "mult": 1.06 } } },
-				{ "nivel_veiculo": 8, "efeito": { "paraquedas_sustentacao": { "mult": 1.15 }, "paraquedas_controle": { "mult": 1.15 }, "paraquedas_velocidade": { "mult": 1.09 } } }
+				{ "nivel_veiculo": 2, "efeito": { "paraquedas_sustentacao": { "mult": 1.08 }, "paraquedas_controle": { "mult": 1.05 }, "paraquedas_velocidade": { "mult": 1.03 } } },
+				{ "nivel_veiculo": 5, "efeito": { "paraquedas_sustentacao": { "mult": 1.16 }, "paraquedas_controle": { "mult": 1.10 }, "paraquedas_velocidade": { "mult": 1.06 } } },
+				{ "nivel_veiculo": 8, "efeito": { "paraquedas_sustentacao": { "mult": 1.25 }, "paraquedas_controle": { "mult": 1.15 }, "paraquedas_velocidade": { "mult": 1.09 } } }
 			]
 		},
 		{

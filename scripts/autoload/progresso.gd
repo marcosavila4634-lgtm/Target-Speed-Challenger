@@ -148,6 +148,15 @@ func aplicar(dados: Dictionary, niveis: Dictionary) -> Dictionary:
 	return r
 
 
+## Barras do menu (config/upgrades.json → barras): [{id, nome, nota 1..5}] a partir dos valores reais.
+func barras(dados: Dictionary) -> Array:
+	var r := []
+	for b in Config.upgrades.get("barras", {}).get("lista", []):
+		var x := 1.0 + (float(dados.get(b.atributo, b.base)) - float(b.base)) / float(b.passo)
+		r.append({"id": b.id, "nome": b.nome, "nota": clampi(floori(x + 0.0001), 1, 5)})
+	return r
+
+
 ## Carro do jogador pronto para a partida (upgrades instalados).
 func dados_jogador(id: String) -> Dictionary:
 	return aplicar(Config.veiculo(id), niveis_upgrade(id))
