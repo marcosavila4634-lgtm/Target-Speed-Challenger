@@ -1,0 +1,21 @@
+@echo off
+rem Abre as paginas das musicas escolhidas no Pixabay para baixar (botao Download).
+rem Menu: salve em assets\audio\musica\menu   -   Fases: salve em assets\audio\musica\partida
+start "" "https://pixabay.com/music/electro-need-for-speed-600464/"
+start "" "https://pixabay.com/music/phonk-phonk-aggressive-drift-night-573644/"
+start "" "https://pixabay.com/music/phonk-blackout-drift-537762/"
+start "" "https://pixabay.com/music/electronic-drift-on-fire-instrumental-dr-maxwave-466397/"
+start "" "https://pixabay.com/music/beats-drift-phonk-308474/"
+start "" "https://pixabay.com/music/phonk-aggressive-phonk-drift-beat-582774/"
+start "" "https://pixabay.com/music/phonk-phonk-aura-drift-night-ride-587401/"
+start "" "https://pixabay.com/music/phonk-redline-526852/"
+start "" "https://pixabay.com/music/phonk-brazilian-phonk-bounce-heat-573874/"
+start "" "https://pixabay.com/music/trap-street-savage-trap-beat-569821/"
+start "" "https://pixabay.com/music/trap-urban-street-rap-beat-579022/"
+start "" "https://pixabay.com/music/trap-phantom-skid-406819/"
+start "" "https://pixabay.com/music/beats-street-shadows-406821/"
+start "" "https://pixabay.com/music/trap-action-urban-trap-141691/"
+start "" "https://pixabay.com/music/urban-latin-fuego-lento-264379/"
+start "" "https://pixabay.com/music/latin-spanish-reggaeton-latin-524921/"
+start "" "https://pixabay.com/music/funk-brazil-competition-funk-481472/"
+start "" "https://pixabay.com/music/beats-street-racing-262363/"

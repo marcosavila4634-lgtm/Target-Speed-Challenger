@@ -1,0 +1,16 @@
+{
+	"_leia_me": "Pilotos (avatares) que dirigem os carros. 'ativo': true libera no menu e para os bots. Modelos com o esqueleto padrão Mixamo (Hips, Spine, LeftArm...) em assets/avatar/<id>/<id>.glb; a pose sentada/em pé é montada por código. 'altura' em metros (o modelo é escalado).",
+	"avatares": [
+		{ "id": "piloto", "nome": "Piloto", "modelo": "res://assets/avatar/piloto/piloto.glb", "ativo": true, "altura": 1.78 },
+		{ "id": "motociclista", "nome": "Motociclista", "modelo": "res://assets/avatar/motociclista/motociclista.glb", "ativo": true, "altura": 1.7 },
+		{ "id": "mecanico", "nome": "Mecânico", "modelo": "res://assets/avatar/mecanico/mecanico.glb", "ativo": true, "altura": 1.78 },
+		{ "id": "mecanica", "nome": "Mecânica", "modelo": "res://assets/avatar/mecanica/mecanica.glb", "ativo": true, "altura": 1.68 },
+		{ "id": "executivo", "nome": "Executivo", "modelo": "res://assets/avatar/executivo/executivo.glb", "ativo": true, "altura": 1.8 },
+		{ "id": "executiva", "nome": "Executiva", "modelo": "res://assets/avatar/executiva/executiva.glb", "ativo": true, "altura": 1.68 },
+		{ "id": "chapeu", "nome": "Cavalheiro", "modelo": "res://assets/avatar/chapeu/chapeu.glb", "ativo": true, "altura": 1.8 },
+		{ "id": "veterano", "nome": "Veterano", "modelo": "res://assets/avatar/veterano/veterano.glb", "ativo": true, "altura": 1.74 },
+		{ "id": "casual7", "nome": "Casual", "modelo": "res://assets/avatar/casual7/casual7.glb", "ativo": true, "altura": 1.8 },
+		{ "id": "garota16", "nome": "Torcedora", "modelo": "res://assets/avatar/garota16/garota16.glb", "ativo": true, "altura": 1.66 },
+		{ "id": "garota17", "nome": "Estilosa", "modelo": "res://assets/avatar/garota17/garota17.glb", "ativo": true, "altura": 1.68 }
+	]
+}

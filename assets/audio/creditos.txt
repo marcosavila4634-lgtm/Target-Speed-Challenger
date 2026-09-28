@@ -1,0 +1,57 @@
+CRÉDITOS DE ÁUDIO — Target Speed Challenger
+Todos os arquivos desta pasta vêm de acervos livres. CC0 = domínio público (crédito opcional).
+CC-BY = crédito obrigatório (manter na tela de créditos do jogo).
+
+MÚSICA (Pixabay; em uso as que estão nas pastas musica/menu e musica/partida)
+- musica/menu/ — "Need For Speed", 331music — Pixabay Content License (sem crédito obrigatório)
+  https://pixabay.com/music/electro-need-for-speed-600464/
+- musica/partida/ — "Urban Street Rap Beat", vaitsez — Pixabay Content License (sem crédito obrigatório)
+  https://pixabay.com/music/trap-urban-street-rap-beat-579022/
+- musica/partida/ — "Phantom Skid", BASSLOOM — Pixabay Content License (sem crédito obrigatório)
+  https://pixabay.com/music/trap-phantom-skid-406819/
+- musica/partida/ — "Street Shadows", BASSLOOM — Pixabay Content License (sem crédito obrigatório)
+  https://pixabay.com/music/beats-street-shadows-406821/
+- musica/partida/ — "Action Urban Trap", Playsound — Pixabay Content License (sem crédito obrigatório)
+  https://pixabay.com/music/trap-action-urban-trap-141691/
+- musica/partida/ — "Fuego Lento", Ovrsoull — Pixabay Content License (sem crédito obrigatório)
+  https://pixabay.com/music/urban-latin-fuego-lento-264379/
+- musica/partida/ — "Spanish Reggaeton Latin", Sound4Stock — Pixabay Content License (sem crédito obrigatório)
+  https://pixabay.com/music/latin-spanish-reggaeton-latin-524921/
+
+MOTOR
+- motor/loop_0..5.wav — "Racing car engine sound loops", domasx2 — CC0
+  https://opengameart.org/content/racing-car-engine-sound-loops
+- motor/partida.wav — "Car Engine Start 01", looneybits — CC0
+  https://opengameart.org/content/car-engine-start-01
+
+EFEITOS
+- efeitos/paraquedas_abrir_0..1.wav — "Parachute Opening 2 Options", 2create (Freesound) — CC0
+  https://freesound.org/people/2create/sounds/620310/
+- efeitos/pneu_loop.wav — "Car tire squeal skid loop", qubodup — CC-BY 3.0
+  https://opengameart.org/content/car-tire-squeal-skid-loop
+- efeitos/vento_forte.mp3 — "Strong wind blowing", Flixberry Entertainment — CC-BY 4.0
+  https://opengameart.org/content/strong-wind-blowing
+- efeitos/whoosh.wav — "Air whoosh", pyranostudios — CC0
+  https://opengameart.org/content/air-whoosh
+- efeitos/tecido.ogg — "Cloth swing sounds", Vinrax — CC-BY 3.0
+  https://opengameart.org/content/cloth-swing-sounds
+- efeitos/explosao_cc0.ogg, agua_splash_*.ogg, mola_*.ogg — "100 CC0 SFX", rubberduck — CC0
+  https://opengameart.org/content/100-cc0-sfx
+- efeitos/rolagem.ogg — "30 CC0 SFX loops", rubberduck — CC0
+  https://opengameart.org/content/30-cc0-sfx-loops
+- efeitos/batida_*.ogg, pouso_*.ogg — "Impact Sounds", Kenney (kenney.nl) — CC0
+- efeitos/explosao_grave_*.ogg, explosao_estalo_*.ogg, nitro_*.ogg — "Sci-fi Sounds", Kenney — CC0
+
+AMBIENTE
+- ambiente/canion_vento_rio.mp3 — "Ambient: mountain river, wind and forest", Lamoot — CC-BY 3.0
+  https://opengameart.org/content/ambient-mountain-river-wind-and-forest-and-waterfall
+- ambiente/rio.ogg — "Stream sounds", kurt — CC-BY 3.0
+  https://opengameart.org/content/stream-sounds
+- ambiente/publico_*.mp3 — "Free Crowd Cheering Sounds", Gregor Quendel — CC-BY 4.0
+  https://opengameart.org/content/free-crowd-cheering-sounds
+- ambiente/publico_gritos.ogg — "Crowd shouting/speaking ambience", StarNinjas — CC0
+  https://opengameart.org/content/crowd-shoutingspeaking-ambience
+
+INTERFACE
+- interface/*.ogg — "Interface Sounds", Kenney (kenney.nl) — CC0
+- Bipes da largada e assobio do turbo: gerados por código (scripts/autoload/audio.gd).

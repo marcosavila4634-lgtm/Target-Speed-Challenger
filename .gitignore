@@ -1,0 +1,7 @@
+.godot/
+*.import~
+
+# Arquivos originais baixados (zips/fontes, >1 GB; ficam só no PC)
+_originais/
+# Executáveis do Godot (grandes demais para o GitHub; baixar em godotengine.org)
+tools/*.exe

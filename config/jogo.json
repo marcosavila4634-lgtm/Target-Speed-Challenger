@@ -1,0 +1,100 @@
+{
+	"_leia_me": "Valores ajustáveis do Target Flight. Distâncias em metros, tempos em segundos, velocidades em m/s (1 m/s = 3,6 km/h). Para testar mudanças sem mexer aqui, copie este arquivo para %APPDATA%/Godot/app_userdata/Target Speed Challenger/config/jogo.json.",
+
+	"audio": {
+		"_audio": "Volumes padrão (0 a 1) na primeira vez; depois valem os ajustados pelo jogador em Configurações/Pausa (salvos em user://audio.cfg).",
+		"volume_geral": 0.9,
+		"volume_musica": 0.5,
+		"volume_efeitos": 0.9,
+		"volume_motor": 0.75,
+		"volume_ambiente": 0.7,
+		"volume_interface": 0.6
+	},
+
+	"partida": {
+		"etapas": 4,
+		"tempo_modo": "etapa",
+		"_tempo_modo": "'etapa' = cada etapa tem o seu tempo; 'partida' = um tempo único dividido por todas as etapas",
+		"tempo_segundos": 180,
+		"equipes": 4,
+		"jogadores_por_equipe": 1,
+		"apresentacao_s": 5,
+		"contagem_s": 3,
+		"estabilizacao_s": 5,
+		"resultado_etapa_s": 6,
+		"espectador_apos_explosao_s": 4
+	},
+
+	"mapa": {
+		"distancia_saida_alvo": 1000,
+		"plataforma_altura": 400,
+		"plataforma_comprimento": 70,
+		"descida_comprimento": 500,
+		"descida_angulo": 45,
+		"raio_curva_topo": 110,
+		"raio_curva_base": 150,
+		"rampa_comprimento": 70,
+		"rampa_angulo_saida": 40,
+		"pista_largura": 22,
+		"alvo_altura": 30,
+		"nivel_agua": 4,
+		"semente_terreno": 1967
+	},
+
+	"grafico": {
+		"_bruma": "Bancos de bruma no fundo do cânion (desligue se pesar no computador).",
+		"bruma": true,
+		"nuvens_cobertura": 0.5,
+		"_sombras": "Alcance das sombras do sol (m), penumbra suave (graus; 0 = desligada) e luz rebatida (SSIL). Na RX 5700 XT a penumbra e a luz rebatida causaram travamento do driver (tempo limite) — deixe 0/false.",
+		"sombra_distancia": 1500,
+		"sombra_suavidade_graus": 0.0,
+		"luz_rebatida": false
+	},
+
+	"alvo": {
+		"_zonas": "[pontos, raio externo] para o alvo de 30 m. Alvos de outros diâmetros usam a mesma proporção.",
+		"zonas": [[5, 2.5], [4, 5.0], [3, 8.0], [2, 11.5], [1, 15.0]]
+	},
+
+	"etapas": [
+		{ "nome": "Alvo central fixo", "diametro": 30, "deslocamento": [0, 0] },
+		{ "nome": "Alvo fixo deslocado", "diametro": 28, "deslocamento": [140, -90] },
+		{ "nome": "Alvo inclinado", "diametro": 30, "deslocamento": [0, 0], "inclinacao": 8, "direcao_inclinacao": 35 },
+		{ "nome": "Alvo móvel", "diametro": 26, "deslocamento": [0, 0], "movel": true, "velocidade": 5, "percurso": 120, "direcao_movimento": 45 }
+	],
+
+	"regras": {
+		"freios_instalados": false,
+		"_freios": "Sem freio: S é ré (e segura o carro antes do alvo). No alvo, alternar A/D rapidamente arrasta os pneus e freia.",
+		"nitro_instalado": true,
+		"_bloqueio": "Ao tocar o alvo com qualquer parte do carro: motor, nitro e ejetor ficam bloqueados até o fim da etapa.",
+		"bloquear_ejetor_no_alvo": true
+	},
+
+	"fisica": {
+		"arrasto_ar": 0.0014,
+		"ejetor_impulso": 12,
+		"ejetor_recarga": 1.0,
+		"nitro_duracao": 4.0,
+		"nitro_aceleracao": 9.0,
+		"nitro_extra_planeio": 10,
+		"controle_aereo_graus_s": 90,
+		"re_forca": 0.6,
+		"re_velocidade_max_kmh": 30,
+		"_zigue_zague": "No alvo: desaceleração (m/s²) = ganho x trocas de lado do volante por segundo, limitada a max.",
+		"zigue_zague_ganho": 1.1,
+		"zigue_zague_max": 8.0,
+		"paraquedas": {
+			"velocidade_neutra": 18,
+			"afundamento_neutro": 2.4,
+			"velocidade_w": 28,
+			"afundamento_w": 6.0,
+			"velocidade_s": 8,
+			"afundamento_s": 1.6,
+			"giro_graus_s": 34,
+			"resposta_horizontal": 0.8,
+			"resposta_vertical": 1.5,
+			"altura_cobertura": 9
+		}
+	}
+}
