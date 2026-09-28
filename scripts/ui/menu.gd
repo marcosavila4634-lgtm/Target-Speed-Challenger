@@ -18,8 +18,9 @@ var _av_nome: Label
 var _nome_perfil: Label
 var _inicial: Label
 var _popup: Control
-var _garagem: Garagem
-var _nos_inicio: Array[Control] = []   # cartões e painel da tela inicial (somem na garagem)
+var _tuning: Tuning
+var _abas_garagem: Array[Button] = []
+var _nos_inicio: Array[Control] = []   # cartões e painel da tela inicial (somem no tuning)
 
 
 func _ready() -> void:
@@ -45,8 +46,8 @@ func _ready() -> void:
 	_selecionar(_indice)
 	_selecionar_avatar(_indice_av)
 	if OS.get_environment("TSC_FOTO_MENU") != "":
-		if OS.get_environment("TSC_FOTO_GARAGEM") != "":
-			_abrir_garagem()
+		if OS.get_environment("TSC_FOTO_TUNING") != "":
+			_abrir_tuning()
 		await get_tree().create_timer(3.0).timeout
 		get_viewport().get_texture().get_image().save_png(OS.get_environment("TSC_FOTO_MENU"))
 		get_tree().quit()
@@ -59,8 +60,8 @@ func _unhandled_input(evento: InputEvent) -> void:
 		if evento.is_action_pressed("ui_cancel"):
 			_fechar_popup()
 		return
-	if _garagem_aberta() and evento.is_action_pressed("ui_cancel"):
-		_fechar_garagem()
+	if _tuning_aberto() and evento.is_action_pressed("ui_cancel"):
+		_fechar_tuning()
 	elif evento.is_action_pressed("ui_accept"):
 		_jogar()
 	elif evento.is_action_pressed("ui_left"):
@@ -235,8 +236,8 @@ func _montar_menu_lateral() -> void:
 	lista.add_theme_constant_override("separation", 0)
 	_colocar(lista, Vector2(0, 0), Vector2(26, 168), Vector2(400, 700))
 	add_child(lista)
+	_montar_abas_garagem(lista)
 	var itens := [
-		["garagem", "GARAGEM", "ativo", _abrir_garagem],
 		["carrinho", "MARKETPLACE", "breve", Callable()],
 		["loja", "LOJA", "breve", Callable()],
 		["perfil", "PERFIL", "", _abrir_perfil],
@@ -281,6 +282,49 @@ func _montar_menu_lateral() -> void:
 		conteudo.offset_top = 0
 		conteudo.offset_bottom = 0
 		lista.add_child(b)
+
+
+## Primeiro item do menu dividido em dois: GARAGEM (escolher o carro) e TUNING (upgrades).
+## A aba ativa fica acesa.
+func _montar_abas_garagem(lista: VBoxContainer) -> void:
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 6)
+	h.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	lista.add_child(h)
+	for aba: Array in [["garagem", "GARAGEM", _fechar_tuning, 236], ["tuning", "TUNING", _abrir_tuning, 178]]:
+		var b := _botao_vazio(StyleBoxEmpty.new(), StyleBoxEmpty.new())
+		b.custom_minimum_size = Vector2(aba[3], 70)
+		b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		b.pressed.connect(aba[2])
+		var conteudo := _linha([], 14)
+		var ic := Estilo.icone(aba[0], 28)
+		ic.custom_minimum_size = Vector2(34, 0)
+		conteudo.add_child(ic)
+		conteudo.add_child(Estilo.rotulo(aba[1], 25, Estilo.TEXTO, 700))
+		b.add_child(conteudo)
+		conteudo.set_anchors_and_offsets_preset(Control.PRESET_LEFT_WIDE, Control.PRESET_MODE_MINSIZE, 22)
+		conteudo.offset_top = 0
+		conteudo.offset_bottom = 0
+		h.add_child(b)
+		_abas_garagem.append(b)
+	_marcar_aba_garagem()
+
+
+func _marcar_aba_garagem() -> void:
+	var ativo := Estilo.caixa_neon(Color(0.07, 0.2, 0.5, 0.95), Estilo.AZUL_NEON, 1.0, 8, -0.3)
+	var inativo := Estilo.caixa_neon(Color(0.02, 0.05, 0.1, 0.7), Color(0.3, 0.45, 0.7, 0.45), 0.0, 8, -0.3)
+	var hover := Estilo.caixa_neon(Color(0.05, 0.14, 0.34, 0.9), Estilo.AZUL_NEON, 0.4, 8, -0.3)
+	var tuning := _tuning_aberto()
+	for i in _abas_garagem.size():
+		var b: Button = _abas_garagem[i]
+		var sel := (i == 1) == tuning
+		for estado in ["normal", "disabled"]:
+			b.add_theme_stylebox_override(estado, ativo if sel else inativo)
+		for estado in ["hover", "pressed", "focus"]:
+			b.add_theme_stylebox_override(estado, ativo if sel else hover)
+		var conteudo := b.get_child(0)
+		for l: Label in conteudo.get_children():
+			l.add_theme_color_override("font_color", Color.WHITE if sel else Estilo.TEXTO_FRACO)
 
 
 # ------------------------------------------------------------------ placa do carro e setas
@@ -510,8 +554,8 @@ func _selecionar(indice: int) -> void:
 	var tracao := {"4x4": "TRAÇÃO 4X4", "dianteira": "TRAÇÃO DIANTEIRA", "traseira": "TRAÇÃO TRASEIRA"}
 	_placa_sub.text = "%s  —  %d KG  —  %d KM/H\nVEÍCULO %d DE %d  —  NÍVEL %d" % [tracao.get(d.get("tracao", "4x4"), ""), int(d.get("massa", 0)), int(d.get("velocidade_max_kmh", 0)), _indice + 1, _veiculos.size(), Progresso.nivel(d.id)]
 	_preencher_atributos(d)
-	if _garagem_aberta():
-		_garagem.mostrar(d.id)
+	if _tuning_aberto():
+		_tuning.mostrar(d.id)
 	# Carro na plataforma giratória
 	for f in _hangar.suporte_carro.get_children():
 		f.queue_free()
@@ -532,28 +576,30 @@ func _selecionar(indice: int) -> void:
 	modelo.position -= Vector3(c.x, total.position.y, c.z)
 
 
-func _abrir_garagem() -> void:
+func _abrir_tuning() -> void:
 	_fechar_popup()
-	if _garagem == null:
-		_garagem = Garagem.new()
-		_colocar(_garagem, Vector2(0.5, 1), Vector2(440, 655), Vector2(1452, 400))
-		_garagem.fechar.connect(_fechar_garagem)
-		add_child(_garagem)
+	if _tuning == null:
+		_tuning = Tuning.new()
+		_colocar(_tuning, Vector2(0.5, 1), Vector2(440, 655), Vector2(1452, 400))
+		_tuning.fechar.connect(_fechar_tuning)
+		add_child(_tuning)
 	for n in _nos_inicio:
 		n.visible = false
-	_garagem.visible = true
-	_garagem.mostrar(Sessao.veiculo_id)
+	_tuning.visible = true
+	_tuning.mostrar(Sessao.veiculo_id)
+	_marcar_aba_garagem()
 
 
-func _fechar_garagem() -> void:
-	if _garagem:
-		_garagem.visible = false
+func _fechar_tuning() -> void:
+	if _tuning:
+		_tuning.visible = false
 	for n in _nos_inicio:
 		n.visible = true
+	_marcar_aba_garagem()
 
 
-func _garagem_aberta() -> bool:
-	return _garagem != null and _garagem.visible
+func _tuning_aberto() -> bool:
+	return _tuning != null and _tuning.visible
 
 
 func _jogar() -> void:

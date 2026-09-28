@@ -1,6 +1,6 @@
-class_name Garagem
+class_name Tuning
 extends PanelContainer
-## Garagem (modo offline): nível e XP do carro, atributos e upgrades por sistema
+## Tuning (modo offline): nível e XP do carro, atributos e upgrades por sistema
 ## (config/upgrades.json). Ao passar o mouse em um nível mostra o "antes → depois" nos atributos.
 ## Instalar/remover é grátis; os níveis exigem o nível do carro (XP ganho nas partidas).
 
@@ -85,7 +85,7 @@ func _init() -> void:
 	h.add_child(dir)
 	var cab := HBoxContainer.new()
 	var t := Label.new()
-	t.text = "GARAGEM — UPGRADES"
+	t.text = "TUNING — UPGRADES"
 	t.add_theme_font_override("font", Estilo.fonte_titulo(800))
 	t.add_theme_font_size_override("font_size", 30)
 	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
