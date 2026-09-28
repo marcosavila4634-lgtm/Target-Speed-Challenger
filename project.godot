@@ -20,6 +20,7 @@ config/icon="res://icon.svg"
 
 Config="*res://scripts/autoload/config.gd"
 Sessao="*res://scripts/autoload/sessao.gd"
+Progresso="*res://scripts/autoload/progresso.gd"
 Audio="*res://scripts/autoload/audio.gd"
 
 [display]

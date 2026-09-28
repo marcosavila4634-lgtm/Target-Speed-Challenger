@@ -433,7 +433,7 @@ func resultado_etapa(dados: Dictionary) -> void:
 		v.add_child(pr)
 
 
-## dados: {titulo, subtitulo, equipes: [{nome, cor, pontos, detalhe}], jogadores: [{nome, cor, etapas, total}], mvp}
+## dados: {titulo, subtitulo, equipes: [{nome, cor, pontos, detalhe}], jogadores: [{nome, cor, etapas, total}], mvp, xp}
 func resultado_final(dados: Dictionary) -> void:
 	var v := _novo_overlay(dados.titulo, dados.subtitulo)
 	var pos := 1
@@ -449,6 +449,10 @@ func resultado_final(dados: Dictionary) -> void:
 	var m := Estilo.rotulo("★  MVP DA PARTIDA: " + dados.mvp, 26, Color(1.0, 0.85, 0.4), 700)
 	m.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(m)
+	if dados.get("xp", "") != "":
+		var x := Estilo.rotulo(dados.xp, 21, Estilo.OK, 600)
+		x.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		v.add_child(x)
 	var botoes := HBoxContainer.new()
 	botoes.alignment = BoxContainer.ALIGNMENT_CENTER
 	botoes.add_theme_constant_override("separation", 20)

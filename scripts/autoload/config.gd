@@ -1,10 +1,11 @@
 extends Node
-## Carrega config/jogo.json, config/veiculos.json e config/avatares.json e registra os controles.
+## Carrega config/jogo.json, config/veiculos.json, config/avatares.json e config/upgrades.json e registra os controles.
 ## Um arquivo com o mesmo nome em user://config/ tem prioridade (útil para testar ajustes).
 
 const CAMINHO_JOGO := "res://config/jogo.json"
 const CAMINHO_VEICULOS := "res://config/veiculos.json"
 const CAMINHO_AVATARES := "res://config/avatares.json"
+const CAMINHO_UPGRADES := "res://config/upgrades.json"
 
 const CONTROLES := {
 	"acelerar": [KEY_W, KEY_UP],
@@ -28,12 +29,14 @@ const EQUIPES := [
 var jogo: Dictionary = {}
 var veiculos: Array = []
 var avatares: Array = []
+var upgrades: Dictionary = {}
 
 
 func _ready() -> void:
 	jogo = _ler_json(CAMINHO_JOGO)
 	veiculos = _ler_json(CAMINHO_VEICULOS).get("veiculos", [])
 	avatares = _ler_json(CAMINHO_AVATARES).get("avatares", [])
+	upgrades = _ler_json(CAMINHO_UPGRADES)
 	_registrar_controles()
 
 

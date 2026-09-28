@@ -1,0 +1,74 @@
+{
+	"_leia_me": "Upgrades da garagem (modo offline). Cada categoria tem níveis; cada nível lista o efeito TOTAL em relação ao carro de fábrica (não soma com o nível anterior). 'mult' multiplica o atributo, 'soma' adiciona. 'nivel_veiculo' é o nível do carro exigido para instalar. Instalar e remover não custa nada (créditos/loja ficam com o modo online).",
+
+	"progressao": {
+		"_xp": "XP ganho por partida, por carro: base por participar + por ponto marcado + bônus de vitória da equipe.",
+		"xp_partida": 40,
+		"xp_por_ponto": 10,
+		"xp_vitoria": 60,
+		"_niveis": "XP total necessário para cada nível do carro (nível 1 = 0 XP).",
+		"xp_niveis": [0, 120, 300, 550, 900, 1350, 1900, 2600, 3400, 4300],
+		"_liberar_tudo": "true = todos os upgrades liberados sem precisar de nível (para testes e ajuste de valores).",
+		"liberar_tudo": false,
+		"_bots": "'espelhar' = cada bot recebe os mesmos níveis de upgrade do jogador (partida equilibrada); 'fabrica' = bots sem upgrades.",
+		"bots": "espelhar"
+	},
+
+	"categorias": [
+		{
+			"id": "motor",
+			"nome": "MOTOR",
+			"icone": "motor",
+			"descricao": "Mais velocidade máxima e arrancada na descida.",
+			"niveis": [
+				{ "nivel_veiculo": 2, "efeito": { "velocidade_max_kmh": { "mult": 1.04 }, "aceleracao": { "mult": 1.06 } } },
+				{ "nivel_veiculo": 4, "efeito": { "velocidade_max_kmh": { "mult": 1.08 }, "aceleracao": { "mult": 1.12 } } },
+				{ "nivel_veiculo": 7, "efeito": { "velocidade_max_kmh": { "mult": 1.12 }, "aceleracao": { "mult": 1.18 } } }
+			]
+		},
+		{
+			"id": "pneus",
+			"nome": "PNEUS",
+			"icone": "pneus",
+			"descricao": "Mais aderência nas curvas da pista e no alvo.",
+			"niveis": [
+				{ "nivel_veiculo": 1, "efeito": { "aderencia": { "mult": 1.05 } } },
+				{ "nivel_veiculo": 3, "efeito": { "aderencia": { "mult": 1.10 } } },
+				{ "nivel_veiculo": 6, "efeito": { "aderencia": { "mult": 1.15 } } }
+			]
+		},
+		{
+			"id": "paraquedas",
+			"nome": "PARAQUEDAS",
+			"icone": "paraquedas",
+			"descricao": "Mais sustentação, controle e velocidade de voo.",
+			"niveis": [
+				{ "nivel_veiculo": 2, "efeito": { "paraquedas_sustentacao": { "mult": 1.05 }, "paraquedas_controle": { "mult": 1.05 }, "paraquedas_velocidade": { "mult": 1.03 } } },
+				{ "nivel_veiculo": 5, "efeito": { "paraquedas_sustentacao": { "mult": 1.10 }, "paraquedas_controle": { "mult": 1.10 }, "paraquedas_velocidade": { "mult": 1.06 } } },
+				{ "nivel_veiculo": 8, "efeito": { "paraquedas_sustentacao": { "mult": 1.15 }, "paraquedas_controle": { "mult": 1.15 }, "paraquedas_velocidade": { "mult": 1.09 } } }
+			]
+		},
+		{
+			"id": "nitro",
+			"nome": "NITRO",
+			"icone": "nitro",
+			"descricao": "Carga maior (dura mais) e empurrão mais forte.",
+			"niveis": [
+				{ "nivel_veiculo": 3, "efeito": { "nitro_duracao": { "mult": 1.15 }, "nitro_aceleracao": { "mult": 1.05 } } },
+				{ "nivel_veiculo": 6, "efeito": { "nitro_duracao": { "mult": 1.30 }, "nitro_aceleracao": { "mult": 1.10 } } },
+				{ "nivel_veiculo": 9, "efeito": { "nitro_duracao": { "mult": 1.45 }, "nitro_aceleracao": { "mult": 1.15 } } }
+			]
+		},
+		{
+			"id": "ejetor",
+			"nome": "EJETOR",
+			"icone": "ejetor",
+			"descricao": "Impulso vertical mais forte a cada disparo.",
+			"niveis": [
+				{ "nivel_veiculo": 3, "efeito": { "ejetor_impulso": { "mult": 1.08 } } },
+				{ "nivel_veiculo": 6, "efeito": { "ejetor_impulso": { "mult": 1.16 } } },
+				{ "nivel_veiculo": 10, "efeito": { "ejetor_impulso": { "mult": 1.25 } } }
+			]
+		}
+	]
+}

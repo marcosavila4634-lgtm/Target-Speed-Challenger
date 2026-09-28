@@ -18,6 +18,8 @@ var _av_nome: Label
 var _nome_perfil: Label
 var _inicial: Label
 var _popup: Control
+var _garagem: Garagem
+var _nos_inicio: Array[Control] = []   # cartões e painel da tela inicial (somem na garagem)
 
 
 func _ready() -> void:
@@ -43,6 +45,8 @@ func _ready() -> void:
 	_selecionar(_indice)
 	_selecionar_avatar(_indice_av)
 	if OS.get_environment("TSC_FOTO_MENU") != "":
+		if OS.get_environment("TSC_FOTO_GARAGEM") != "":
+			_abrir_garagem()
 		await get_tree().create_timer(3.0).timeout
 		get_viewport().get_texture().get_image().save_png(OS.get_environment("TSC_FOTO_MENU"))
 		get_tree().quit()
@@ -55,7 +59,9 @@ func _unhandled_input(evento: InputEvent) -> void:
 		if evento.is_action_pressed("ui_cancel"):
 			_fechar_popup()
 		return
-	if evento.is_action_pressed("ui_accept"):
+	if _garagem_aberta() and evento.is_action_pressed("ui_cancel"):
+		_fechar_garagem()
+	elif evento.is_action_pressed("ui_accept"):
 		_jogar()
 	elif evento.is_action_pressed("ui_left"):
 		_selecionar(_indice - 1)
@@ -230,7 +236,7 @@ func _montar_menu_lateral() -> void:
 	_colocar(lista, Vector2(0, 0), Vector2(26, 168), Vector2(400, 700))
 	add_child(lista)
 	var itens := [
-		["garagem", "GARAGEM", "ativo", Callable()],
+		["garagem", "GARAGEM", "ativo", _abrir_garagem],
 		["carrinho", "MARKETPLACE", "breve", Callable()],
 		["loja", "LOJA", "breve", Callable()],
 		["perfil", "PERFIL", "", _abrir_perfil],
@@ -368,6 +374,7 @@ func _montar_cartoes() -> void:
 	jogar.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_colocar(jogar, Vector2(0.5, 1), Vector2(440, y), Vector2(560, 206))
 	jogar.pressed.connect(_jogar)
+	_nos_inicio.append(jogar)
 	add_child(jogar)
 	var img := TextureRect.new()
 	img.texture = load("res://assets/ui/cartao_target_flight.jpg")
@@ -388,6 +395,7 @@ func _montar_cartoes() -> void:
 	drag.mouse_default_cursor_shape = Control.CURSOR_FORBIDDEN
 	_colocar(drag, Vector2(0.5, 1), Vector2(1016, y), Vector2(470, 206))
 	add_child(drag)
+	_nos_inicio.append(drag)
 	var img2 := TextureRect.new()
 	img2.texture = load("res://assets/ui/cartao_drag_racing.jpg")
 	img2.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -412,6 +420,7 @@ func _montar_cartoes() -> void:
 	var modos := _linha([], 10)
 	_colocar(modos, Vector2(0.5, 1), Vector2(440, y + 222), Vector2(1046, 50))
 	add_child(modos)
+	_nos_inicio.append(modos)
 	var grupo := ButtonGroup.new()
 	for m: Array in [["PARTIDA RÁPIDA", false], ["CASUAL", true], ["RANQUEADA", true], ["PRIVADA", true], ["CONTRA BOTS", false]]:
 		var b := _botao_vazio(Estilo.caixa_neon(Color(0.02, 0.05, 0.12, 0.85), Color(0.3, 0.45, 0.7, 0.5), 0.0, 6),
@@ -441,6 +450,7 @@ func _montar_painel_direito() -> void:
 	painel.add_theme_stylebox_override("panel", Estilo.caixa_neon(Color(0.02, 0.05, 0.12, 0.88), Estilo.AZUL_NEON, 0.6, 12))
 	_colocar(painel, Vector2(1, 1), Vector2(1516, 785), Vector2(376, 244))
 	add_child(painel)
+	_nos_inicio.append(painel)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 8)
 	painel.add_child(v)
@@ -498,8 +508,10 @@ func _selecionar(indice: int) -> void:
 	# Nomes longos: a fonte encolhe para caber na placa
 	_placa_nome.add_theme_font_size_override("font_size", clampi(int(46.0 * 17.0 / maxf(_placa_nome.text.length(), 17.0)), 30, 46))
 	var tracao := {"4x4": "TRAÇÃO 4X4", "dianteira": "TRAÇÃO DIANTEIRA", "traseira": "TRAÇÃO TRASEIRA"}
-	_placa_sub.text = "%s  —  %d KG  —  %d KM/H\nVEÍCULO %d DE %d" % [tracao.get(d.get("tracao", "4x4"), ""), int(d.get("massa", 0)), int(d.get("velocidade_max_kmh", 0)), _indice + 1, _veiculos.size()]
+	_placa_sub.text = "%s  —  %d KG  —  %d KM/H\nVEÍCULO %d DE %d  —  NÍVEL %d" % [tracao.get(d.get("tracao", "4x4"), ""), int(d.get("massa", 0)), int(d.get("velocidade_max_kmh", 0)), _indice + 1, _veiculos.size(), Progresso.nivel(d.id)]
 	_preencher_atributos(d)
+	if _garagem_aberta():
+		_garagem.mostrar(d.id)
 	# Carro na plataforma giratória
 	for f in _hangar.suporte_carro.get_children():
 		f.queue_free()
@@ -518,6 +530,30 @@ func _selecionar(indice: int) -> void:
 		primeiro = false
 	var c := total.get_center()
 	modelo.position -= Vector3(c.x, total.position.y, c.z)
+
+
+func _abrir_garagem() -> void:
+	_fechar_popup()
+	if _garagem == null:
+		_garagem = Garagem.new()
+		_colocar(_garagem, Vector2(0.5, 1), Vector2(440, 655), Vector2(1452, 400))
+		_garagem.fechar.connect(_fechar_garagem)
+		add_child(_garagem)
+	for n in _nos_inicio:
+		n.visible = false
+	_garagem.visible = true
+	_garagem.mostrar(Sessao.veiculo_id)
+
+
+func _fechar_garagem() -> void:
+	if _garagem:
+		_garagem.visible = false
+	for n in _nos_inicio:
+		n.visible = true
+
+
+func _garagem_aberta() -> bool:
+	return _garagem != null and _garagem.visible
 
 
 func _jogar() -> void:

@@ -105,6 +105,8 @@ func _criar_participantes() -> void:
 			var dados: Dictionary = Config.veiculo(Sessao.veiculo_id) if eh_jogador else ativos[_rng.randi() % ativos.size()]
 			if dados.is_empty():
 				dados = ativos[0]
+			# Upgrades da garagem (os bots espelham os níveis do jogador, conforme upgrades.json)
+			dados = Progresso.dados_jogador(dados.id) if eh_jogador else Progresso.dados_bot(dados, Sessao.veiculo_id)
 			var v := Veiculo.new()
 			v.name = "Veiculo_" + nome.replace(" ", "_")
 			v.dados = dados
@@ -502,8 +504,16 @@ func _mostrar_final(ordem: Array) -> void:
 	jogadores.sort_custom(func(a, b): return a.total > b.total)
 	var venceu: bool = ordem[0] == 0
 	var titulo: String = "VITÓRIA!" if venceu else "VITÓRIA DA EQUIPE " + Config.EQUIPES[ordem[0]].nome
+	# XP da garagem para o carro do jogador (o teste automático não conta)
+	var texto_xp := ""
+	for p in participantes:
+		if p.veiculo.eh_jogador and not Sessao.teste_automatico:
+			var r := Progresso.registrar_partida(Sessao.veiculo_id, p.total, venceu)
+			texto_xp = "+%d XP  —  %s" % [r.ganho, str(p.veiculo.dados.nome).to_upper()]
+			if r.subiu_nivel:
+				texto_xp += "  —  NÍVEL %d! NOVOS UPGRADES NA GARAGEM" % r.nivel
 	hud.resultado_final({"titulo": titulo, "subtitulo": "Canyon Rush — resultado final", "equipes": equipes,
-		"jogadores": jogadores, "mvp": "%s (%d pts)" % [mvp.nome, mvp.total]})
+		"jogadores": jogadores, "mvp": "%s (%d pts)" % [mvp.nome, mvp.total], "xp": texto_xp})
 	if venceu:
 		Audio.tocar("ambiente/publico_vibra_forte.mp3", null, 0.0, 1.0, 0.0, "Ambiente")
 	Audio.interface("confirmar" if venceu else "erro", -2.0)

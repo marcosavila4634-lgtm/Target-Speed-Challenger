@@ -78,6 +78,8 @@ const ICONE := {
 	"garagem": 0xE80F, "carrinho": 0xE7BF, "loja": 0xE719, "perfil": 0xE77B, "cla": 0xE716,
 	"passe": 0xE8EC, "noticias": 0xE7C3, "config": 0xE713, "info": 0xE946, "sair": 0xE7E8,
 	"cadeado": 0xE72E, "play": 0xE768, "direita": 0xE76C, "esquerda": 0xE76B, "carro": 0xE804,
+	"motor": 0xEC4A, "pneus": 0xE804, "paraquedas": 0xE753, "nitro": 0xE945, "ejetor": 0xE74A,
+	"mais": 0xE710, "menos": 0xE738, "voltar": 0xE72B,
 }
 
 
