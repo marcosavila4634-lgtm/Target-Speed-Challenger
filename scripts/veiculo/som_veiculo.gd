@@ -86,6 +86,10 @@ func _nivel(p: Node, linear: float, base_db := 0.0) -> void:
 func _process(delta: float) -> void:
 	if v == null or v.eliminado:
 		return
+	if not v.na_largada:
+		for p in _loops:
+			p.set("volume_db", -80.0)   # carregando a partida: carros empilhados, mudos
+		return
 	var cam := get_viewport().get_camera_3d()
 	var perto := v.eh_jogador or cam == null or cam.global_position.distance_to(v.global_position) < DIST_MUDO
 	if perto != _ativo:

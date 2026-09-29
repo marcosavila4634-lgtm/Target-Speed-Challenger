@@ -60,6 +60,7 @@ var saiu_da_rampa := false
 
 # Telemetria (resultado e teste automático)
 var telemetria := {"altura_max": 0.0}
+var na_largada := false         # só depois de preparar(): antes disso o carro está sendo montado (sem som)
 
 # Parâmetros
 var curso := 0.2
@@ -513,6 +514,7 @@ func velocidade_kmh() -> float:
 
 ## Recoloca o veículo na largada para uma nova etapa.
 func preparar(t: Transform3D) -> void:
+	na_largada = true
 	eliminado = false
 	travado = false
 	estado = Estado.APOIADO
@@ -554,7 +556,7 @@ func congelar(sim: bool) -> void:
 
 
 func eliminar(motivo := "") -> void:
-	if eliminado:
+	if eliminado or not na_largada:   # carro ainda sendo montado no carregamento: sem explosão/som
 		return
 	telemetria.motivo = motivo
 	telemetria.tempo_eliminado = relogio
