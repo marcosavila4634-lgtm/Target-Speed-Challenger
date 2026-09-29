@@ -12,13 +12,12 @@ void vertex() {
 	float borda = max(abs(q.x), abs(q.y));
 	float canto = abs(q.x) * abs(q.y);             // 1 nos cantos presos
 	float solto = 1.0 - canto;
-	// Bojo: o centro sobe empurrado pelo ar
-	VERTEX.y += (1.0 - dot(q, q) * 0.5) * 0.12 * vento;
-	// Ondas correndo de frente para trás e tremor rápido nas bordas
-	float onda = sin(TIME * 11.0 + q.y * 5.0 + q.x * 2.0) * 0.06 + sin(TIME * 17.0 - q.x * 7.0) * 0.03;
-	float bate = sin(TIME * 23.0 + q.x * 9.0 + q.y * 4.0) * 0.05 * smoothstep(0.55, 1.0, borda);
+	// Bojo leve: o centro sobe um pouco empurrado pelo ar (cantos presos nos ilhoses = zero)
+	VERTEX.y += (1.0 - abs(q.x)) * (1.0 - abs(q.y)) * 0.05;
+	// Ondulação suave e lenta; as bordas soltas mexem um pouco mais
+	float onda = sin(TIME * 3.2 + q.y * 2.5 + q.x * 1.2) * 0.012 + sin(TIME * 4.7 - q.x * 3.0) * 0.006;
+	float bate = sin(TIME * 6.5 + q.x * 4.0 + q.y * 2.0) * 0.008 * smoothstep(0.6, 1.0, borda);
 	VERTEX.y += (onda + bate) * solto * vento;
-	VERTEX.x += sin(TIME * 13.0 + q.y * 6.0) * 0.02 * solto * vento;
 }
 
 void fragment() {

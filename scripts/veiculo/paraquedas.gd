@@ -110,7 +110,7 @@ func _montar_extras(cor: Color) -> void:
 	add_child(_saco)
 	# Slider: tecido subdividido que estufa e bate com o vento (shaders/slider.gdshader)
 	var placa := PlaneMesh.new()
-	placa.size = Vector2(1.5, 1.1)
+	placa.size = Vector2(1.5, 0.6)
 	placa.subdivide_width = 10
 	placa.subdivide_depth = 8
 	_mat_slider = ShaderMaterial.new()
@@ -384,31 +384,47 @@ func _desenhar_linhas(xf_carro: Transform3D) -> void:
 			_linhas.surface_end()
 			return
 	# Tirantes: um de cada lado, saindo da presilha em direção ao seu lado da asa
+	var ancoras: Array[Vector3] = []
 	for lado in 2:
 		var sinal := -1.0 if lado == 0 else 1.0
 		var ancora_asa := xf_cob * Vector3(sinal * ENVERGADURA * 0.22, _perfil(ENVERGADURA * 0.22) - 0.4, 0.0)
+		ancoras.append(ancora_asa)
 		var topo := fixacoes[lado] + (ancora_asa - fixacoes[lado]).normalized() * 1.8
 		tirantes.append(topo)
 		_fita(fixacoes[lado], topo, 0.07, olho)
-	# Linhas em cascata: pontas da cobertura → tirante do mesmo lado
+	# Slider: desce pelos feixes de linhas de logo abaixo da asa até perto dos tirantes. Os 4 cantos
+	# (ilhoses) ficam em cima dos feixes: as linhas passam por eles.
+	var ilhoses := []   # [lado][frente/trás]
+	if aberto:
+		var desce := _suave(clampf((_p_abertura - SAI_VELAME) / (1.0 - SAI_VELAME), 0.0, 1.0))
+		var s := lerpf(0.12, 0.95, desce)
+		var c0 := ancoras[0].lerp(tirantes[0], s)
+		var c1 := ancoras[1].lerp(tirantes[1], s)
+		var b_s := xf_cob.basis.orthonormalized()
+		var eixo_x := c1 - c0
+		var fundo := lerpf(1.0, 0.35, desce)   # perto dos tirantes as linhas de frente/trás se juntam
+		var b_final := Basis(eixo_x / 1.5, b_s.y, b_s.z * fundo)
+		_slider.visible = true
+		_slider.global_transform = Transform3D(b_final, (c0 + c1) * 0.5)
+		for lado in 2:
+			var c := c0 if lado == 0 else c1
+			ilhoses.append([c - b_s.z * 0.3 * fundo, c + b_s.z * 0.3 * fundo])
+			for k in 2:
+				_fita(ilhoses[lado][k], tirantes[lado], 0.035, olho)
+	# Linhas em cascata: pontas da cobertura → ilhós do slider → tirante do mesmo lado
+	var destino := func(lado: int, z: float) -> Vector3:
+		return tirantes[lado] if ilhoses.is_empty() else ilhoses[lado][0 if z < 0.0 else 1]
 	for p in _pontas:
 		var lado := 0 if p.x < 0.0 else 1
-		_fita(xf_cob * p, tirantes[lado], 0.022, olho)
-	# Estabilizadores: linhas da ponta e das bordas de baixo até o tirante do mesmo lado
+		_fita(xf_cob * p, destino.call(lado, p.z), 0.022, olho)
+	# Estabilizadores: linhas da ponta e das bordas de baixo até o mesmo lado
 	for lado in 2:
 		var e := _estabilizador(-1.0 if lado == 0 else 1.0)
 		var pontos := [[e.ponta, 1.0], [e.frente.lerp(e.ponta, 0.6), 0.6], [e.tras.lerp(e.ponta, 0.6), 0.6]]
 		for q: Array in pontos:
-			_fita(xf_cob * _desloc_estabilizador(q[0], q[1]), tirantes[lado], 0.022, olho)
+			var pq: Vector3 = q[0]
+			_fita(xf_cob * _desloc_estabilizador(q[0], q[1]), destino.call(lado, pq.z), 0.022, olho)
 	_linhas.surface_end()
-	# Slider: desce pelas linhas de logo abaixo da asa até perto dos tirantes
-	if aberto:
-		var desce := _suave(clampf((_p_abertura - SAI_VELAME) / (1.0 - SAI_VELAME), 0.0, 1.0))
-		var alto := xf_cob * Vector3(0, _perfil(0.0) - 0.8, 0)
-		var baixo := (tirantes[0] + tirantes[1]) * 0.5 + (alto - (tirantes[0] + tirantes[1]) * 0.5).normalized() * 0.4
-		var b_s := xf_cob.basis.orthonormalized()
-		_slider.visible = true
-		_slider.global_transform = Transform3D(b_s * Basis.from_scale(Vector3(lerpf(0.5, 1.0, desce), 1.0, 1.0)), alto.lerp(baixo, desce))
 
 
 ## Linha fina desenhada como fita virada para a câmera.
