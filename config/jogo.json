@@ -72,7 +72,7 @@
 		{ "nome": "Alvo central fixo", "diametro": 30, "deslocamento": [0, 0] },
 		{ "nome": "Alvo fixo deslocado", "diametro": 28, "deslocamento": [140, -90] },
 		{ "nome": "Alvo inclinado", "diametro": 30, "deslocamento": [0, 0], "inclinacao": 8, "direcao_inclinacao": 35 },
-		{ "nome": "Alvo móvel", "diametro": 26, "deslocamento": [0, 0], "movel": true, "velocidade": 5, "percurso": 120, "direcao_movimento": 45 }
+		{ "nome": "Alvo reduzido", "diametro": 26, "deslocamento": [0, 0], "movel": false, "velocidade": 5, "percurso": 120, "direcao_movimento": 45, "_movel": "Movimento desligado a pedido do dono (alvo móvel fica para outras fases). Para ligar: movel true." }
 	],
 
 	"regras": {
