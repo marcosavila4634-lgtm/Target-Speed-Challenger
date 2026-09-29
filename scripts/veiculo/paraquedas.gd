@@ -37,11 +37,12 @@ var _pontas: Array[Vector3] = []     # na face de baixo da cobertura (espaço da
 var _inclinacao_suave := Vector2.ZERO
 var _saida_topo := Vector3.ZERO      # onde a cobertura ficou ao fechar
 var _saida_base := Basis()
-var _saco: MeshInstance3D            # saco de abertura
+var _piloto: MeshInstance3D          # paraquedinha extrator (some depois da abertura)
 var _slider: MeshInstance3D          # retângulo que desce pelas linhas freando a abertura
 var _mat_slider: ShaderMaterial
 var _p_abertura := 1.0               # progresso da abertura (0..1)
-var _pos_saco := Vector3.ZERO
+var _pos_saco := Vector3.ZERO           # ponto onde o velame ainda embalado está (as linhas vão até ele)
+var _confluencia := Vector3.ZERO        # onde as linhas do paraquedinha se juntam (mundo)
 
 
 func montar(v: Veiculo, cor: Color, caixa: AABB) -> void:
@@ -96,18 +97,20 @@ func montar(v: Veiculo, cor: Color, caixa: AABB) -> void:
 	visible = false
 
 
-## Saco de abertura e slider (sem paraquedinha extrator, a pedido do dono).
+## Paraquedinha extrator (só durante a abertura) e slider.
 func _montar_extras(cor: Color) -> void:
-	var tecido_escuro := StandardMaterial3D.new()
-	tecido_escuro.albedo_color = Color(0.08, 0.08, 0.1)
-	tecido_escuro.roughness = 0.9
-	var caixa := BoxMesh.new()
-	caixa.size = Vector3(0.7, 0.32, 0.5)
-	caixa.material = tecido_escuro
-	_saco = MeshInstance3D.new()
-	_saco.mesh = caixa
-	_saco.top_level = true
-	add_child(_saco)
+	_piloto = MeshInstance3D.new()
+	_piloto.mesh = _malha_piloto(cor)
+	var mat_p := StandardMaterial3D.new()
+	mat_p.vertex_color_use_as_albedo = true
+	mat_p.roughness = 0.8
+	mat_p.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat_p.backlight_enabled = true
+	mat_p.backlight = cor * 0.3
+	_piloto.material_override = mat_p
+	_piloto.top_level = true
+	_piloto.visible = false
+	add_child(_piloto)
 	# Slider: tecido subdividido que estufa e bate com o vento (shaders/slider.gdshader)
 	var placa := PlaneMesh.new()
 	placa.size = Vector2(1.5, 0.6)
@@ -121,6 +124,49 @@ func _montar_extras(cor: Color) -> void:
 	_slider.mesh = placa
 	_slider.top_level = true
 	add_child(_slider)
+
+
+## Cúpula do paraquedinha extrator (espaço local: topo em +Y, boca para baixo):
+## gomos alternados na cor da equipe e branco, cada gomo estufado entre as costuras, furo de
+## ventilação no topo e bainha escura na borda. As linhas saem das costuras da borda.
+const PILOTO_GOMOS := 12
+const PILOTO_RAIO := 0.75
+const PILOTO_ALTURA := 0.55
+const PILOTO_LINHAS := 1.25   # distância do topo até o ponto onde as linhas se juntam
+
+func _ponto_piloto(a: float, ang: float, bojo := true) -> Vector3:
+	# a: ângulo polar (0 no topo); ang: ângulo em volta do eixo
+	var gomo := fposmod(ang / TAU * PILOTO_GOMOS, 1.0)
+	var r := PILOTO_RAIO * sin(a) * (1.0 + (0.07 * sin(PI * gomo) if bojo else 0.0))
+	var y := PILOTO_ALTURA * (cos(a) - 1.0)
+	return Vector3(cos(ang) * r, y, sin(ang) * r)
+
+
+func _malha_piloto(cor: Color) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var aneis := 9
+	var passos := 6   # subdivisões por gomo (para o bojo aparecer)
+	var a0 := 0.2     # furo de ventilação
+	var a1 := 1.45
+	var total := PILOTO_GOMOS * passos
+	for i in aneis:
+		var ta := a0 + (a1 - a0) * float(i) / aneis
+		var tb := a0 + (a1 - a0) * float(i + 1) / aneis
+		for j in total:
+			var g := j / passos
+			var c := cor if g % 2 == 0 else Color(0.95, 0.95, 0.93)
+			if i == aneis - 1:
+				c = c.darkened(0.45)              # bainha
+			elif i == 0:
+				c = c.darkened(0.2)               # reforço do furo
+			var angs := [TAU * j / total, TAU * (j + 1) / total]
+			var v := [_ponto_piloto(ta, angs[0]), _ponto_piloto(ta, angs[1]), _ponto_piloto(tb, angs[1]), _ponto_piloto(tb, angs[0])]
+			for k in [0, 1, 2, 0, 2, 3]:
+				st.set_color(c)
+				st.add_vertex(v[k])
+	st.generate_normals()
+	return st.commit()
 
 
 ## Placa de reforço do teto: acompanha a curva da lataria (alturas dos vértices reais do modelo),
@@ -281,7 +327,7 @@ func abrir() -> void:
 	_t = 0.0
 	_p_abertura = 0.0
 	_inclinacao_suave = Vector2.ZERO
-	_saco.visible = true
+	_piloto.visible = true
 	_slider.visible = true
 	_area.set_deferred("monitoring", true)
 	_atualizar(0.0)
@@ -295,7 +341,7 @@ func fechar(imediato := false) -> void:
 	aberto = false
 	if _mat:
 		_mat.set_shader_parameter("abertura", 1.0)
-	for extra in [_saco, _slider]:
+	for extra in [_piloto, _slider]:
 		if extra:
 			extra.visible = false
 	if _area:
@@ -335,8 +381,6 @@ func _atualizar(delta: float) -> void:
 		var e := _suave(clampf(p / FIM_SACO, 0.0, 1.0))
 		var ref_teto := xf_carro * ((_fixacoes[0] + _fixacoes[1]) * 0.5)
 		_pos_saco = ref_teto.lerp(pos_final, e) + base.z * sin(e * PI) * 2.2
-		_saco.global_transform = Transform3D(base.rotated(base.x, e * 1.2), _pos_saco)
-		_saco.visible = p < SAI_VELAME + 0.12
 		# 2) Velame: sai do saco estreito e comprido, alarga com um pequeno repique
 		var sai := clampf((p - SAI_VELAME) / (FIM_CELULAS - SAI_VELAME), 0.0, 1.0)
 		_malha.visible = p >= SAI_VELAME
@@ -348,6 +392,26 @@ func _atualizar(delta: float) -> void:
 		_mat.set_shader_parameter("inflacao", lerpf(0.7, 1.0, _suave(clampf(sai * 1.5, 0.0, 1.0))))
 		_mat.set_shader_parameter("vento", 1.0 + clampf(veiculo.linear_velocity.length() / 25.0, 0.0, 1.5))
 		_mat_slider.set_shader_parameter("vento", 1.0 + clampf(veiculo.linear_velocity.length() / 25.0, 0.0, 1.5))
+		# 3) Paraquedinha extrator: sai primeiro e puxa o velame; com a asa cheia fica acima e
+		#    atrás dela e, depois da abertura total, encolhe e some.
+		var puxa := (_pos_saco - ref_teto).normalized() if _pos_saco.distance_to(ref_teto) > 0.1 else base.y
+		var guia := _pos_saco + (puxa + base.z * 0.6).normalized() * 3.2
+		var topo_asa := global_position + base.y * (_perfil(0.0) + 0.2)
+		var reboque := topo_asa + base.y * 2.6 + base.z * 3.0 + base.x * sin(_tempo * 2.3) * 0.3
+		var pos_p := guia.lerp(reboque, _suave(clampf((p - SAI_VELAME) / 0.35, 0.0, 1.0)))
+		var some := _suave(clampf((_t - ABERTURA_S) / 0.4, 0.0, 1.0))
+		pos_p += base.z * some * 2.5
+		var ponta_cabo := _pos_saco if p < SAI_VELAME else topo_asa
+		var eixo := (pos_p - ponta_cabo).normalized()
+		var lado_p := eixo.cross(base.z).normalized() if absf(eixo.dot(base.z)) < 0.95 else base.x
+		var b_p := Basis(lado_p, eixo, lado_p.cross(eixo)).orthonormalized()
+		b_p = b_p.rotated(eixo, _tempo * 0.8)   # gira devagar em torno do eixo, como os de verdade
+		# Enche rápido no início e "respira" (pulsa) com o fluxo de ar
+		var enche := _suave(clampf(p / 0.06, 0.0, 1.0)) * (1.0 - some)
+		var respira := sin(_tempo * 9.0) * 0.06
+		_piloto.global_transform = Transform3D(b_p * Basis.from_scale(Vector3(1.0 + respira, 1.0 - respira, 1.0 + respira) * maxf(enche, 0.001)), pos_p)
+		_piloto.visible = some < 1.0
+		_confluencia = pos_p - eixo * PILOTO_LINHAS * maxf(enche, 0.001)
 	else:
 		# Fechando: murcha, estreita e fica para trás subindo um pouco
 		var p := clampf(_t / FECHAMENTO_S, 0.0, 1.0)
@@ -375,6 +439,13 @@ func _desenhar_linhas(xf_carro: Transform3D) -> void:
 		if _t > 0.12:
 			return
 	_linhas.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	if aberto and _piloto.visible:
+		# Paraquedinha: uma linha em cada costura da borda até a junção, e o cabo até o velame
+		var xf_p := _piloto.global_transform
+		for g in PILOTO_GOMOS:
+			_fita(xf_p * _ponto_piloto(1.45, TAU * g / PILOTO_GOMOS, false), _confluencia, 0.012, olho)
+		var ponta_cabo := _pos_saco if _p_abertura < SAI_VELAME else xf_cob * Vector3(0, _perfil(0.0) + 0.2, 0)
+		_fita(_confluencia, ponta_cabo, 0.035, olho)
 	if aberto:
 		if _p_abertura < SAI_VELAME:
 			# Linhas ainda dentro do saco: um feixe esticado de cada presilha até ele
