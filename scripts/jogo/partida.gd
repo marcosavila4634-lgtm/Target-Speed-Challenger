@@ -172,6 +172,7 @@ func _criar_participantes() -> void:
 			v.eh_jogador = eh_jogador
 			v.terreno = terreno
 			v.complexo = complexos[e]
+			v.freeze = true   # parado até preparar() na largada (a tela desenha entre os passos da carga)
 			add_child(v)
 			await _passo_carga(0.7 + 0.28 * float(e * por_equipe + k + 1) / (equipes_qtd * por_equipe))
 			var controle: Node

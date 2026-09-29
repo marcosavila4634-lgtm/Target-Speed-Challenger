@@ -59,7 +59,7 @@ var rumo := 0.0                 # direção do planeio (radianos, 0 = -Z)
 var saiu_da_rampa := false
 
 # Telemetria (resultado e teste automático)
-var telemetria := {}
+var telemetria := {"altura_max": 0.0}
 
 # Parâmetros
 var curso := 0.2
