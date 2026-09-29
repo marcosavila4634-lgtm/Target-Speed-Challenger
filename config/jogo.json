@@ -25,6 +25,18 @@
 		"espectador_apos_explosao_s": 4
 	},
 
+	"bots": {
+		"_nomes": "Nomes fictícios sorteados para os bots a cada partida (até 12 letras cabem no placar).",
+		"nomes": [
+			"Rafa Torres", "Duda Vega", "Beto Farias", "Lia Montana", "Caio Brasa", "Nina Rocha",
+			"Téo Falcão", "Gabi Prado", "Juca Ventura", "Mel Santana", "Dante Lobo", "Iris Maia",
+			"Tuca Serra", "Vivi Duarte", "Nando Reis", "Bia Castelo", "Zeca Moura", "Luna Pires",
+			"Guto Leal", "Sofi Arantes", "Kiko Bastos", "Tati Neves", "Leo Cardoso", "Manu Vidal",
+			"Rui Brandão", "Cris Tavares", "Dudu Ramos", "Lara Freitas", "Vitão Lima", "Jade Costa",
+			"Pepe Moreno", "Ana Faísca", "Tito Barros", "Rê Valente", "Otto Campos", "Maya Luz"
+		]
+	},
+
 	"mapa": {
 		"distancia_saida_alvo": 1000,
 		"plataforma_altura": 400,

@@ -101,19 +101,23 @@ func _construir_mundo() -> void:
 func _criar_participantes() -> void:
 	var por_equipe := clampi(Sessao.jogadores_por_equipe, 1, 4)
 	var ativos := Config.veiculos_ativos()
-	var n_rival := 1
-	var n_aliado := 1
+	# Bots com nomes fictícios sorteados (jogo.json → bots.nomes), sem repetir nem copiar o do jogador
+	var nomes: Array = Config.valor("bots.nomes", []).duplicate()
+	nomes.erase(Sessao.nome_jogador.to_upper())
+	_rng.randomize()
+	for i in range(nomes.size() - 1, 0, -1):
+		var j := _rng.randi_range(0, i)
+		var tmp = nomes[i]
+		nomes[i] = nomes[j]
+		nomes[j] = tmp
+	var n_bot := 1
 	for e in equipes_qtd:
 		for k in por_equipe:
 			var eh_jogador := e == 0 and k == 0
 			var nome := Sessao.nome_jogador.to_upper()
 			if not eh_jogador:
-				if e == 0:
-					nome = "ALIADO %02d" % n_aliado
-					n_aliado += 1
-				else:
-					nome = "RIVAL %02d" % n_rival
-					n_rival += 1
+				nome = str(nomes.pop_back()).to_upper() if not nomes.is_empty() else "PILOTO %02d" % n_bot
+				n_bot += 1
 			var dados: Dictionary = Config.veiculo(Sessao.veiculo_id) if eh_jogador else ativos[_rng.randi() % ativos.size()]
 			if dados.is_empty():
 				dados = ativos[0]
@@ -587,10 +591,10 @@ func _montar_comemoracao(equipe_vencedora: int, mvp: Dictionary) -> void:
 	nome.global_position = avatar_mvp.global_position + Vector3.UP * 2.5 if avatar_mvp else c + para_cam * 3.5 + Vector3.UP * (v_mvp.caixa_corpo.end.y + 1.2)
 	alvo.festejar(Config.EQUIPES[equipe_vencedora].cor, 3600.0)
 	# O grupo fica na metade direita da tela (a esquerda é do painel de resultado)
-	var pos_cam := c + para_cam * 14.0 + Vector3.UP * 3.8 - lado * 5.0
+	var pos_cam := c + para_cam * 17.0 + Vector3.UP * 4.2 - lado * 5.0
 	var foco := c + Vector3.UP * 1.3 + para_cam * 1.0
 	var direita_tela := (foco - pos_cam).normalized().cross(Vector3.UP).normalized()
-	camera.podio(foco - direita_tela * 4.5, pos_cam)
+	camera.podio(foco - direita_tela * 5.0, pos_cam)
 
 
 func _posicionar_comemoracao(p: Dictionary, pos: Vector3, frente: Vector3, intensidade: float) -> Avatar:
@@ -728,6 +732,26 @@ func _ir_menu() -> void:
 	get_tree().change_scene_to_file("res://cenas/menu.tscn")
 
 
+## Câmera fixa para conferir estruturas nas capturas (TSC_CAM_VISTA = muro, base ou colunas).
+func _vista_debug(vista: String) -> void:
+	var cx := complexos[0]
+	var y0: float = cx.perfil.pontos[0].y
+	var x_borda: float = cx.perfil.pontos[cx.perfil.indice_borda].x
+	match vista:
+		"muro":
+			var f := cx.ponto(0.0, y0 + 1.2)
+			camera.podio(f, f + cx.frente * 13.0 + Vector3.UP * 2.5 + cx.lateral * 6.0)
+		"base":
+			var f := cx.ponto(x_borda * 0.3, y0 - 8.0)
+			camera.podio(f, f + cx.lateral * 45.0 + Vector3.UP * 6.0 - cx.frente * 20.0)
+		"colunas":
+			var i := int(cx.perfil.pontos.size() * 0.75)
+			var p := cx.ponto_indice(i)
+			var chao := terreno.altura_em(p.x, p.z)
+			var f := Vector3(p.x, chao + 12.0, p.z)
+			camera.podio(f, f + cx.lateral * 35.0 + Vector3.UP * 4.0 + cx.frente * 25.0)
+
+
 ## Capturas de tela automáticas para conferência visual: TSC_FOTOS="fase:segundos,...", TSC_FOTO_DIR e TSC_SEM_HUD (esconde o HUD).
 func _capturas(delta: float) -> void:
 	if _fotos.is_empty():
@@ -736,6 +760,7 @@ func _capturas(delta: float) -> void:
 			hud.visible = false
 		OS.set_environment("TSC_FOTOS", "")
 		_t_ativa = 0.0
+		_vista_debug(OS.get_environment("TSC_CAM_VISTA"))
 	_t_ativa += delta
 	var alvo_t := float(str(_fotos[0]).split(":")[1])
 	if _t_ativa >= alvo_t:

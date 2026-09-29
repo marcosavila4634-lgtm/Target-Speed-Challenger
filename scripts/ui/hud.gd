@@ -470,6 +470,12 @@ func resultado_final(dados: Dictionary) -> void:
 	botoes.add_child(b2)
 	v.add_child(botoes)
 	b1.grab_focus()
+	# Card compacto encostado à esquerda (80%): a comemoração no alvo fica livre à direita
+	var card := _overlay
+	card.scale = Vector2.ONE * 0.8
+	card.resized.connect(func(): card.pivot_offset = Vector2(0.0, card.size.y * 0.5))
+	card.pivot_offset = Vector2(0.0, card.size.y * 0.5)
+	card.offset_left = 24.0
 	# Só o resultado fica na tela: placar, tempo, velocímetro etc. saem da frente da comemoração
 	_final = true
 	for c in raiz.get_children():

@@ -37,7 +37,8 @@ func montar(p_indice: int, p_perfil: PerfilRampa, terreno: Terreno) -> void:
 	add_child(_estruturas)
 	_montar_pista()
 	_montar_estrutura(terreno)
-	_montar_plataforma()
+	_montar_plataforma(terreno)
+	_montar_muro()
 	_montar_portico()
 	var deco := DecoracaoEvento.new()
 	deco.name = "Decoracao"
@@ -117,15 +118,6 @@ func _montar_pista() -> void:
 			_quad_uv(laterais, [e0 - n0 * ESPESSURA, e1 - n1 * ESPESSURA, d1 - n1 * ESPESSURA, d0 - n0 * ESPESSURA], -n0,
 				[Vector2(v0, 0.5), Vector2(v_ac, 0.5), Vector2(v_ac, 0.5), Vector2(v0, 0.5)])
 		anterior = b
-	# Parede atrás da largada
-	var paredes := SurfaceTool.new()
-	paredes.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var b0 := _base_pista(0)
-	var tras_e: Vector3 = b0.c - lateral * meia
-	var tras_d: Vector3 = b0.c + lateral * meia
-	_quad(paredes, tras_e, tras_d, tras_d + Vector3.UP * 2.5, tras_e + Vector3.UP * 2.5, frente, frente, Vector2.ZERO, Vector2.ZERO)
-	faces.append_array([tras_e, tras_d, tras_d + Vector3.UP * 2.5, tras_e, tras_d + Vector3.UP * 2.5, tras_e + Vector3.UP * 2.5])
-
 	var mat_pista := ShaderMaterial.new()
 	mat_pista.shader = load("res://shaders/pista.gdshader")
 	mat_pista.set_shader_parameter("cor_equipe", cor)
@@ -146,11 +138,6 @@ func _montar_pista() -> void:
 	mi_l.mesh = laterais.commit()
 	mi_l.material_override = mat_lateral
 	add_child(mi_l)
-
-	var mi_p := MeshInstance3D.new()
-	mi_p.mesh = paredes.commit()
-	mi_p.material_override = _material_metal(Color(0.32, 0.33, 0.36))
-	add_child(mi_p)
 
 	var corpo := StaticBody3D.new()
 	corpo.collision_layer = 1
@@ -205,7 +192,10 @@ func _marcas_distancia() -> void:
 
 
 func _montar_estrutura(terreno: Terreno) -> void:
-	var pecas: Array[Transform3D] = []
+	var pecas: Array[Transform3D] = []      # colisão (e travessas visíveis)
+	var colunas: Array[Transform3D] = []    # visual das colunas em perfil I
+	var sapatas: Array[Transform3D] = []
+	var b_col := Basis.looking_at(frente, Vector3.UP)
 	var meia := largura * 0.5 - 1.2
 	var i := perfil.indice_borda + 12
 	var pares_anteriores := []
@@ -218,6 +208,14 @@ func _montar_estrutura(terreno: Terreno) -> void:
 			if topo.y - chao > 2.0:
 				pecas.append(_viga(Vector3(topo.x, chao, topo.z), topo, 1.5))
 				par.append([topo, chao])
+				# Perfil I: alma + duas mesas, e sapata de concreto no terreno
+				var meio := Vector3(topo.x, (topo.y + chao) * 0.5, topo.z)
+				var alt := topo.y - chao
+				colunas.append(Transform3D(b_col * Basis.from_scale(Vector3(0.22, alt, 1.3)), meio))
+				for m: float in [-1.0, 1.0]:
+					colunas.append(Transform3D(b_col * Basis.from_scale(Vector3(1.5, alt, 0.2)), meio + frente * 0.7 * m))
+				sapatas.append(Transform3D(b_col * Basis.from_scale(Vector3(3.6, 4.0, 3.6)), Vector3(topo.x, chao + 3.6, topo.z)))
+				colunas.append(Transform3D(b_col * Basis.from_scale(Vector3(2.2, 0.12, 2.2)), Vector3(topo.x, chao + 5.66, topo.z)))
 		if par.size() == 2:
 			var altura_min: float = maxf(par[0][1], par[1][1])
 			var y: float = minf(par[0][0].y, par[1][0].y) - 4.0
@@ -236,23 +234,140 @@ func _montar_estrutura(terreno: Terreno) -> void:
 				nivel += 1
 		pares_anteriores = par
 		i += 26
-	_multimesh(pecas, _material_metal(Color(0.2, 0.21, 0.23)), true)
+	# Travessas e diagonais (as colunas cheias de pecas só servem de colisão)
+	var travessas: Array[Transform3D] = []
+	travessas.assign(pecas.filter(func(t: Transform3D): return t.basis.z.length() < 400.0 and absf(t.basis.z.normalized().y) < 0.95))
+	var chao_medio := terreno.altura_em(posicao_saida().x, posicao_saida().z)
+	var mat := material_aco(chao_medio, 0.28)
+	_multimesh(colunas, mat, true)
+	_multimesh(travessas, mat, true)
+	_multimesh(sapatas, material_concreto(chao_medio), true)
 	adicionar_colisoes(_estruturas, pecas)
 
 
-func _montar_plataforma() -> void:
-	# Base sob a área de largada, rente à pista (sem beiral: quem sai pela lateral cai na mesa)
+## Base sob a área de largada, rente à pista (sem beiral: quem sai pela lateral cai na mesa):
+## bloco de concreto aparente com cantoneiras de aço nas bordas, nervuras nas laterais, faixa de
+## LED da equipe e pilares com sapata descendo até o terreno.
+func _montar_plataforma(terreno: Terreno) -> void:
 	var x_borda := perfil.pontos[perfil.indice_borda].x
 	var comp := x_borda + 30.0
 	var centro := ponto(x_borda * 0.5 - 15.0, perfil.pontos[0].y - ESPESSURA - 4.0)
-	var caixa := BoxMesh.new()
-	caixa.size = Vector3(largura, 8.0, comp)
-	var mi := MeshInstance3D.new()
-	mi.mesh = caixa
-	mi.transform = Transform3D(Basis.looking_at(frente, Vector3.UP), centro)
-	mi.material_override = _material_metal(Color(0.16, 0.165, 0.18), 0.6, 0.5)
-	add_child(mi)
-	adicionar_colisoes(_estruturas, [mi.transform * Transform3D(Basis.from_scale(caixa.size), Vector3.ZERO)])
+	var b := Basis.looking_at(frente, Vector3.UP)   # X = lateral, -Z = frente
+	var chao := terreno.altura_em(centro.x, centro.z)
+	var bloco := Transform3D(b * Basis.from_scale(Vector3(largura, 8.0, comp)), centro)
+	criar_multimesh(self, [bloco], material_concreto(chao))
+	adicionar_colisoes(_estruturas, [bloco])
+
+	var aco: Array[Transform3D] = []
+	var led: Array[Transform3D] = []
+	var pilares: Array[Transform3D] = []
+	var sapatas: Array[Transform3D] = []
+	var topo := centro.y + 4.0
+	for lado: float in [-1.0, 1.0]:
+		var borda := centro + lateral * (largura * 0.5 + 0.12) * lado
+		# Cantoneira no alto da borda e perfil na base do bloco
+		aco.append(Transform3D(b * Basis.from_scale(Vector3(0.3, 0.35, comp + 0.3)), Vector3(borda.x, topo - 0.16, borda.z)))
+		aco.append(Transform3D(b * Basis.from_scale(Vector3(0.3, 0.45, comp + 0.3)), Vector3(borda.x, centro.y - 3.8, borda.z)))
+		led.append(Transform3D(b * Basis.from_scale(Vector3(0.1, 0.16, comp)), Vector3(borda.x, topo - 0.75, borda.z) + lateral * 0.12 * lado))
+		# Nervuras verticais a cada 3,5 m
+		var n := int(comp / 3.5)
+		for k in n + 1:
+			var p := borda - frente * (comp * 0.5 - k * comp / n)
+			aco.append(Transform3D(b * Basis.from_scale(Vector3(0.28, 7.2, 0.4)), Vector3(p.x, centro.y - 0.1, p.z)))
+		# Pilares até o terreno a cada ~12 m
+		var np := maxi(int(comp / 12.0), 1)
+		for k in np + 1:
+			var p := centro + lateral * (largura * 0.5 - 1.6) * lado - frente * (comp * 0.5 - k * comp / np)
+			var fundo := centro.y - 4.0
+			var solo := terreno.altura_em(p.x, p.z)
+			if fundo - solo > 0.5:
+				pilares.append(_viga(Vector3(p.x, solo - 1.0, p.z), Vector3(p.x, fundo, p.z), 1.8))
+				sapatas.append(Transform3D(b * Basis.from_scale(Vector3(3.4, 1.4, 3.4)), Vector3(p.x, solo + 0.2, p.z)))
+	criar_multimesh(self, aco, material_aco(chao))
+	criar_multimesh(self, led, _material_luz(cor, 3.0), false)
+	criar_multimesh(self, pilares + sapatas, material_concreto(chao))
+	adicionar_colisoes(_estruturas, pilares)
+
+
+## Muro de contenção atrás da largada: concreto de 1,2 m com contrafortes atrás, almofadas de
+## impacto na cor da equipe na frente, capa de aço com faixa de advertência e LED no topo.
+func _montar_muro() -> void:
+	var b0 := _base_pista(0)
+	var c: Vector3 = b0.c
+	var b := Basis.looking_at(frente, Vector3.UP)
+	var altura := 3.0
+	var base_y := c.y - ESPESSURA
+	var larg := largura + 2.0
+	var concreto: Array[Transform3D] = []
+	var colisao: Array[Transform3D] = []
+	var corpo := Transform3D(b * Basis.from_scale(Vector3(larg, altura + ESPESSURA, 1.2)),
+		c - frente * 0.6 + Vector3.UP * ((altura - ESPESSURA) * 0.5))
+	concreto.append(corpo)
+	colisao.append(corpo)
+	# Contrafortes inclinados atrás, a cada ~4 m
+	var n := int(larg / 4.0)
+	for k in n + 1:
+		var x := -larg * 0.5 + 0.4 + k * (larg - 0.8) / n
+		var pe := c + lateral * x - frente * 3.6 + Vector3.UP * (-ESPESSURA + 0.3)
+		var alto := c + lateral * x - frente * 1.1 + Vector3.UP * (altura - 0.4)
+		concreto.append(_viga(pe, alto, 0.6))
+		concreto.append(Transform3D(b * Basis.from_scale(Vector3(0.8, 0.6, 3.0)), c + lateral * x - frente * 2.4 + Vector3.UP * (-ESPESSURA + 0.3)))
+	criar_multimesh(self, concreto, material_concreto(base_y - 400.0))
+
+	# Capa de aço com faixa de advertência
+	var capa := Transform3D(b * Basis.from_scale(Vector3(larg + 0.4, 0.28, 1.5)), c - frente * 0.6 + Vector3.UP * (altura + 0.14))
+	criar_multimesh(self, [capa], material_listras())
+	# Almofadas de impacto (um bloco por vaga) com faixa branca refletiva
+	var almofadas: Array[Transform3D] = []
+	var faixas: Array[Transform3D] = []
+	var qtd := 6
+	var passo := largura / qtd
+	for k in qtd:
+		var x := -largura * 0.5 + passo * (k + 0.5)
+		var p := c + lateral * x + frente * 0.25 + Vector3.UP * 0.95
+		var t := Transform3D(b * Basis.from_scale(Vector3(passo - 0.18, 1.7, 0.5)), p)
+		almofadas.append(t)
+		colisao.append(t)
+		faixas.append(Transform3D(b * Basis.from_scale(Vector3(passo - 0.18, 0.14, 0.52)), p + Vector3.UP * 0.45))
+	var mat_almofada := StandardMaterial3D.new()
+	mat_almofada.albedo_color = cor.darkened(0.25)
+	mat_almofada.roughness = 0.85
+	criar_multimesh(self, almofadas, mat_almofada)
+	var mat_faixa := StandardMaterial3D.new()
+	mat_faixa.albedo_color = Color(0.92, 0.92, 0.9)
+	mat_faixa.roughness = 0.35
+	mat_faixa.emission_enabled = true
+	mat_faixa.emission = Color(0.9, 0.9, 0.85)
+	mat_faixa.emission_energy_multiplier = 0.25
+	criar_multimesh(self, faixas, mat_faixa)
+	# LED da equipe logo abaixo da capa
+	criar_multimesh(self, [Transform3D(b * Basis.from_scale(Vector3(larg, 0.14, 0.08)), c + frente * 0.02 + Vector3.UP * (altura - 0.3))], _material_luz(cor, 4.0), false)
+	adicionar_colisoes(_estruturas, colisao)
+
+
+func material_concreto(chao: float) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/concreto.gdshader")
+	m.set_shader_parameter("ruido", Terreno._textura_ruido(0.04, 4, 23 + indice_equipe))
+	m.set_shader_parameter("altura_chao", chao)
+	return m
+
+
+func material_aco(chao: float, ferrugem := 0.4) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/metal_gasto.gdshader")
+	m.set_shader_parameter("ruido", Terreno._textura_ruido(0.03, 4, 61 + indice_equipe))
+	m.set_shader_parameter("ferrugem", ferrugem)
+	m.set_shader_parameter("cor_tinta", Color(0.2, 0.21, 0.23))
+	m.set_shader_parameter("altura_chao", chao)
+	return m
+
+
+func material_listras() -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/listras_perigo.gdshader")
+	m.set_shader_parameter("ruido", Terreno._textura_ruido(0.05, 3, 7))
+	return m
 
 
 ## Pórtico em treliça sobre a pista, com painel da equipe e semáforo de largada.
