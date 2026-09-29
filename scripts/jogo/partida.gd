@@ -73,7 +73,7 @@ func _foto_paraquedas(pasta: String) -> void:
 	v.paraquedas.abrir()
 	var lado := f.cross(Vector3.UP).normalized()
 	camera.podio(pos + Vector3.UP * 5.0, pos + lado * 16.0 + Vector3.UP * 7.0 - f * 6.0)
-	for alvo_s: float in [0.1, 0.3, 0.45, 0.6, 0.8, 1.05, 1.4, 1.7, 2.2]:
+	for alvo_s: float in [0.15, 0.3, 0.45, 0.6, 0.8, 1.05, 1.6]:
 		while v.paraquedas._t < alvo_s:
 			await get_tree().process_frame
 		get_viewport().get_texture().get_image().save_png("%s/pq_%04d.png" % [pasta, int(alvo_s * 1000)])
