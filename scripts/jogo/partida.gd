@@ -41,7 +41,14 @@ func _ready() -> void:
 	hud.pedido_continuar.connect(_despausar)
 	hud.pedido_menu.connect(_ir_menu)
 	hud.pedido_reiniciar.connect(_reiniciar)
-	hud.carregando("GERANDO O CÂNION...")
+	var primeira: Array = Config.valor("etapas", [{}])
+	hud.carregando("CANYON RUSH", "ETAPA 1  —  " + str(primeira[0].get("nome", "")).to_upper())
+	if OS.get_environment("TSC_FOTO_CARGA") != "":
+		for i in 10:
+			await get_tree().process_frame
+		get_viewport().get_texture().get_image().save_png(OS.get_environment("TSC_FOTO_CARGA"))
+		get_tree().quit()
+		return
 	await get_tree().process_frame
 	await get_tree().process_frame
 	_construir_mundo()

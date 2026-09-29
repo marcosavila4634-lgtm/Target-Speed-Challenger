@@ -331,7 +331,7 @@ func _atualizar(delta: float) -> void:
 		global_transform = Transform3D(base, _pos_saco.lerp(pos_final, _suave(clampf(sai * 2.0, 0.0, 1.0))))
 		_cobertura.scale = Vector3(largura, lerpf(0.5, 1.0, sai), comprimento)
 		_mat.set_shader_parameter("abertura", sai)
-		_mat.set_shader_parameter("inflacao", lerpf(0.7, 1.0, _suave(clampf(sai * 1.5, 0.0, 1.0))))
+		_mat.set_shader_parameter("inflacao", lerpf(0.85, 1.0, _suave(clampf(sai * 1.5, 0.0, 1.0))))
 		_mat.set_shader_parameter("vento", 1.0 + clampf(veiculo.linear_velocity.length() / 25.0, 0.0, 1.5))
 		_mat_slider.set_shader_parameter("vento", 1.0 + clampf(veiculo.linear_velocity.length() / 25.0, 0.0, 1.5))
 	else:
@@ -383,14 +383,15 @@ func _desenhar_linhas(xf_carro: Transform3D) -> void:
 	var ilhoses := []   # [lado][frente/trás]
 	if aberto:
 		var desce := _suave(clampf((_p_abertura - SAI_VELAME) / (1.0 - SAI_VELAME), 0.0, 1.0))
-		var s := lerpf(0.12, 0.95, desce)
+		# Só aparece perto dos tirantes, onde os feixes estão juntos (no alto ele virava uma barra enorme)
+		var s := lerpf(0.8, 0.95, desce)
 		var c0 := ancoras[0].lerp(tirantes[0], s)
 		var c1 := ancoras[1].lerp(tirantes[1], s)
 		var b_s := xf_cob.basis.orthonormalized()
 		var eixo_x := c1 - c0
 		var fundo := lerpf(1.0, 0.35, desce)   # perto dos tirantes as linhas de frente/trás se juntam
 		var b_final := Basis(eixo_x / 1.5, b_s.y, b_s.z * fundo)
-		_slider.visible = true
+		_slider.visible = desce > 0.25
 		_slider.global_transform = Transform3D(b_final, (c0 + c1) * 0.5)
 		for lado in 2:
 			var c := c0 if lado == 0 else c1

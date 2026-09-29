@@ -365,20 +365,41 @@ func chat(nome: String, cor: Color, texto: String) -> void:
 	tw.tween_callback(p.queue_free)
 
 
-func carregando(texto: String) -> void:
+## Tela de entrada: nome da fase na fonte do logo (Exo 2 itálico), filete neon e a etapa embaixo.
+func carregando(titulo: String, subtitulo := "") -> void:
 	if _carregando == null:
 		_carregando = ColorRect.new()
 		(_carregando as ColorRect).color = Color(0.01, 0.02, 0.05)
 		_carregando.set_anchors_preset(Control.PRESET_FULL_RECT)
-		var l := Estilo.rotulo("", 34, Estilo.TEXTO, 600)
-		l.name = "Texto"
-		l.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		l.grow_horizontal = Control.GROW_DIRECTION_BOTH
-		l.grow_vertical = Control.GROW_DIRECTION_BOTH
-		_carregando.add_child(l)
+		var v := VBoxContainer.new()
+		v.add_theme_constant_override("separation", 10)
+		v.alignment = BoxContainer.ALIGNMENT_CENTER
+		v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_carregando.add_child(v)
+		var t := Label.new()
+		t.name = "Titulo"
+		t.add_theme_font_override("font", Estilo.fonte_titulo(900))
+		t.add_theme_font_size_override("font_size", 120)
+		t.add_theme_color_override("font_color", Color.WHITE)
+		t.add_theme_constant_override("outline_size", 14)
+		t.add_theme_color_override("font_outline_color", Color(Estilo.AZUL_NEON, 0.35))
+		t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		v.add_child(t)
+		var filete := ColorRect.new()
+		filete.color = Estilo.AZUL_NEON
+		filete.custom_minimum_size = Vector2(520, 4)
+		filete.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		v.add_child(filete)
+		var s := Label.new()
+		s.name = "Sub"
+		s.add_theme_font_override("font", Estilo.fonte_titulo(700))
+		s.add_theme_font_size_override("font_size", 34)
+		s.add_theme_color_override("font_color", Estilo.TEXTO_FRACO)
+		s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		v.add_child(s)
 		raiz.add_child(_carregando)
-	(_carregando.get_node("Texto") as Label).text = texto
+	(_carregando.find_child("Titulo", true, false) as Label).text = titulo
+	(_carregando.find_child("Sub", true, false) as Label).text = subtitulo
 	_carregando.visible = true
 
 

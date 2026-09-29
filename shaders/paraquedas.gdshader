@@ -37,9 +37,9 @@ void vertex() {
 	float cel = smoothstep(dist_centro * 0.6, dist_centro * 0.6 + 0.4, abertura);
 	float cheio = inflacao * cel;
 	float vazio = 1.0 - cel;
-	VERTEX.y -= vazio * (0.9 + c * 0.9);
-	VERTEX.z += vazio * c * 0.6;
-	VERTEX.y += vazio * sin(TIME * 20.0 + VERTEX.x * 2.0 + c * 4.0) * 0.1;
+	VERTEX.y -= vazio * (0.35 + c * 0.35);
+	VERTEX.z += vazio * c * 0.3;
+	VERTEX.y += vazio * sin(TIME * 14.0 + VERTEX.x * 1.5 + c * 3.0) * 0.05;
 	// Célula inflada: a face de cima estufa, a de baixo afunda um pouco
 	float bojo = sin(PI * u) * pow(sin(PI * clamp(c * 0.9 + 0.08, 0.0, 1.0)), 0.6);
 	float sinal = v_face > 0.75 ? 1.0 : (v_face < 0.25 ? -0.35 : 0.3);
