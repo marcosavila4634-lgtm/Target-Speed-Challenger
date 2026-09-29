@@ -32,6 +32,7 @@ var _carregando: Control
 var _pausa: Control
 var _rotulos_veiculos := {}
 var _msg_tempo := 0.0
+var _barra_carga: BarraCarga
 var _final := false        # resultado final na tela: o resto do HUD fica escondido
 
 
@@ -46,6 +47,60 @@ class Losango extends Control:
 		draw_polyline(pts, cor, 3.0, true)
 		var ri := r * 0.4
 		draw_colored_polygon(PackedVector2Array([c + Vector2(0, -ri), c + Vector2(ri, 0), c + Vector2(0, ri), c + Vector2(-ri, 0)]), cor)
+
+
+## Barra de carregamento: trilho escuro, preenchimento neon e, na ponta, um carrinho pendurado
+## num paraquedas (asa listrada na cor do jogo) que avança, balança e deixa um rastro de brilho.
+class BarraCarga extends Control:
+	var alvo := 0.0          # progresso pedido (0..1)
+	var valor := 0.0         # progresso mostrado (anda suave até o alvo)
+	var _t := 0.0
+
+	func _process(delta: float) -> void:
+		_t += delta
+		valor = move_toward(valor, alvo, delta * maxf(0.35, (alvo - valor) * 3.0))
+		queue_redraw()
+
+	func _draw() -> void:
+		var y := size.y - 10.0
+		var w := size.x
+		var trilho := Rect2(0, y - 4, w, 8)
+		draw_rect(trilho, Color(0.12, 0.16, 0.26), true)
+		var fim := w * valor
+		draw_rect(Rect2(0, y - 4, fim, 8), Estilo.AZUL_NEON, true)
+		# Brilho do preenchimento
+		for k in 3:
+			draw_rect(Rect2(0, y - 4 - (k + 1) * 2, fim, 8 + (k + 1) * 4), Color(Estilo.AZUL_NEON, 0.08), true)
+		# Carrinho pendurado na ponta, balançando
+		var balanco := sin(_t * 3.0) * 0.12
+		# Desenho do carrinho em escala 1,8 com a origem na ponta da barra
+		draw_set_transform(Vector2(fim, y - 4), 0.0, Vector2.ONE * 1.8)
+		var pivo := Vector2(0, -40)   # centro da asa
+		var carro := pivo + Vector2(0, 30).rotated(balanco)
+		# Linhas do paraquedas até o teto do carro
+		for dx: float in [-20.0, -8.0, 8.0, 20.0]:
+			draw_line(pivo + Vector2(dx, 4), carro + Vector2(dx * 0.25, -6).rotated(balanco), Color(0.75, 0.8, 0.9, 0.8), 1.2, true)
+		# Asa: arco com células alternadas azul/branco
+		var celulas := 7
+		for i in celulas:
+			var a0 := lerpf(PI * 1.12, PI * 1.88, float(i) / celulas)
+			var a1 := lerpf(PI * 1.12, PI * 1.88, float(i + 1) / celulas)
+			var pts := PackedVector2Array()
+			for a in [a0, a1]:
+				pts.append(pivo + Vector2(cos(a) * 30, sin(a) * 14 + 10))
+			for a in [a1, a0]:
+				pts.append(pivo + Vector2(cos(a) * 30, sin(a) * 14 + 16))
+			draw_colored_polygon(pts, Estilo.AZUL_NEON if i % 2 == 0 else Color(0.93, 0.95, 1.0))
+		# Carro: silhueta de perfil (carroceria, cabine, rodas) virada para a direita
+		var xf := Transform2D(balanco, carro)
+		var corpo := PackedVector2Array([Vector2(-18, 4), Vector2(-18, -2), Vector2(-10, -4), Vector2(-5, -10),
+			Vector2(7, -10), Vector2(12, -4), Vector2(19, -2), Vector2(19, 4)])
+		draw_colored_polygon(xf * corpo, Color(0.93, 0.95, 1.0))
+		draw_colored_polygon(xf * PackedVector2Array([Vector2(-4, -8.5), Vector2(6, -8.5), Vector2(10, -4), Vector2(-8, -4)]), Color(0.1, 0.2, 0.4))
+		draw_line(xf * Vector2(-18, 0), xf * Vector2(19, 0), Estilo.AZUL_NEON, 2.0)
+		for rx: float in [-10.0, 11.0]:
+			draw_circle(xf * Vector2(rx, 5), 4.2, Color(0.05, 0.05, 0.07))
+			draw_circle(xf * Vector2(rx, 5), 1.8, Color(0.6, 0.62, 0.66))
 
 
 func _ready() -> void:
@@ -397,15 +452,35 @@ func carregando(titulo: String, subtitulo := "") -> void:
 		s.add_theme_color_override("font_color", Estilo.TEXTO_FRACO)
 		s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		v.add_child(s)
+		var espaco := Control.new()
+		espaco.custom_minimum_size.y = 40
+		v.add_child(espaco)
+		_barra_carga = BarraCarga.new()
+		_barra_carga.custom_minimum_size = Vector2(760, 110)
+		_barra_carga.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		v.add_child(_barra_carga)
 		raiz.add_child(_carregando)
 	(_carregando.find_child("Titulo", true, false) as Label).text = titulo
 	(_carregando.find_child("Sub", true, false) as Label).text = subtitulo
 	_carregando.visible = true
 
 
+## Progresso do carregamento (0..1); o carrinho anda suave até lá.
+func progresso_carga(valor: float) -> void:
+	if _barra_carga:
+		_barra_carga.alvo = clampf(valor, 0.0, 1.0)
+
+
+## Esconde a tela de entrada depois que o carrinho chega ao fim da barra.
 func esconder_carregando() -> void:
-	if _carregando:
-		_carregando.visible = false
+	if _carregando == null:
+		return
+	if _barra_carga:
+		_barra_carga.alvo = 1.0
+		while _barra_carga.valor < 0.999:
+			await get_tree().process_frame
+		await get_tree().create_timer(0.25).timeout
+	_carregando.visible = false
 
 
 # ------------------------------------------------------------------ telas

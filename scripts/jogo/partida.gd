@@ -44,20 +44,21 @@ func _ready() -> void:
 	var primeira: Array = Config.valor("etapas", [{}])
 	hud.carregando("CANYON RUSH", "ETAPA 1  —  " + str(primeira[0].get("nome", "")).to_upper())
 	if OS.get_environment("TSC_FOTO_CARGA") != "":
-		for i in 10:
+		hud.progresso_carga(0.55)
+		for i in 90:
 			await get_tree().process_frame
 		get_viewport().get_texture().get_image().save_png(OS.get_environment("TSC_FOTO_CARGA"))
 		get_tree().quit()
 		return
 	await get_tree().process_frame
 	await get_tree().process_frame
-	_construir_mundo()
-	_criar_participantes()
+	await _construir_mundo()
+	await _criar_participantes()
 	var som_ambiente := SomAmbiente.new()
 	add_child(som_ambiente)
 	som_ambiente.montar(complexos)
 	Audio.musica("partida")
-	hud.esconder_carregando()
+	await hud.esconder_carregando()
 	if Sessao.teste_automatico:
 		Engine.time_scale = 4.0
 	_iniciar_etapa(0)
@@ -100,22 +101,27 @@ func _foto_final(arquivo: String) -> void:
 # ------------------------------------------------------------------ montagem
 
 func _construir_mundo() -> void:
+	# Progresso: 0,05 ambiente → 0,45 terreno → 0,65 complexos → 0,7 alvo (carros até 1,0)
 	add_child(Ambiente.new())
+	await _passo_carga(0.05)
 	perfil = PerfilRampa.new()
 	terreno = Terreno.new()
 	terreno.name = "Terreno"
 	add_child(terreno)
 	terreno.gerar(perfil)
+	await _passo_carga(0.45)
 	equipes_qtd = clampi(int(Config.valor("partida.equipes", 4)), 2, 4)
 	for i in equipes_qtd:
 		var c := ComplexoLancamento.new()
 		add_child(c)
 		c.montar(i, perfil, terreno)
 		complexos.append(c)
+		await _passo_carga(0.45 + 0.2 * float(i + 1) / equipes_qtd)
 	alvo = Alvo.new()
 	alvo.terreno = terreno
 	alvo.name = "Alvo"
 	add_child(alvo)
+	await _passo_carga(0.7)
 	camera = CameraJogo.new()
 	camera.terreno = terreno
 	add_child(camera)
@@ -167,6 +173,7 @@ func _criar_participantes() -> void:
 			v.terreno = terreno
 			v.complexo = complexos[e]
 			add_child(v)
+			await _passo_carga(0.7 + 0.28 * float(e * por_equipe + k + 1) / (equipes_qtd * por_equipe))
 			var controle: Node
 			if eh_jogador and not Sessao.teste_automatico:
 				var cj := ControleJogador.new()
@@ -820,3 +827,10 @@ func _imprimir_telemetria(p: Dictionary, texto: String) -> void:
 		etapa_idx + 1, p.nome, str(v.dados.nome).left(12), r.call("saida_kmh"), r.call("saida_altura"), r.call("saida_tempo"),
 		r.call("apice"), r.call("paraquedas_tempo"), r.call("paraquedas_altura"), r.call("toque_alvo_tempo"), r.call("toque_alvo_kmh"),
 		t.get("motivo", "-"), r.call("tempo_eliminado"), int(d), texto])
+
+
+## Avança a barra de carregamento e deixa a tela desenhar antes do próximo passo pesado.
+func _passo_carga(valor: float) -> void:
+	hud.progresso_carga(valor)
+	await get_tree().process_frame
+	await get_tree().process_frame
