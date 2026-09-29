@@ -31,7 +31,7 @@ func montar(complexo: ComplexoLancamento, p_terreno: Terreno) -> void:
 	var meia := cx.largura * 0.5
 	for lado: float in [-1.0, 1.0]:
 		_torre_holofotes(8.0, meia + 16.0, lado)
-		_torre_holofotes(x_borda - 14.0, meia + 16.0, lado)
+		_torre_holofotes(x_borda - 28.0, meia + 16.0, lado)   # longe do paredão, com a base na mesa
 		for k in 4:
 			_mastro_bandeira(10.0 + k * 15.0, meia + 6.0, lado, k * 1.3 + lado)
 		_banner(24.0, meia + 10.0, lado, "CANYON RUSH")
@@ -173,28 +173,44 @@ func _banner(x: float, desloc: float, lado: float, texto: String) -> void:
 	_texto(texto, Transform3D(vertical, centro + Vector3.UP * 0.2 + b.z * 0.03), 128, 0.0068, Color(0.92, 0.95, 1.0))
 
 
-## Painel gigante com chevrons descendo, preso no paredão abaixo da borda e virado para o alvo.
+## Outdoor gigante de chevrons em pé na mesa, ao lado da pista e recuado do paredão, virado
+## para o alvo: duas torres de treliça com sapatas no chão, passarela de manutenção e escoras.
 func _painel_paredao(x_borda: float) -> void:
-	var x := x_borda + 7.0
-	var topo_y := cx.perfil.pontos[0].y - 4.0
-	var largura := cx.largura + 6.0
+	var x := x_borda - 22.0
+	var desloc := -(cx.largura * 0.5 + 34.0)   # lado oposto ao da cabine de narração
+	var largura := 26.0
+	var altura := 16.0
+	var vao := 6.0                             # do chão até a base do painel
 	var chao := -INF
 	for k in 5:
-		var p := _chao(x, lerpf(-largura * 0.5, largura * 0.5, k / 4.0))
-		chao = maxf(chao, p.y)
-	var altura := minf(topo_y - (chao + 2.0), 60.0)
-	if altura < 14.0:
-		return
+		chao = maxf(chao, _chao(x, desloc + lerpf(-largura * 0.5, largura * 0.5, k / 4.0)).y)
 	var b := _virada_para(cx.frente)
-	var centro := cx.ponto(x, topo_y - altura * 0.5)
+	var base := cx.ponto(x, chao) + cx.lateral * desloc
+	var centro := base + Vector3.UP * (vao + altura * 0.5)
 	_painel(Vector2(largura, altura), Transform3D(b, centro), {"chevrons": altura / 9.0, "faixa_ini": 0.04, "faixa_fim": 0.96, "energia": 3.0, "moldura": 0.015, "velocidade": 0.6})
 	_colisoes.append(Transform3D(b * Basis.from_scale(Vector3(largura, altura, 0.4)), centro))
-	# Pilares de treliça dos dois lados, do chão até o topo
+	var concreto: Array[Transform3D] = []
 	for s: float in [-1.0, 1.0]:
-		var p := centro + b.x * (largura * 0.5 + 0.9) * s - b.z * 0.6
-		var pe := Vector3(p.x, chao - 4.0, p.z)
-		_aco.append_array(ComplexoLancamento.trelica(pe, Vector3(p.x, topo_y + 1.0, p.z), 1.4, 2.5, 0.25, 0.09))
-		_colisoes.append(ComplexoLancamento._viga(pe, Vector3(p.x, topo_y + 1.0, p.z), 1.4))
+		var p := base + b.x * (largura * 0.5 - 3.0) * s - b.z * 0.9
+		var pe := Vector3(p.x, _chao_ponto(p) - 1.0, p.z)
+		var topo := Vector3(p.x, centro.y + altura * 0.5 + 0.5, p.z)
+		_aco.append_array(ComplexoLancamento.trelica(pe, topo, 1.4, 2.0, 0.25, 0.09))
+		_colisoes.append(ComplexoLancamento._viga(pe, topo, 1.4))
+		concreto.append(Transform3D(b * Basis.from_scale(Vector3(3.0, 1.2, 3.0)), Vector3(p.x, pe.y + 1.4, p.z)))
+		# Escora inclinada para trás, com sapata própria
+		var tras := p - b.z * 7.0
+		var pe_tras := Vector3(tras.x, _chao_ponto(tras) + 0.4, tras.z)
+		_aco.append(ComplexoLancamento._viga(pe_tras, Vector3(p.x, centro.y + 2.0, p.z) - b.z * 0.9, 0.35))
+		concreto.append(Transform3D(b * Basis.from_scale(Vector3(1.6, 0.8, 1.6)), pe_tras))
+	# Passarela de manutenção atrás do painel, na base dele
+	_aco.append(Transform3D(b * Basis.from_scale(Vector3(largura, 0.15, 1.2)), base + Vector3.UP * vao - b.z * 1.0))
+	_aco.append(Transform3D(b * Basis.from_scale(Vector3(largura, 0.06, 0.06)), base + Vector3.UP * (vao + 1.1) - b.z * 1.55))
+	var mat_c := cx.material_concreto(chao)
+	ComplexoLancamento.criar_multimesh(self, concreto, mat_c)
+
+
+func _chao_ponto(p: Vector3) -> float:
+	return terreno.altura_em(p.x, p.z)
 
 
 # ------------------------------------------------------------------ área de apoio atrás da largada

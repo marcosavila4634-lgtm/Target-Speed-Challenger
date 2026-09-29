@@ -766,6 +766,15 @@ func _vista_debug(vista: String) -> void:
 	var cx := complexos[0]
 	var y0: float = cx.perfil.pontos[0].y
 	var x_borda: float = cx.perfil.pontos[cx.perfil.indice_borda].x
+	if vista.begins_with("geral") or vista.begins_with("borda"):
+		# geralN / bordaN: complexo da equipe N visto de lado (inteiro / só a borda da plataforma)
+		var c2 := complexos[int(vista.right(1))]
+		var xb: float = c2.perfil.pontos[c2.perfil.indice_borda].x
+		var alvo_v := c2.ponto(xb + (200.0 if vista.begins_with("geral") else 10.0), c2.perfil.pontos[0].y - (120.0 if vista.begins_with("geral") else 25.0))
+		var dist := 520.0 if vista.begins_with("geral") else 120.0
+		camera.podio(alvo_v, alvo_v + c2.lateral * dist + Vector3.UP * dist * 0.15)
+		camera.cam.far = 20000.0
+		return
 	match vista:
 		"muro":
 			var f := cx.ponto(0.0, y0 + 1.2)

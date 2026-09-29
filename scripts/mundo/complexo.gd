@@ -247,11 +247,16 @@ func _montar_estrutura(terreno: Terreno) -> void:
 
 ## Base sob a área de largada, rente à pista (sem beiral: quem sai pela lateral cai na mesa):
 ## bloco de concreto aparente com cantoneiras de aço nas bordas, nervuras nas laterais, faixa de
-## LED da equipe e pilares com sapata descendo até o terreno.
+## LED da equipe. O bloco fica inteiro em cima da mesa (termina antes do paredão); o trecho da
+## pista que avança sobre o precipício é sustentado por vigas em balanço (_montar_balanco).
+const RECUO_MESA := 14.0   # o bloco termina esta distância antes da borda da descida
+
 func _montar_plataforma(terreno: Terreno) -> void:
 	var x_borda := perfil.pontos[perfil.indice_borda].x
-	var comp := x_borda + 30.0
-	var centro := ponto(x_borda * 0.5 - 15.0, perfil.pontos[0].y - ESPESSURA - 4.0)
+	var x_ini := -30.0
+	var x_fim := x_borda - RECUO_MESA
+	var comp := x_fim - x_ini
+	var centro := ponto((x_ini + x_fim) * 0.5, perfil.pontos[0].y - ESPESSURA - 4.0)
 	var b := Basis.looking_at(frente, Vector3.UP)   # X = lateral, -Z = frente
 	var chao := terreno.altura_em(centro.x, centro.z)
 	var bloco := Transform3D(b * Basis.from_scale(Vector3(largura, 8.0, comp)), centro)
@@ -260,8 +265,6 @@ func _montar_plataforma(terreno: Terreno) -> void:
 
 	var aco: Array[Transform3D] = []
 	var led: Array[Transform3D] = []
-	var pilares: Array[Transform3D] = []
-	var sapatas: Array[Transform3D] = []
 	var topo := centro.y + 4.0
 	for lado: float in [-1.0, 1.0]:
 		var borda := centro + lateral * (largura * 0.5 + 0.12) * lado
@@ -274,19 +277,40 @@ func _montar_plataforma(terreno: Terreno) -> void:
 		for k in n + 1:
 			var p := borda - frente * (comp * 0.5 - k * comp / n)
 			aco.append(Transform3D(b * Basis.from_scale(Vector3(0.28, 7.2, 0.4)), Vector3(p.x, centro.y - 0.1, p.z)))
-		# Pilares até o terreno a cada ~12 m
-		var np := maxi(int(comp / 12.0), 1)
-		for k in np + 1:
-			var p := centro + lateral * (largura * 0.5 - 1.6) * lado - frente * (comp * 0.5 - k * comp / np)
-			var fundo := centro.y - 4.0
-			var solo := terreno.altura_em(p.x, p.z)
-			if fundo - solo > 0.5:
-				pilares.append(_viga(Vector3(p.x, solo - 1.0, p.z), Vector3(p.x, fundo, p.z), 1.8))
-				sapatas.append(Transform3D(b * Basis.from_scale(Vector3(3.4, 1.4, 3.4)), Vector3(p.x, solo + 0.2, p.z)))
+	_montar_balanco(aco, x_fim, x_borda)
 	criar_multimesh(self, aco, material_aco(chao))
 	criar_multimesh(self, led, _material_luz(cor, 3.0), false)
-	criar_multimesh(self, pilares + sapatas, material_concreto(chao))
-	adicionar_colisoes(_estruturas, pilares)
+
+
+## Balanço sobre o precipício: 4 vigas I engastadas no bloco, correndo sob o tabuleiro até a
+## primeira coluna da descida, e mãos-francesas saindo de chapas de ancoragem na rocha do
+## paredão até a ponta das vigas.
+func _montar_balanco(aco: Array[Transform3D], x_fim: float, x_borda: float) -> void:
+	var b := Basis.looking_at(frente, Vector3.UP)
+	var y_viga := perfil.pontos[0].y - ESPESSURA - 0.45
+	var x_ponta := x_borda + 14.0   # passa da primeira coluna (indice_borda + 12)
+	var colisao: Array[Transform3D] = []
+	for k in 4:
+		var d := lerpf(-largura * 0.5 + 2.0, largura * 0.5 - 2.0, k / 3.0)
+		var a := ponto(x_fim - 6.0, y_viga) + lateral * d
+		var c := ponto(x_ponta, perfil.altura_em(x_ponta) - ESPESSURA - 0.45) + lateral * d
+		# Viga I: alma + mesas de cima e de baixo
+		aco.append(_viga(a, c, 0.22) * Transform3D(Basis.from_scale(Vector3(1.0, 4.0, 1.0)), Vector3.ZERO))
+		for s: float in [-1.0, 1.0]:
+			aco.append(_viga(a + Vector3.UP * 0.42 * s, c + Vector3.UP * 0.42 * s, 0.1) * Transform3D(Basis.from_scale(Vector3(7.0, 1.0, 1.0)), Vector3.ZERO))
+		colisao.append(_viga(a, c, 0.9))
+		# Mão-francesa: da rocha (18 m abaixo, recuada no paredão) até perto da ponta da viga
+		var ancora := ponto(x_borda - 6.0, perfil.pontos[0].y - 22.0) + lateral * d
+		var apoio := ponto(x_borda + 9.0, perfil.altura_em(x_borda + 9.0) - ESPESSURA - 0.9) + lateral * d
+		aco.append(_viga(ancora, apoio, 0.55))
+		aco.append(Transform3D(b * Basis.from_scale(Vector3(1.6, 1.6, 0.25)), ancora + frente * 0.2))   # chapa na rocha
+		# Tirante intermediário, formando o triângulo
+		aco.append(_viga(ancora.lerp(apoio, 0.5), ponto(x_borda + 1.0, y_viga - 0.4) + lateral * d, 0.3))
+	# Travessas ligando as vigas por baixo
+	for x in [x_fim, x_borda - 4.0, x_borda + 4.0, x_ponta - 1.0]:
+		var y := perfil.altura_em(minf(x, x_ponta)) - ESPESSURA - 0.9 if x > x_borda else y_viga - 0.45
+		aco.append(_viga(ponto(x, y) - lateral * (largura * 0.5 - 1.5), ponto(x, y) + lateral * (largura * 0.5 - 1.5), 0.25))
+	adicionar_colisoes(_estruturas, colisao)
 
 
 ## Muro de contenção atrás da largada: concreto de 1,2 m com contrafortes atrás, almofadas de
