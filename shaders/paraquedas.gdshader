@@ -7,6 +7,7 @@ render_mode cull_disabled, diffuse_burley;
 
 uniform vec3 cor : source_color = vec3(0.2, 0.4, 1.0);
 uniform float inflacao = 1.0;      // 0 = murcho, 1 = cheio
+uniform float abertura = 1.0;      // abertura: as células enchem do centro para as pontas (0 → 1)
 uniform float vento = 1.0;         // intensidade da ondulação
 uniform float envergadura = 10.0;
 uniform float tempo = 0.0;         // relógio do script (as linhas dos estabilizadores usam o mesmo cálculo)
@@ -29,10 +30,20 @@ void vertex() {
 	} else {
 	float u = UV.x;
 	float c = UV.y;
+	// Enchimento por célula na abertura: centro primeiro, pontas por último. Célula ainda vazia
+	// fica pendurada (cai e pende para trás) e tremula forte.
+	// Pela posição contínua na envergadura (pelo índice da célula as bordas vizinhas se separavam)
+	float dist_centro = clamp(abs(VERTEX.x) / (envergadura * 0.5), 0.0, 1.0);
+	float cel = smoothstep(dist_centro * 0.6, dist_centro * 0.6 + 0.4, abertura);
+	float cheio = inflacao * cel;
+	float vazio = 1.0 - cel;
+	VERTEX.y -= vazio * (0.9 + c * 0.9);
+	VERTEX.z += vazio * c * 0.6;
+	VERTEX.y += vazio * sin(TIME * 20.0 + VERTEX.x * 2.0 + c * 4.0) * 0.1;
 	// Célula inflada: a face de cima estufa, a de baixo afunda um pouco
 	float bojo = sin(PI * u) * pow(sin(PI * clamp(c * 0.9 + 0.08, 0.0, 1.0)), 0.6);
 	float sinal = v_face > 0.75 ? 1.0 : (v_face < 0.25 ? -0.35 : 0.3);
-	VERTEX.y += bojo * 0.26 * inflacao * sinal;
+	VERTEX.y += bojo * 0.26 * cheio * sinal;
 	// Vento: ondas ao longo da envergadura, mais fortes na borda de fuga
 	float onda = sin(TIME * 7.0 + VERTEX.x * 0.9 + c * 2.0) * 0.5 + sin(TIME * 13.0 - VERTEX.x * 1.7) * 0.25;
 	VERTEX.y += onda * 0.07 * c * c * vento;

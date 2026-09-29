@@ -56,6 +56,28 @@ func _ready() -> void:
 	_iniciar_etapa(0)
 	if OS.get_environment("TSC_FOTO_FINAL") != "":
 		_foto_final(OS.get_environment("TSC_FOTO_FINAL"))
+	elif OS.get_environment("TSC_FOTO_PARAQUEDAS") != "":
+		_foto_paraquedas(OS.get_environment("TSC_FOTO_PARAQUEDAS"))
+
+
+## Sequência de fotos da abertura do paraquedas: carro do jogador parado no ar, câmera de lado.
+func _foto_paraquedas(pasta: String) -> void:
+	hud.visible = false
+	var v: Veiculo = jogador.veiculo
+	var f := complexos[0].frente
+	var pos := alvo.centro_base + Vector3.UP * 120.0 - f * 250.0
+	await get_tree().create_timer(0.5).timeout
+	v.preparar(Transform3D(Basis.looking_at(f, Vector3.UP), pos))
+	v.rumo = atan2(-f.x, -f.z)
+	v.paraquedas_aberto = true
+	v.paraquedas.abrir()
+	var lado := f.cross(Vector3.UP).normalized()
+	camera.podio(pos + Vector3.UP * 5.0, pos + lado * 16.0 + Vector3.UP * 7.0 - f * 6.0)
+	for alvo_s: float in [0.1, 0.3, 0.45, 0.6, 0.8, 1.05, 1.4, 2.2]:
+		while v.paraquedas._t < alvo_s:
+			await get_tree().process_frame
+		get_viewport().get_texture().get_image().save_png("%s/pq_%04d.png" % [pasta, int(alvo_s * 1000)])
+	get_tree().quit()
 
 
 ## Captura da comemoração sem jogar a partida: pontos sorteados, equipe AZUL vence.

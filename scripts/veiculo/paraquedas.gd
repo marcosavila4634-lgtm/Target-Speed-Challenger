@@ -3,7 +3,9 @@ extends Node3D
 ## Paraquedas tipo asa, na cor da equipe (DEC-05), feito por código.
 ## - Células infladas com bocas na frente, painéis estabilizadores nas pontas.
 ## - Linhas em cascata até dois tirantes presos no teto do carro.
-## - Abertura em etapas: pacote sai do teto, tecido estica, células enchem e dão um tranco.
+## - Abertura em etapas: o saco é disparado do teto e as linhas esticam; o velame sai do saco
+##   e as células enchem do centro para as pontas; o slider desce pelas linhas; a asa dá um
+##   tranco, balança e assenta. Sem paraquedinha extrator (pedido do dono).
 ##   A força de sustentação é imediata (dossiê); só o visual é animado.
 ## - Fechamento: o tecido murcha e fica para trás.
 ## - A cobertura fica acima do carro, alinhada ao rumo, e inclina menos que ele (pêndulo).
@@ -11,8 +13,13 @@ extends Node3D
 const ENVERGADURA := 10.0
 const CORDA := 3.6
 const CELULAS := 11
-const ABERTURA_S := 0.9
+const ABERTURA_S := 1.5
 const FECHAMENTO_S := 0.6
+# Etapas da abertura (fração de ABERTURA_S)
+const FIM_SACO := 0.32        # saco chega à altura da asa (linhas esticadas)
+const SAI_VELAME := 0.28      # velame começa a sair do saco
+const FIM_CELULAS := 0.8      # todas as células cheias
+const INICIO_TRANCO := 0.72
 
 var veiculo: Veiculo
 var aberto := false
@@ -30,6 +37,10 @@ var _pontas: Array[Vector3] = []     # na face de baixo da cobertura (espaço da
 var _inclinacao_suave := Vector2.ZERO
 var _saida_topo := Vector3.ZERO      # onde a cobertura ficou ao fechar
 var _saida_base := Basis()
+var _saco: MeshInstance3D            # saco de abertura
+var _slider: MeshInstance3D          # retângulo que desce pelas linhas freando a abertura
+var _p_abertura := 1.0               # progresso da abertura (0..1)
+var _pos_saco := Vector3.ZERO
 
 
 func montar(v: Veiculo, cor: Color, caixa: AABB) -> void:
@@ -80,7 +91,31 @@ func montar(v: Veiculo, cor: Color, caixa: AABB) -> void:
 	_area.body_entered.connect(_ao_encostar)
 	_area.area_entered.connect(_ao_encostar_cobertura)
 	_cobertura.add_child(_area)
+	_montar_extras(cor)
 	visible = false
+
+
+## Saco de abertura e slider (sem paraquedinha extrator, a pedido do dono).
+func _montar_extras(cor: Color) -> void:
+	var tecido_escuro := StandardMaterial3D.new()
+	tecido_escuro.albedo_color = Color(0.08, 0.08, 0.1)
+	tecido_escuro.roughness = 0.9
+	var caixa := BoxMesh.new()
+	caixa.size = Vector3(0.7, 0.32, 0.5)
+	caixa.material = tecido_escuro
+	_saco = MeshInstance3D.new()
+	_saco.mesh = caixa
+	_saco.top_level = true
+	add_child(_saco)
+	var placa := BoxMesh.new()
+	placa.size = Vector3(1.5, 0.03, 1.1)
+	var mat_s := tecido_escuro.duplicate() as StandardMaterial3D
+	mat_s.albedo_color = cor.darkened(0.55)
+	placa.material = mat_s
+	_slider = MeshInstance3D.new()
+	_slider.mesh = placa
+	_slider.top_level = true
+	add_child(_slider)
 
 
 ## Placa de reforço do teto: acompanha a curva da lataria (alturas dos vértices reais do modelo),
@@ -239,7 +274,10 @@ func abrir() -> void:
 	aberto = true
 	visible = true
 	_t = 0.0
+	_p_abertura = 0.0
 	_inclinacao_suave = Vector2.ZERO
+	_saco.visible = true
+	_slider.visible = true
 	_area.set_deferred("monitoring", true)
 	_atualizar(0.0)
 
@@ -250,6 +288,11 @@ func fechar(imediato := false) -> void:
 		_saida_base = global_basis
 		_t = 0.0
 	aberto = false
+	if _mat:
+		_mat.set_shader_parameter("abertura", 1.0)
+	for extra in [_saco, _slider]:
+		if extra:
+			extra.visible = false
 	if _area:
 		_area.set_deferred("monitoring", false)
 	if imediato or _cobertura == null:
@@ -275,17 +318,29 @@ func _atualizar(delta: float) -> void:
 		var euler := xf_carro.basis.get_euler()
 		var alvo := Vector2(euler.x, euler.z) * 0.35
 		_inclinacao_suave = alvo if delta == 0.0 else _inclinacao_suave.lerp(alvo, 1.0 - exp(-delta * 4.0))
-		var base := Basis.from_euler(Vector3(_inclinacao_suave.x, veiculo.rumo, _inclinacao_suave.y))
-		# Etapas da abertura: sobe do teto (0–30%), estica (30–55%), enche com tranco (55–100%)
 		var p := clampf(_t / ABERTURA_S, 0.0, 1.0)
-		var subida := _suave(clampf(p / 0.3, 0.0, 1.0))
-		var enchimento := clampf((p - 0.45) / 0.55, 0.0, 1.0)
-		var largura := lerpf(0.12, 1.0, _elastico(enchimento)) if p > 0.3 else 0.12
-		var comprimento := lerpf(0.35, 1.0, _suave(clampf((p - 0.2) / 0.35, 0.0, 1.0)))
-		var h := lerpf(0.6, altura - veiculo.caixa_corpo.end.y, subida)
-		global_transform = Transform3D(base, topo_carro + base.y * h - base.z * (1.0 - subida) * 1.5)
-		_cobertura.scale = Vector3(largura, lerpf(0.4, 1.0, subida), comprimento)
-		_mat.set_shader_parameter("inflacao", _suave(enchimento))
+		_p_abertura = p
+		# Tranco no fim do enchimento: a asa passa à frente do carro e volta, amortecendo
+		var tt := maxf(_t - ABERTURA_S * INICIO_TRANCO, 0.0)
+		var tranco := sin(tt * 7.5) * exp(-tt * 3.2) * 0.3 if _t > ABERTURA_S * INICIO_TRANCO else 0.0
+		var base := Basis.from_euler(Vector3(_inclinacao_suave.x - tranco, veiculo.rumo, _inclinacao_suave.y))
+		var h_final := altura - veiculo.caixa_corpo.end.y
+		var pos_final := topo_carro + base.y * h_final
+		# 1) Extração: o saco é disparado do teto e sobe, ficando um pouco para trás
+		var e := _suave(clampf(p / FIM_SACO, 0.0, 1.0))
+		var ref_teto := xf_carro * ((_fixacoes[0] + _fixacoes[1]) * 0.5)
+		_pos_saco = ref_teto.lerp(pos_final, e) + base.z * sin(e * PI) * 2.2
+		_saco.global_transform = Transform3D(base.rotated(base.x, e * 1.2), _pos_saco)
+		_saco.visible = p < SAI_VELAME + 0.12
+		# 2) Velame: sai do saco estreito e comprido, alarga com um pequeno repique
+		var sai := clampf((p - SAI_VELAME) / (FIM_CELULAS - SAI_VELAME), 0.0, 1.0)
+		_malha.visible = p >= SAI_VELAME
+		var largura := lerpf(0.1, 1.0, _elastico(sai))
+		var comprimento := lerpf(0.3, 1.0, _suave(clampf(sai * 1.8, 0.0, 1.0)))
+		global_transform = Transform3D(base, _pos_saco.lerp(pos_final, _suave(clampf(sai * 2.0, 0.0, 1.0))))
+		_cobertura.scale = Vector3(largura, lerpf(0.5, 1.0, sai), comprimento)
+		_mat.set_shader_parameter("abertura", sai)
+		_mat.set_shader_parameter("inflacao", lerpf(0.7, 1.0, _suave(clampf(sai * 1.5, 0.0, 1.0))))
 		_mat.set_shader_parameter("vento", 1.0 + clampf(veiculo.linear_velocity.length() / 25.0, 0.0, 1.5))
 	else:
 		# Fechando: murcha, estreita e fica para trás subindo um pouco
@@ -314,6 +369,14 @@ func _desenhar_linhas(xf_carro: Transform3D) -> void:
 		if _t > 0.12:
 			return
 	_linhas.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	if aberto:
+		if _p_abertura < SAI_VELAME:
+			# Linhas ainda dentro do saco: um feixe esticado de cada presilha até ele
+			for f in fixacoes:
+				_fita(f, _pos_saco, 0.06, olho)
+			_slider.visible = false
+			_linhas.surface_end()
+			return
 	# Tirantes: um de cada lado, saindo da presilha em direção ao seu lado da asa
 	for lado in 2:
 		var sinal := -1.0 if lado == 0 else 1.0
@@ -332,6 +395,14 @@ func _desenhar_linhas(xf_carro: Transform3D) -> void:
 		for q: Array in pontos:
 			_fita(xf_cob * _desloc_estabilizador(q[0], q[1]), tirantes[lado], 0.022, olho)
 	_linhas.surface_end()
+	# Slider: desce pelas linhas de logo abaixo da asa até perto dos tirantes
+	if aberto:
+		var desce := _suave(clampf((_p_abertura - SAI_VELAME) / (1.0 - SAI_VELAME), 0.0, 1.0))
+		var alto := xf_cob * Vector3(0, _perfil(0.0) - 0.8, 0)
+		var baixo := (tirantes[0] + tirantes[1]) * 0.5 + (alto - (tirantes[0] + tirantes[1]) * 0.5).normalized() * 0.4
+		var b_s := xf_cob.basis.orthonormalized()
+		_slider.visible = true
+		_slider.global_transform = Transform3D(b_s * Basis.from_scale(Vector3(lerpf(0.5, 1.0, desce), 1.0, 1.0)), alto.lerp(baixo, desce))
 
 
 ## Linha fina desenhada como fita virada para a câmera.
