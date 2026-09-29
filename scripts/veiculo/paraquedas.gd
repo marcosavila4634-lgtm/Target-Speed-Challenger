@@ -39,6 +39,7 @@ var _saida_topo := Vector3.ZERO      # onde a cobertura ficou ao fechar
 var _saida_base := Basis()
 var _saco: MeshInstance3D            # saco de abertura
 var _slider: MeshInstance3D          # retângulo que desce pelas linhas freando a abertura
+var _mat_slider: ShaderMaterial
 var _p_abertura := 1.0               # progresso da abertura (0..1)
 var _pos_saco := Vector3.ZERO
 
@@ -107,11 +108,15 @@ func _montar_extras(cor: Color) -> void:
 	_saco.mesh = caixa
 	_saco.top_level = true
 	add_child(_saco)
-	var placa := BoxMesh.new()
-	placa.size = Vector3(1.5, 0.03, 1.1)
-	var mat_s := tecido_escuro.duplicate() as StandardMaterial3D
-	mat_s.albedo_color = cor.darkened(0.55)
-	placa.material = mat_s
+	# Slider: tecido subdividido que estufa e bate com o vento (shaders/slider.gdshader)
+	var placa := PlaneMesh.new()
+	placa.size = Vector2(1.5, 1.1)
+	placa.subdivide_width = 10
+	placa.subdivide_depth = 8
+	_mat_slider = ShaderMaterial.new()
+	_mat_slider.shader = load("res://shaders/slider.gdshader")
+	_mat_slider.set_shader_parameter("cor", cor.darkened(0.45))
+	placa.material = _mat_slider
 	_slider = MeshInstance3D.new()
 	_slider.mesh = placa
 	_slider.top_level = true
@@ -342,6 +347,7 @@ func _atualizar(delta: float) -> void:
 		_mat.set_shader_parameter("abertura", sai)
 		_mat.set_shader_parameter("inflacao", lerpf(0.7, 1.0, _suave(clampf(sai * 1.5, 0.0, 1.0))))
 		_mat.set_shader_parameter("vento", 1.0 + clampf(veiculo.linear_velocity.length() / 25.0, 0.0, 1.5))
+		_mat_slider.set_shader_parameter("vento", 1.0 + clampf(veiculo.linear_velocity.length() / 25.0, 0.0, 1.5))
 	else:
 		# Fechando: murcha, estreita e fica para trás subindo um pouco
 		var p := clampf(_t / FECHAMENTO_S, 0.0, 1.0)
