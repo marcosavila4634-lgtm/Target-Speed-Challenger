@@ -79,6 +79,12 @@
 		"nitro_aceleracao": 9.0,
 		"nitro_extra_planeio": 10,
 		"controle_aereo_graus_s": 90,
+		"limite_velocidade": {
+			"_limite": "Com rodas no chão, cada carro fica limitado à própria velocidade máxima (veiculos.json + upgrade de motor) x fator. O nitro libera a margem extra (0.15 = +15%). Rigidez = quão firme o limitador segura (1/s).",
+			"fator": 1.0,
+			"margem_nitro": 0.15,
+			"rigidez": 2.0
+		},
 		"re_forca": 0.6,
 		"re_velocidade_max_kmh": 30,
 		"_zigue_zague": "No alvo: desaceleração (m/s²) = ganho x trocas de lado do volante por segundo, limitada a max.",

@@ -15,12 +15,13 @@
 	},
 
 	"barras": {
-		"_barras": "Barras de 1 a 5 do menu, calculadas dos valores reais do carro (com upgrades): nota = 1 + (valor - base) / passo, arredondada para baixo. Carros de fábrica ficam em no máximo 2; os upgrades sobem até 5.",
+		"_barras": "Barras de 1 a 5 do menu, calculadas dos valores reais do carro (com upgrades): nota = nota_base (padrão 1) + (valor - base) / passo, arredondada para baixo. Carros de fábrica ficam em no máximo 2; os upgrades sobem até 5. PESO é ao contrário ('inverso'): mais risquinhos = mais pesado; carros leves começam em 3, pesados em 5, e o upgrade de CHASSI diminui.",
 		"lista": [
 			{ "id": "velocidade", "nome": "VELOCIDADE", "atributo": "velocidade_max_kmh", "base": 120, "passo": 30 },
 			{ "id": "aceleracao", "nome": "ACELERAÇÃO", "atributo": "aceleracao", "base": 3.5, "passo": 1.0 },
 			{ "id": "aderencia", "nome": "ADERÊNCIA", "atributo": "aderencia", "base": 1.0, "passo": 0.1 },
-			{ "id": "planeio", "nome": "PLANEIO", "atributo": "paraquedas_sustentacao", "base": 0.8, "passo": 0.1 }
+			{ "id": "planeio", "nome": "PLANEIO", "atributo": "paraquedas_sustentacao", "base": 0.8, "passo": 0.1 },
+			{ "id": "peso", "nome": "PESO", "atributo": "massa", "base": 800, "passo": 550, "nota_base": 3, "inverso": true }
 		]
 	},
 
@@ -56,6 +57,17 @@
 				{ "nivel_veiculo": 2, "efeito": { "paraquedas_sustentacao": { "mult": 1.08 }, "paraquedas_controle": { "mult": 1.05 }, "paraquedas_velocidade": { "mult": 1.03 } } },
 				{ "nivel_veiculo": 5, "efeito": { "paraquedas_sustentacao": { "mult": 1.16 }, "paraquedas_controle": { "mult": 1.10 }, "paraquedas_velocidade": { "mult": 1.06 } } },
 				{ "nivel_veiculo": 8, "efeito": { "paraquedas_sustentacao": { "mult": 1.25 }, "paraquedas_controle": { "mult": 1.15 }, "paraquedas_velocidade": { "mult": 1.09 } } }
+			]
+		},
+		{
+			"id": "chassi",
+			"nome": "CHASSI",
+			"icone": "chassi",
+			"descricao": "Peças leves: menos peso, mais arrancada e planeio.",
+			"niveis": [
+				{ "nivel_veiculo": 2, "efeito": { "massa": { "mult": 0.92 } } },
+				{ "nivel_veiculo": 5, "efeito": { "massa": { "mult": 0.84 } } },
+				{ "nivel_veiculo": 8, "efeito": { "massa": { "mult": 0.75 } } }
 			]
 		},
 		{

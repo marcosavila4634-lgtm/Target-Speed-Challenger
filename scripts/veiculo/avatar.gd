@@ -3,6 +3,7 @@ extends Node3D
 ## Piloto (avatar) com esqueleto padrão Mixamo, sem animações no arquivo: as poses são montadas
 ## por código apontando os ossos para direções no espaço do avatar (frente = -Z, cima = +Y).
 ## - em_pe(): parado, braços relaxados (hangar do menu).
+## - festejar(): comemoração do fim da partida (pulos e braços para o alto).
 ## - sentar_em(veiculo): no banco do motorista, mãos no volante (IK de dois ossos), pés nos pedais.
 ##   A cada quadro o volante do carro gira com a direção, as mãos acompanham e a cabeça olha a curva.
 
@@ -25,6 +26,8 @@ var _vol_raio := 0.18
 var _dobra_dedo := {}                  # índice do osso da falange -> fração da dobra
 var _chao_pes := -INF                  # altura do assoalho sob os pés (espaço do avatar)
 var _giro_volante := 0.0             # rotação do volante; positivo = horário (curva à direita)
+var _festa := 0.0                      # > 0: comemorando (intensidade)
+var _t_festa := 0.0
 
 
 static func criar(d: Dictionary) -> Avatar:
@@ -94,6 +97,34 @@ func em_pe() -> void:
 		"LeftArm": Vector3(-0.12, -1.0, 0.02), "RightArm": Vector3(0.12, -1.0, 0.02),
 		"LeftForeArm": Vector3(-0.06, -1.0, -0.22), "RightForeArm": Vector3(0.06, -1.0, -0.22),
 	}, {}, Basis.IDENTITY, {})
+
+
+## Comemoração (fim da partida): pula e sacode os braços para o alto. `intensidade` > 1 para o
+## melhor da partida (pula mais alto). Animada em _process.
+func festejar(intensidade := 1.0) -> void:
+	veiculo = null
+	_festa = intensidade
+	_t_festa = randf() * 3.0   # cada piloto num ritmo diferente
+	modelo.position = Vector3.ZERO
+	set_process(true)
+
+
+func _pose_festa(delta: float) -> void:
+	_t_festa += delta
+	var ritmo := _t_festa * 5.2
+	var pulo := absf(sin(ritmo)) * 0.16 * _festa * escala_rel()
+	modelo.position.y = pulo
+	# Braços em "V" que sobem e descem com o pulo; a cada ~3 s um soco no ar alternado
+	var soco := sin(_t_festa * 2.1)
+	var sobe_e := 0.75 + 0.25 * sin(ritmo) + (0.35 if soco > 0.6 else 0.0)
+	var sobe_d := 0.75 + 0.25 * sin(ritmo) + (0.35 if soco < -0.6 else 0.0)
+	var abre := 0.55 - 0.15 * sin(ritmo)
+	_posar({
+		"LeftArm": Vector3(-abre, sobe_e, -0.1), "RightArm": Vector3(abre, sobe_d, -0.1),
+		"LeftForeArm": Vector3(-abre * 0.3, 1.0, -0.15), "RightForeArm": Vector3(abre * 0.3, 1.0, -0.15),
+		"Head": Vector3(0, 1, 0.12 * sin(ritmo)),
+		"LeftUpLeg": Vector3(-0.08, -1, -0.12 * absf(sin(ritmo))), "RightUpLeg": Vector3(0.08, -1, -0.12 * absf(sin(ritmo))),
+	}, {}, Basis(Vector3.RIGHT, deg_to_rad(-6.0)), {}, 1.0)
 
 
 ## Senta no banco do motorista do veículo, com as mãos no volante.
@@ -327,6 +358,9 @@ func _volante_proprio() -> void:
 
 
 func _process(delta: float) -> void:
+	if _festa > 0.0:
+		_pose_festa(delta)
+		return
 	if veiculo == null or not veiculo.visible:
 		return
 	var alvo := clampf(float(veiculo.get("_direcao_suave")) * ROTACAO_MAX_VOLANTE, -ROTACAO_MAX_VOLANTE, ROTACAO_MAX_VOLANTE)

@@ -492,7 +492,7 @@ func _montar_cartoes() -> void:
 func _montar_painel_direito() -> void:
 	var painel := PanelContainer.new()
 	painel.add_theme_stylebox_override("panel", Estilo.caixa_neon(Color(0.02, 0.05, 0.12, 0.88), Estilo.AZUL_NEON, 0.6, 12))
-	_colocar(painel, Vector2(1, 1), Vector2(1516, 785), Vector2(376, 244))
+	_colocar(painel, Vector2(1, 1), Vector2(1516, 757), Vector2(376, 272))
 	add_child(painel)
 	_nos_inicio.append(painel)
 	var v := VBoxContainer.new()
@@ -537,7 +537,9 @@ func _preencher_atributos(d: Dictionary) -> void:
 		n.custom_minimum_size.x = 118
 		var valor: int = b.nota
 		var num := Estilo.rotulo("%d/5" % valor, 17, Estilo.TEXTO_FRACO, 600)
-		_atributos.add_child(_linha([n, Estilo.barra_segmentos(valor, 5, Estilo.AZUL_NEON, 170), num], 10))
+		# Peso é ao contrário (menos é melhor): barra em âmbar para não confundir com as outras
+		var cor := Color(1.0, 0.62, 0.2) if b.inverso else Estilo.AZUL_NEON
+		_atributos.add_child(_linha([n, Estilo.barra_segmentos(valor, 5, cor, 170), num], 10))
 
 
 # ------------------------------------------------------------------ seleção e ações
@@ -552,7 +554,7 @@ func _selecionar(indice: int) -> void:
 	# Nomes longos: a fonte encolhe para caber na placa
 	_placa_nome.add_theme_font_size_override("font_size", clampi(int(46.0 * 17.0 / maxf(_placa_nome.text.length(), 17.0)), 30, 46))
 	var tracao := {"4x4": "TRAÇÃO 4X4", "dianteira": "TRAÇÃO DIANTEIRA", "traseira": "TRAÇÃO TRASEIRA"}
-	_placa_sub.text = "%s  —  %d KG  —  %d KM/H\nVEÍCULO %d DE %d  —  NÍVEL %d" % [tracao.get(d.get("tracao", "4x4"), ""), int(d.get("massa", 0)), int(d.get("velocidade_max_kmh", 0)), _indice + 1, _veiculos.size(), Progresso.nivel(d.id)]
+	_placa_sub.text = "%s  —  %d KG  —  %d KM/H\nVEÍCULO %d DE %d  —  NÍVEL %d" % [tracao.get(d.get("tracao", "4x4"), ""), int(Progresso.dados_jogador(d.id).get("massa", 0)), int(Progresso.dados_jogador(d.id).get("velocidade_max_kmh", 0)), _indice + 1, _veiculos.size(), Progresso.nivel(d.id)]
 	_preencher_atributos(d)
 	if _tuning_aberto():
 		_tuning.mostrar(d.id)
@@ -580,7 +582,7 @@ func _abrir_tuning() -> void:
 	_fechar_popup()
 	if _tuning == null:
 		_tuning = Tuning.new()
-		_colocar(_tuning, Vector2(0.5, 1), Vector2(440, 655), Vector2(1452, 400))
+		_colocar(_tuning, Vector2(0.5, 1), Vector2(440, 605), Vector2(1452, 450))
 		_tuning.fechar.connect(_fechar_tuning)
 		add_child(_tuning)
 	for n in _nos_inicio:

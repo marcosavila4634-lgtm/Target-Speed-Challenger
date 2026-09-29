@@ -32,6 +32,7 @@ var _carregando: Control
 var _pausa: Control
 var _rotulos_veiculos := {}
 var _msg_tempo := 0.0
+var _final := false        # resultado final na tela: o resto do HUD fica escondido
 
 
 class Losango extends Control:
@@ -226,6 +227,8 @@ func mostrar_equipes(quantidade: int) -> void:
 
 
 func atualizar(info: Dictionary, delta: float) -> void:
+	if _final:
+		return
 	_etapa.text = info.etapa_texto
 	var t: float = maxf(info.tempo, 0.0)
 	_tempo.text = "%02d:%02d" % [int(t) / 60, int(t) % 60]
@@ -392,7 +395,7 @@ func _limpar_overlay() -> void:
 		_overlay = null
 
 
-func _novo_overlay(titulo: String, subtitulo: String) -> VBoxContainer:
+func _novo_overlay(titulo: String, subtitulo: String, preset := Control.PRESET_CENTER) -> VBoxContainer:
 	_limpar_overlay()
 	var p := Estilo.painel()
 	p.custom_minimum_size = Vector2(760, 0)
@@ -408,7 +411,7 @@ func _novo_overlay(titulo: String, subtitulo: String) -> VBoxContainer:
 		v.add_child(s)
 	v.add_child(HSeparator.new())
 	_overlay = p
-	_ancorar(p, Control.PRESET_CENTER, 0)
+	_ancorar(p, preset, 0 if preset == Control.PRESET_CENTER else 40)
 	return v
 
 
@@ -435,7 +438,8 @@ func resultado_etapa(dados: Dictionary) -> void:
 
 ## dados: {titulo, subtitulo, equipes: [{nome, cor, pontos, detalhe}], jogadores: [{nome, cor, etapas, total}], mvp, xp}
 func resultado_final(dados: Dictionary) -> void:
-	var v := _novo_overlay(dados.titulo, dados.subtitulo)
+	# À esquerda: o centro da tela fica para a comemoração no alvo
+	var v := _novo_overlay(dados.titulo, dados.subtitulo, Control.PRESET_CENTER_LEFT)
 	var pos := 1
 	for e in dados.equipes:
 		var l := _linha_cor(e.cor, "%dº  EQUIPE %s" % [pos, e.nome], "%d pts   %s" % [e.pontos, e.detalhe], 300)
@@ -466,6 +470,11 @@ func resultado_final(dados: Dictionary) -> void:
 	botoes.add_child(b2)
 	v.add_child(botoes)
 	b1.grab_focus()
+	# Só o resultado fica na tela: placar, tempo, velocímetro etc. saem da frente da comemoração
+	_final = true
+	for c in raiz.get_children():
+		if c != _overlay:
+			(c as CanvasItem).visible = false
 
 
 func esconder_resultado() -> void:

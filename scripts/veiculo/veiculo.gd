@@ -76,6 +76,7 @@ var zz_max := 8.0            # desaceleração máxima do zigue-zague (m/s²)
 var _volante_ant := 0.0
 var _atividade_volante := 0.0
 var direcao_max := deg_to_rad(32)
+var _fator_peso := 1.0       # massa de fábrica / massa atual (upgrade de chassi)
 var arrasto := 0.002
 var g := 9.8
 
@@ -117,6 +118,10 @@ func _ready() -> void:
 	curso = float(dados.get("suspensao_curso", 0.2))
 	aderencia = float(dados.get("aderencia", 1.1))
 	aceleracao = float(dados.get("aceleracao", 5.0))
+	# Peso: as forças daqui são proporcionais à massa, então o peso só pesa em relação ao de
+	# fábrica (upgrade de chassi): mais leve = mais arrancada e menos afundamento no paraquedas.
+	_fator_peso = float(dados.get("massa_fabrica", mass)) / mass
+	aceleracao *= _fator_peso
 	vel_max = float(dados.get("velocidade_max_kmh", 160)) / 3.6
 	freio = float(dados.get("freio", 9.0))
 	forca_re = float(Config.valor("fisica.re_forca", 0.6))
@@ -135,7 +140,10 @@ func _ready() -> void:
 		"nitro_duracao": float(dados.get("nitro_duracao", Config.valor("fisica.nitro_duracao", 4.0))),
 		"nitro_acel": float(dados.get("nitro_aceleracao", Config.valor("fisica.nitro_aceleracao", 9.0))),
 		"nitro_planeio": float(Config.valor("fisica.nitro_extra_planeio", 10)),
-		"controle_aereo": deg_to_rad(float(Config.valor("fisica.controle_aereo_graus_s", 90))),
+		"limite_fator": float(Config.valor("fisica.limite_velocidade.fator", 1.0)),
+		"limite_nitro": float(Config.valor("fisica.limite_velocidade.margem_nitro", 0.15)),
+		"limite_rigidez": float(Config.valor("fisica.limite_velocidade.rigidez", 2.0)),
+		"controle_aereo":deg_to_rad(float(Config.valor("fisica.controle_aereo_graus_s", 90))),
 		"pq": Config.valor("fisica.paraquedas", {}),
 		"nivel_agua": float(Config.valor("mapa.nivel_agua", 4)),
 	}
@@ -660,6 +668,12 @@ func _integrate_forces(s: PhysicsDirectBodyState3D) -> void:
 		s.apply_force(dir_roda * f.x + lado * f.y, ponto_forca)
 
 	s.apply_central_force(-v * v.length() * arrasto * mass)
+	# Limitador: com rodas no chão o carro não passa da velocidade limite dele (a gravidade na
+	# descida levava todos a ~253 km/h). O nitro libera uma margem acima do limite.
+	if rodas_no_chao > 0 and not travado:
+		var limite: float = vel_max * _cfg.limite_fator * (1.0 + _cfg.limite_nitro if nitro_ativo else 1.0)
+		if v_frente > limite:
+			s.apply_central_force(-frente * mass * minf((v_frente - limite) * float(_cfg.limite_rigidez), 12.0))
 	_zigue_zague(s, dt, v - vel_apoio)
 
 	var no_chao := rodas_no_chao > 0 or contato_corpo
@@ -745,6 +759,7 @@ func _planeio(s: PhysicsDirectBodyState3D, v: Vector3) -> void:
 	var alvo_af: float = pq.get("afundamento_neutro", 1.6)
 	alvo_v = lerpf(lerpf(alvo_v, pq.get("velocidade_w", 34), w), pq.get("velocidade_s", 13), sb)
 	alvo_af = lerpf(lerpf(alvo_af, pq.get("afundamento_w", 5.0), w), pq.get("afundamento_s", 0.8), sb)
+	alvo_af /= sqrt(_fator_peso)
 	alvo_v *= float(dados.get("paraquedas_velocidade", 1.0))
 	alvo_af /= float(dados.get("paraquedas_sustentacao", 1.0))
 	if nitro_ativo:

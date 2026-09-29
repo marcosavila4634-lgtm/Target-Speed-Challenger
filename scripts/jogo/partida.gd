@@ -54,6 +54,18 @@ func _ready() -> void:
 	if Sessao.teste_automatico:
 		Engine.time_scale = 4.0
 	_iniciar_etapa(0)
+	if OS.get_environment("TSC_FOTO_FINAL") != "":
+		_foto_final(OS.get_environment("TSC_FOTO_FINAL"))
+
+
+## Captura da comemoração sem jogar a partida: pontos sorteados, equipe AZUL vence.
+func _foto_final(arquivo: String) -> void:
+	for p in participantes:
+		p.pontos = [_rng.randi_range(0, 5), _rng.randi_range(0, 5), 5 if p.equipe == 0 else 0, 0]
+	_mostrar_final(range(equipes_qtd))
+	await get_tree().create_timer(4.0).timeout
+	get_viewport().get_texture().get_image().save_png(arquivo)
+	get_tree().quit()
 
 
 # ------------------------------------------------------------------ montagem
@@ -507,19 +519,97 @@ func _mostrar_final(ordem: Array) -> void:
 	# XP da garagem para o carro do jogador (o teste automático não conta)
 	var texto_xp := ""
 	for p in participantes:
-		if p.veiculo.eh_jogador and not Sessao.teste_automatico:
+		if p.veiculo.eh_jogador and not Sessao.teste_automatico and OS.get_environment("TSC_FOTO_FINAL") == "":
 			var r := Progresso.registrar_partida(Sessao.veiculo_id, p.total, venceu)
 			texto_xp = "+%d XP  —  %s" % [r.ganho, str(p.veiculo.dados.nome).to_upper()]
 			if r.subiu_nivel:
 				texto_xp += "  —  NÍVEL %d! NOVOS UPGRADES NA GARAGEM" % r.nivel
 	hud.resultado_final({"titulo": titulo, "subtitulo": "Canyon Rush — resultado final", "equipes": equipes,
 		"jogadores": jogadores, "mvp": "%s (%d pts)" % [mvp.nome, mvp.total], "xp": texto_xp})
+	_montar_comemoracao(ordem[0], mvp)
 	if venceu:
 		Audio.tocar("ambiente/publico_vibra_forte.mp3", null, 0.0, 1.0, 0.0, "Ambiente")
 	Audio.interface("confirmar" if venceu else "erro", -2.0)
 	if Sessao.teste_automatico:
 		print("[TESTE] Partida concluída. Vencedora: ", Config.EQUIPES[ordem[0]].nome)
 		get_tree().quit()
+
+
+## Fim da partida: carros da equipe vencedora em cima do alvo (plano e parado), cada piloto em pé
+## ao lado do seu carro comemorando. O MVP da partida fica na frente, no centro, com holofote e
+## nome em cima (se ele não for da equipe vencedora, entra também, como destaque).
+func _montar_comemoracao(equipe_vencedora: int, mvp: Dictionary) -> void:
+	alvo.configurar(etapas_cfg[0])
+	# Disco recém-montado: a posição global dele só atualiza no próximo quadro; o topo do disco
+	# plano é o próprio centro_base
+	var c := alvo.centro_base
+	# Câmera do lado da rampa da equipe vencedora; carros de frente para ela
+	var dir: Vector3 = Config.EQUIPES[equipe_vencedora].direcao
+	var para_cam := -dir.normalized()
+	var lado := para_cam.cross(Vector3.UP).normalized()
+	var fila := participantes.filter(func(p): return p.equipe == equipe_vencedora and p != mvp)
+	for p in participantes:
+		p.controle.ativo = false
+		var v: Veiculo = p.veiculo
+		if p != mvp and not p in fila:
+			v.visible = false
+			v.congelar(true)
+			if v.som:
+				v.som.silenciar()
+	# Fila de trás, levemente virada para o centro
+	for i in fila.size():
+		var x := (i - (fila.size() - 1) * 0.5) * 6.0
+		_posicionar_comemoracao(fila[i], c + lado * x - para_cam * 3.5, para_cam.rotated(Vector3.UP, -x * 0.03), 1.0)
+	# MVP na frente
+	var avatar_mvp := _posicionar_comemoracao(mvp, c + para_cam * 3.5, para_cam, 1.6)
+	var holofote := SpotLight3D.new()
+	holofote.light_color = Color(1.0, 0.9, 0.7)
+	holofote.light_energy = 12.0
+	holofote.spot_range = 30.0
+	holofote.spot_angle = 18.0
+	holofote.shadow_enabled = true
+	add_child(holofote)
+	holofote.global_position = c + para_cam * 3.5 + Vector3.UP * 16.0 + para_cam * 4.0
+	holofote.look_at(c + para_cam * 3.5, lado)
+	var nome := Label3D.new()
+	nome.text = "★ MVP ★\n" + str(mvp.nome)
+	nome.font = Estilo.fonte_titulo(800)
+	nome.font_size = 96
+	nome.pixel_size = 0.005
+	nome.modulate = Color(1.0, 0.85, 0.4)
+	nome.outline_size = 18
+	nome.outline_modulate = Color(0, 0, 0, 0.8)
+	nome.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	nome.no_depth_test = true
+	add_child(nome)
+	# Em cima do piloto do MVP (acima do carro ficava atrás de caminhões e vans)
+	var v_mvp: Veiculo = mvp.veiculo
+	nome.global_position = avatar_mvp.global_position + Vector3.UP * 2.5 if avatar_mvp else c + para_cam * 3.5 + Vector3.UP * (v_mvp.caixa_corpo.end.y + 1.2)
+	alvo.festejar(Config.EQUIPES[equipe_vencedora].cor, 3600.0)
+	# O grupo fica na metade direita da tela (a esquerda é do painel de resultado)
+	var pos_cam := c + para_cam * 14.0 + Vector3.UP * 3.8 - lado * 5.0
+	var foco := c + Vector3.UP * 1.3 + para_cam * 1.0
+	var direita_tela := (foco - pos_cam).normalized().cross(Vector3.UP).normalized()
+	camera.podio(foco - direita_tela * 4.5, pos_cam)
+
+
+func _posicionar_comemoracao(p: Dictionary, pos: Vector3, frente: Vector3, intensidade: float) -> Avatar:
+	var v: Veiculo = p.veiculo
+	# O carro olha para `frente` (a frente do Veiculo é -Z)
+	var b := Basis.looking_at(frente, Vector3.UP)
+	v.preparar(Transform3D(b, pos + Vector3.UP * 0.15))
+	if v.piloto:
+		v.piloto.visible = false   # o piloto sai do carro e fica em pé ao lado
+	if v.avatar_dados.is_empty():
+		return null
+	var a := Avatar.criar(v.avatar_dados)
+	add_child(a)
+	# Ao lado da porta do motorista, virado para a câmera
+	var esquerda := -b.x
+	a.global_position = pos + esquerda * (v.caixa_corpo.size.x * 0.5 + 0.9) + frente * 0.6
+	a.rotation.y = atan2(-frente.x, -frente.z)
+	a.festejar(intensidade)
+	return a
 
 
 # ------------------------------------------------------------------ eventos

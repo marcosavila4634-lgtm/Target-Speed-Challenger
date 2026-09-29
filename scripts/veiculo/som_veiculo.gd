@@ -187,6 +187,13 @@ func _process(delta: float) -> void:
 	_vel_ant = vel
 
 
+## Para todos os sons contínuos (carros que saem de cena na comemoração final).
+func silenciar() -> void:
+	for p in _loops:
+		p.call("stop")
+	set_process(false)
+
+
 func _ao_ejetor(_v: Veiculo) -> void:
 	# Disparo pneumático: estalo metálico e estrondo grave curto
 	Audio.tocar("efeitos/pouso_", v.global_position, 2.0, 0.7, 0.05, "Efeitos", 18.0)

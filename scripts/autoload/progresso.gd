@@ -133,6 +133,8 @@ func definir_upgrade(id: String, cat_id: String, n: int) -> bool:
 ## (nitro, ejetor) entram no dicionário com o valor de fábrica do jogo.json antes do efeito.
 func aplicar(dados: Dictionary, niveis: Dictionary) -> Dictionary:
 	var r := dados.duplicate(true)
+	if not r.has("massa_fabrica"):
+		r["massa_fabrica"] = float(r.get("massa", 1000))   # referência do efeito do peso (veiculo.gd)
 	for chave in GLOBAIS:
 		if not r.has(chave):
 			r[chave] = float(Config.valor(GLOBAIS[chave], 0.0))
@@ -152,8 +154,8 @@ func aplicar(dados: Dictionary, niveis: Dictionary) -> Dictionary:
 func barras(dados: Dictionary) -> Array:
 	var r := []
 	for b in Config.upgrades.get("barras", {}).get("lista", []):
-		var x := 1.0 + (float(dados.get(b.atributo, b.base)) - float(b.base)) / float(b.passo)
-		r.append({"id": b.id, "nome": b.nome, "nota": clampi(floori(x + 0.0001), 1, 5)})
+		var x := float(b.get("nota_base", 1)) + (float(dados.get(b.atributo, b.base)) - float(b.base)) / float(b.passo)
+		r.append({"id": b.id, "nome": b.nome, "nota": clampi(floori(x + 0.0001), 1, 5), "inverso": b.get("inverso", false)})
 	return r
 
 

@@ -11,6 +11,7 @@ const ATRIBUTOS := [
 	["velocidade_max_kmh", "VELOCIDADE MÁX.", "%.0f", " km/h"],
 	["aceleracao", "ACELERAÇÃO", "%.1f", " m/s²"],
 	["aderencia", "ADERÊNCIA", "%.2f", ""],
+	["massa", "PESO", "%.0f", " kg"],
 	["paraquedas_sustentacao", "SUSTENTAÇÃO (PARAQUEDAS)", "%.0f", "%"],
 	["paraquedas_controle", "CONTROLE (PARAQUEDAS)", "%.0f", "%"],
 	["paraquedas_velocidade", "VELOCIDADE DE VOO", "%.0f", "%"],
@@ -18,7 +19,8 @@ const ATRIBUTOS := [
 	["nitro_aceleracao", "FORÇA DO NITRO", "%.1f", " m/s²"],
 	["ejetor_impulso", "IMPULSO DO EJETOR", "%.1f", " m/s"],
 ]
-const PERCENTUAIS := ["paraquedas_sustentacao", "paraquedas_controle", "paraquedas_velocidade"]
+const MENOR_MELHOR := ["massa"]
+const PERCENTUAIS :=["paraquedas_sustentacao", "paraquedas_controle", "paraquedas_velocidade"]
 
 var veiculo_id := ""
 var _nivel: Label
@@ -145,6 +147,8 @@ func _mostrar_atributos(previa: Dictionary) -> void:
 			l.add_theme_color_override("font_color", Estilo.TEXTO)
 		else:
 			var melhor: bool = float(novo[a[0]]) > float(atual[a[0]])
+			if a[0] in MENOR_MELHOR:
+				melhor = not melhor
 			l.text = "%s  →  %s" % [v, _fmt(a, float(novo[a[0]]))]
 			l.add_theme_color_override("font_color", Estilo.OK if melhor else Estilo.PERIGO)
 

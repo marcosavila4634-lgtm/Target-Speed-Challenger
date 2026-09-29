@@ -4,7 +4,7 @@ extends Node3D
 ## sem segurar botão. Afasta-se no voo para enquadrar carro e paraquedas e continua afastada
 ## na aproximação do alvo. Também faz a apresentação cinematográfica e o modo espectador.
 
-enum Modo { SEGUIR, CINEMATICA }
+enum Modo { SEGUIR, CINEMATICA, PODIO }
 
 const ARFAGEM_PADRAO := -0.2
 
@@ -54,6 +54,15 @@ func cinematica(centro: Vector3) -> void:
 	_t_cine = 0.0
 
 
+## Comemoração do fim da partida: câmera parada em `posicao`, balançando devagar, olhando `foco`.
+func podio(foco: Vector3, posicao: Vector3) -> void:
+	modo = Modo.PODIO
+	_centro_cine = foco
+	_foco = posicao
+	_t_cine = 0.0
+	cam.fov = 55.0
+
+
 func _unhandled_input(evento: InputEvent) -> void:
 	if evento is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		_yaw_extra -= evento.relative.x * sensibilidade
@@ -73,6 +82,14 @@ func _process(delta: float) -> void:
 		var pos := _centro_cine + Vector3(sin(a) * 260.0, 110.0 - _t_cine * 6.0, cos(a) * 260.0)
 		global_position = pos
 		look_at(_centro_cine + Vector3.UP * 10.0)
+		return
+	if modo == Modo.PODIO:
+		# Aproxima nos primeiros segundos e depois oscila de leve de um lado para o outro
+		_t_cine += delta
+		var lado := (_foco - _centro_cine).cross(Vector3.UP).normalized()
+		var perto := lerpf(1.35, 1.0, 1.0 - exp(-_t_cine * 0.9))
+		global_position = _centro_cine + (_foco - _centro_cine) * perto + lado * sin(_t_cine * 0.35) * 3.0
+		look_at(_centro_cine)
 		return
 	if veiculo == null:
 		return
