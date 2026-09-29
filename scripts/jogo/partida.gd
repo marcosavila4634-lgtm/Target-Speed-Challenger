@@ -64,8 +64,25 @@ func _ready() -> void:
 	_iniciar_etapa(0)
 	if OS.get_environment("TSC_FOTO_FINAL") != "":
 		_foto_final(OS.get_environment("TSC_FOTO_FINAL"))
+	elif OS.get_environment("TSC_MEDIR_SUPORTE") != "":
+		_medir_suportes()
 	elif OS.get_environment("TSC_FOTO_PARAQUEDAS") != "":
 		_foto_paraquedas(OS.get_environment("TSC_FOTO_PARAQUEDAS"))
+
+
+## Conferência: onde fica o suporte do paraquedas em cada carro (posição relativa ao comprimento).
+func _medir_suportes() -> void:
+	for d in Config.veiculos_ativos():
+		var v := Veiculo.new()
+		v.dados = d
+		v.freeze = true
+		add_child(v)
+		await get_tree().process_frame
+		var c: AABB = v.caixa_corpo
+		var z: float = v.paraquedas._fixacoes[0].z
+		print("MED %-14s rel=%+.2f y=%.2f topo=%.2f" % [d.id, (z - c.get_center().z) / c.size.z, v.paraquedas._fixacoes[0].y, c.end.y])
+		v.queue_free()
+	get_tree().quit()
 
 
 ## Sequência de fotos da abertura do paraquedas: carro do jogador parado no ar, câmera de lado.

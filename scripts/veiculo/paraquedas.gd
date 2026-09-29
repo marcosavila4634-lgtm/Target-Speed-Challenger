@@ -260,7 +260,27 @@ func _achar_teto(v: Veiculo, caixa: AABB, h_teto: Callable) -> Vector3:
 		i = k + 1
 	if hs.is_empty() or hs[melhor[0]] == INF:
 		return v.centro_teto()
-	var zc := (zs[melhor[0]] + zs[melhor[1]]) * 0.5
+	# O paraquedas puxa pelo meio do carro (pedido do dono): no trecho plano, o ponto mais perto
+	# do centro; se o trecho fica longe (conversível, tampa traseira, perua), vai para o centro.
+	var centro_z := caixa.get_center().z
+	var zc := clampf(centro_z, zs[melhor[0]], zs[melhor[1]])
+	if absf(zc - centro_z) > caixa.size.z * 0.08:
+		# No centro pode haver um buraco (banco de conversível, cockpit): procura, a partir do
+		# centro para os dois lados, o ponto mais próximo que ainda esteja na altura da carroceria
+		var ref: float = h_teto.call(cx, zc)
+		zc = centro_z
+		var passo_z := 0.05
+		var dz := 0.0
+		while dz < caixa.size.z * 0.5:
+			var achou := false
+			for z_teste: float in [centro_z - dz, centro_z + dz]:
+				if h_teto.call(cx, z_teste) >= ref - 0.3:
+					zc = z_teste
+					achou = true
+					break
+			if achou:
+				break
+			dz += passo_z
 	return Vector3(cx, h_teto.call(cx, zc), zc)
 
 
