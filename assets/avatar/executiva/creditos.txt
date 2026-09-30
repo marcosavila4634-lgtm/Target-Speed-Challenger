@@ -5,3 +5,10 @@ Link: https://sketchfab.com/3d-models/the-girl-in-the-suit-b3dbaca0d6314f3a9a012
 
 Crédito (exibir nos créditos do jogo):
 "The Girl In The Suit" (https://sketchfab.com/3d-models/the-girl-in-the-suit-b3dbaca0d6314f3a9a012897eba48147) by BELAZ (https://sketchfab.com/asset_for_games) is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).
+
+Luvas (luvas.glb, vestidas nas mãos deste avatar por tools/luvas/vestir.py):
+Modelo: Driver Glove Garden
+Autor: davidthe19th (https://sketchfab.com/davidthe19th)
+Licença: CC Attribution — http://creativecommons.org/licenses/by/4.0/
+Link: https://sketchfab.com/3d-models/driver-glove-garden-9043cca1cf654cad9adcb51906380896
+Crédito: This work is based on "Driver Glove Garden" (https://sketchfab.com/3d-models/driver-glove-garden-9043cca1cf654cad9adcb51906380896) by davidthe19th (https://sketchfab.com/davidthe19th) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

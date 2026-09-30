@@ -5,3 +5,10 @@ Link: https://sketchfab.com/3d-models/character-girl-16-fbx-7611519546d2492e958c
 
 Crédito (exibir nos créditos do jogo):
 "character girl #16 (FBX)" (https://sketchfab.com/3d-models/character-girl-16-fbx-7611519546d2492e958c5824b9a702cb) by BELAZ (https://sketchfab.com/asset_for_games) is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).
+
+Luvas (luvas.glb, vestidas nas mãos deste avatar por tools/luvas/vestir.py):
+Modelo: Driver Glove Garden
+Autor: davidthe19th (https://sketchfab.com/davidthe19th)
+Licença: CC Attribution — http://creativecommons.org/licenses/by/4.0/
+Link: https://sketchfab.com/3d-models/driver-glove-garden-9043cca1cf654cad9adcb51906380896
+Crédito: This work is based on "Driver Glove Garden" (https://sketchfab.com/3d-models/driver-glove-garden-9043cca1cf654cad9adcb51906380896) by davidthe19th (https://sketchfab.com/davidthe19th) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

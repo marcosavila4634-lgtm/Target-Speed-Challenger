@@ -312,11 +312,11 @@ func atualizar(info: Dictionary, delta: float) -> void:
 func _atualizar_equipamentos(v: Veiculo) -> void:
 	var ej := "PRONTO"
 	var cor_ej := Estilo.OK
-	if v.eliminado or v.paraquedas_ja_aberto or (v.travado and v._cfg.bloquear_ejetor):
+	if v.ejetor_bloqueado():
 		ej = "BLOQUEADO"
 		cor_ej = Estilo.TEXTO_FRACO
 	elif v.recarga_ejetor > 0.0:
-		ej = "RECARGA"
+		ej = "RECARGA %ds" % ceili(v.recarga_ejetor) if v.recarga_ejetor > 1.0 else "RECARGA"
 		cor_ej = Color(1.0, 0.8, 0.3)
 	elif v.rodas_no_chao == 0:
 		ej = "NO AR"
@@ -371,7 +371,7 @@ func _atualizar_rotulos(cam: Camera3D, veiculos: Array, meu: Veiculo) -> void:
 			l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 			raiz.add_child(l)
 			_rotulos_veiculos[v] = l
-		var pos := v.global_position + Vector3.UP * (v.caixa_corpo.end.y + 1.2)
+		var pos := v.get_global_transform_interpolated().origin + Vector3.UP * (v.caixa_corpo.end.y + 1.2)
 		if v.paraquedas_aberto:
 			pos += Vector3.UP * 11.0
 		var visivel := v != meu and not v.eliminado and v.visible and cam and not cam.is_position_behind(pos) \
@@ -601,7 +601,7 @@ func pausa(mostrar: bool) -> void:
 	var t := Estilo.rotulo("PAUSA", 40, Estilo.TEXTO, 700)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(t)
-	var ajuda := Estilo.rotulo("W / S — acelerar e ré (não há freio: a ré segura o carro)  (no ar: inclinar • no paraquedas: acelerar e sustentar)\nA / D — direção  (no alvo: alterne A e D rapidamente para frear)\nESPAÇO — ejetor (com roda apoiada, antes de abrir o paraquedas)\nE — abrir / fechar paraquedas\nSHIFT — nitro (uma carga por etapa)\nMOUSE — câmera (rodinha: zoom)   •   TAB — trocar câmera de espectador", 19, Estilo.TEXTO_FRACO)
+	var ajuda := Estilo.rotulo("W / S — acelerar e ré (não há freio: a ré segura o carro)  (no ar: inclinar • no paraquedas: acelerar e sustentar)\nA / D — direção  (no alvo: alterne A e D rapidamente para frear)\nESPAÇO — ejetor (com roda apoiada, antes de abrir o paraquedas)\nE — abrir / fechar paraquedas\nSHIFT — nitro (uma carga por etapa)\nMOUSE — câmera (rodinha: zoom)   •   C (segurar) — olhar para trás   •   TAB — trocar câmera de espectador", 19, Estilo.TEXTO_FRACO)
 	v.add_child(ajuda)
 	for par in [["CONTINUAR", pedido_continuar], ["MENU PRINCIPAL", pedido_menu]]:
 		var b := Button.new()

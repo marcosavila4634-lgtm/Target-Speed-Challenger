@@ -14,21 +14,23 @@ var perfil: PerfilRampa
 var distancia_saida := 2000.0
 var largura := 22.0
 var _estruturas: StaticBody3D   # colisão de treliças, pórtico e base
+var x_inicio_pista := 0.0       # a pista começa aqui (na arena, no portão)
+var linha_largada := 21.0       # faixa pintada da largada (fora da pista = sem faixa)
+var impulso_velocidade := 0.0   # tranco dos pontos de aceleração (m/s)
+var tunel_ini := 0.0             # túnel sobre a pista (x do perfil); fim <= início = sem túnel
+var tunel_fim := 0.0
 var _semaforo: Array[MeshInstance3D] = []
 var _mat_semaforo: Array = []
 
 
 func montar(p_indice: int, p_perfil: PerfilRampa, terreno: Terreno) -> void:
 	indice_equipe = p_indice
-	var eq: Dictionary = Config.EQUIPES[p_indice]
-	cor = eq.cor
-	direcao = eq.direcao
-	frente = -direcao
-	lateral = frente.cross(Vector3.UP).normalized()
 	perfil = p_perfil
 	distancia_saida = Config.valor("mapa.distancia_saida_alvo", 2000)
 	largura = Config.valor("mapa.pista_largura", 22)
-	name = "Complexo_" + eq.nome
+	_identidade()
+	frente = -direcao
+	lateral = frente.cross(Vector3.UP).normalized()
 	_estruturas = StaticBody3D.new()
 	_estruturas.name = "Estruturas"
 	_estruturas.collision_layer = 1
@@ -40,10 +42,42 @@ func montar(p_indice: int, p_perfil: PerfilRampa, terreno: Terreno) -> void:
 	_montar_plataforma(terreno)
 	_montar_muro()
 	_montar_portico()
+	_montar_decoracao(terreno)
+
+
+## Cor, direção e nome (a arena sobrescreve: complexo único, sem equipe).
+func _identidade() -> void:
+	var eq: Dictionary = Config.EQUIPES[indice_equipe]
+	cor = eq.cor
+	direcao = eq.direcao
+	name = "Complexo_" + eq.nome
+
+
+func _montar_decoracao(terreno: Terreno) -> void:
 	var deco := DecoracaoEvento.new()
 	deco.name = "Decoracao"
 	add_child(deco)
 	deco.montar(self, terreno)
+
+
+## Ponto de aceleração sob `p` (só na arena): direção do tranco ou zero.
+func impulso_em(_p: Vector3) -> Vector3:
+	return Vector3.ZERO
+
+
+## Ponto mortal fora do terreno (buracos da arena). No complexo comum não há.
+func buraco_mortal(_p: Vector3) -> bool:
+	return false
+
+
+## Onde um carro que caiu volta à pista (Transform3D), ou null se explode de vez (padrão).
+func ressurgimento(_v: Veiculo):
+	return null
+
+
+## Texto do painel do pórtico.
+func texto_portico() -> String:
+	return "EQUIPE " + Config.EQUIPES[indice_equipe].nome
 
 
 ## Ponto da linha central da pista na distância horizontal x (desde o início da plataforma).
@@ -78,6 +112,32 @@ func x_perfil(p: Vector3) -> float:
 	return distancia_saida + perfil.comprimento_horizontal - Vector2(p.x, p.z).dot(Vector2(direcao.x, direcao.z))
 
 
+## Carro no ar em `p` já saltou da rampa (e não só caiu dela perto do fim)?
+func saltou_da_rampa(p: Vector3) -> bool:
+	return x_perfil(p) > perfil.comprimento_horizontal - 20.0
+
+
+## O tranco vai para onde o CARRO aponta (arena, cercados) ou na direção da placa (estrada do
+## Climb to Death: numa estrada estreita sem cerca, qualquer torto jogaria o carro para fora).
+func impulso_segue_carro(_p: Vector3) -> bool:
+	return true
+
+
+## Tranco (m/s) do ponto de aceleração em `p` (o Climb to Death tem valores por ponto).
+func velocidade_impulso(_p: Vector3) -> float:
+	return impulso_velocidade
+
+
+## Direção 3D da pista sob o carro (subindo/descendo), ou zero fora dela (câmera).
+func direcao_pista(p: Vector3) -> Vector3:
+	var xp := x_perfil(p)
+	if xp < x_inicio_pista or xp > perfil.comprimento_horizontal:
+		return Vector3.ZERO
+	var dy := perfil.altura_em(xp + 1.5) - perfil.altura_em(xp - 1.5)
+	var d := frente * 3.0 + Vector3.UP * dy
+	return d.normalized() if d.is_finite() else Vector3.ZERO
+
+
 func _base_pista(i: int) -> Dictionary:
 	var a := perfil.angulos[i]
 	var t := (frente * cos(a) + Vector3.UP * sin(a)).normalized()
@@ -98,6 +158,7 @@ func _montar_pista() -> void:
 		var b := _base_pista(i)
 		if i > 0:
 			v_ac += PerfilRampa.PASSO
+		if i > 0 and perfil.pontos[i - 1].x >= x_inicio_pista:
 			var v0 := v_ac - PerfilRampa.PASSO
 			var c0: Vector3 = anterior.c
 			var c1: Vector3 = b.c
@@ -124,7 +185,7 @@ func _montar_pista() -> void:
 	mat_pista.set_shader_parameter("ruido", Terreno._textura_ruido(0.05, 3, 3))
 	mat_pista.set_shader_parameter("largura", largura)
 	mat_pista.set_shader_parameter("comp_plataforma", perfil.pontos[perfil.indice_borda].x)
-	mat_pista.set_shader_parameter("linha_largada", 21.0)
+	mat_pista.set_shader_parameter("linha_largada", linha_largada)
 	mat_pista.set_shader_parameter("inicio_rampa", float(perfil.indice_base) * PerfilRampa.PASSO)
 	var mi := MeshInstance3D.new()
 	mi.mesh = st.commit()
@@ -159,6 +220,9 @@ func _montar_pista() -> void:
 	var fases := PackedFloat32Array()
 	var i := 2
 	while i < perfil.pontos.size():
+		if perfil.pontos[i].x < x_inicio_pista:
+			i += 4
+			continue
 		var b := _base_pista(i)
 		for lado: float in [-1.0, 1.0]:
 			var p: Vector3 = b.c + lateral * (meia + 0.12) * lado - b.n * 0.3
@@ -170,7 +234,115 @@ func _montar_pista() -> void:
 	mat_luzes.set_shader_parameter("energia", 7.0)
 	_multimesh(luzes, mat_luzes, false, fases)
 	_marcas_distancia()
+	_montar_muretas()
 
+
+## Muretas nas bordas da pista (mapa.muretas_laterais) do começo da pista até a saída, e túnel
+## (tunel_ini..tunel_fim, em x do perfil) cobrindo a saída da plataforma: ninguém pula a descida
+## com o ejetor nem sai pela lateral — todo mundo desce a rampa até o fim.
+const MURETA_ALTURA := 1.4
+const TUNEL_ALTURA := 6.0
+
+func _montar_muretas() -> void:
+	var com_mureta: bool = Config.valor("mapa.muretas_laterais", false)
+	if not com_mureta and tunel_fim <= tunel_ini:
+		return
+	var meia := largura * 0.5
+	var paredes: Array[Transform3D] = []
+	var teto: Array[Transform3D] = []
+	var luzes_teto: Array[Transform3D] = []
+	var faixas: Array[Transform3D] = []
+	# Estilo Mad Max (mapa.muros_madmax): chapas de ferro-velho, vigas e pontas enferrujadas
+	var madmax: bool = Config.valor("mapa.muros_madmax", false)
+	var sucata: Array[Transform3D] = []
+	var sucata_pintada: Array[Transform3D] = []
+	var vigas: Array[Transform3D] = []
+	var i := 1
+	while i < perfil.pontos.size():
+		var x0 := perfil.pontos[i - 1].x
+		if x0 < x_inicio_pista:
+			i += 1
+			continue
+		var a := _base_pista(i - 1)
+		var b := _base_pista(i)
+		var meio: Vector3 = (a.c + b.c) * 0.5
+		var t: Vector3 = (b.c - a.c)
+		var comp := t.length() * 1.08
+		t = t.normalized()
+		var n := lateral.cross(t).normalized()
+		var base := Basis(lateral, n, -t)
+		var no_tunel := x0 >= tunel_ini and x0 < tunel_fim
+		var h := TUNEL_ALTURA if no_tunel else (MURETA_ALTURA + 1.6 if madmax else MURETA_ALTURA)
+		if madmax and (com_mureta or no_tunel):
+			_sucata_segmento(i, meio, base, n, meia, h, no_tunel, sucata, sucata_pintada, vigas)
+		if com_mureta or no_tunel:
+			for lado: float in [-1.0, 1.0]:
+				paredes.append(Transform3D(base * Basis.from_scale(Vector3(0.6, h + ESPESSURA, comp)), meio + lateral * (meia + 0.3) * lado + n * (h - ESPESSURA) * 0.5))
+				if not no_tunel and i % 2 == 0:
+					faixas.append(Transform3D(base * Basis.from_scale(Vector3(0.06, 0.12, comp * 2.0)), meio + lateral * (meia - 0.02) * lado + n * (h - 0.25)))
+		if no_tunel:
+			teto.append(Transform3D(base * Basis.from_scale(Vector3(largura + 1.2, 0.7, comp)), meio + n * (h + 0.35)))
+			if i % 5 == 0:
+				luzes_teto.append(Transform3D(base * Basis.from_scale(Vector3(largura * 0.7, 0.08, 0.5)), meio + n * (h - 0.05)))
+		i += 1
+	var concreto := material_muro()
+	criar_multimesh(self, sucata, ferro_velho(Color(0.2, 0.16, 0.12), 0.9))
+	criar_multimesh(self, sucata_pintada, ferro_velho(Color(0.5, 0.36, 0.08), 0.6))
+	criar_multimesh(self, vigas, ferro_velho(Color(0.12, 0.12, 0.12), 0.75))
+	criar_multimesh(self, paredes, concreto)
+	criar_multimesh(self, teto, concreto)
+	criar_multimesh(self, luzes_teto, _material_luz(Color(1.0, 0.85, 0.6), 4.0), false)
+	criar_multimesh(self, faixas, _material_luz(cor, 3.0), false)
+	adicionar_colisoes(_estruturas, paredes)
+	adicionar_colisoes(_estruturas, teto)
+
+
+
+## Ferro-velho de um trecho de 1 m de mureta/túnel: chapas tortas remendando a parede por
+## dentro, postes de viga I com pontas no alto da mureta e, no túnel, cambotas de viga I e
+## chapas soltas no telhado. Pseudo-aleatório pelo índice (sempre igual).
+func _sucata_segmento(i: int, meio: Vector3, base: Basis, n: Vector3, meia: float, h: float, no_tunel: bool,
+		sucata: Array[Transform3D], pintada: Array[Transform3D], vigas: Array[Transform3D]) -> void:
+	var h1 := fmod(i * 0.6180339, 1.0)
+	var h2 := fmod(i * 0.7548776 + 0.31, 1.0)
+	for lado: float in [-1.0, 1.0]:
+		var face := meio + lateral * (meia - 0.03) * lado
+		# Chapa a cada ~3 m, altura e tamanho variados, um pouco torta
+		if (i + int(lado)) % 3 == 0:
+			var alt := 0.9 + (h * 0.5) * h1
+			var larg := 1.6 + 1.4 * h2
+			var y := alt * 0.5 + (h - alt) * fmod(h2 * 3.7, 1.0)
+			var t := Transform3D(base * Basis(Vector3.RIGHT, (h1 - 0.5) * 0.3) * Basis.from_scale(Vector3(0.05, alt, larg)), face + n * y)
+			if h2 < 0.3:
+				pintada.append(t)
+			else:
+				sucata.append(t)
+		# Poste de viga I a cada 6 m, passando do alto da mureta, com ponta inclinada para fora
+		if not no_tunel and i % 6 == 0:
+			var pe := meio + lateral * (meia + 0.3) * lado
+			vigas.append(Transform3D(base * Basis.from_scale(Vector3(0.3, h + 1.6, 0.35)), pe + n * ((h + 1.6) * 0.5 - 0.2)))
+			for k in 3:
+				var ang := 0.5 + 0.25 * k
+				var eixo_p := (n * cos(ang) + lateral * lado * sin(ang)).normalized()
+				var topo := pe + n * (h + 1.2 - k * 0.5)
+				vigas.append(_viga(topo, topo + eixo_p * (0.9 + 0.3 * k), 0.07))
+		# Pontas ao longo do alto da mureta, viradas para fora
+		if not no_tunel and i % 2 == 0:
+			var topo_m := meio + lateral * (meia + 0.3) * lado + n * h
+			var eixo_m := (n * 0.8 + lateral * lado * 0.6).normalized()
+			vigas.append(_viga(topo_m, topo_m + eixo_m * (0.5 + 0.4 * h1), 0.05))
+	# Túnel: cambota de viga I a cada 4 m e chapas soltas por cima do telhado
+	if no_tunel:
+		if i % 4 == 0:
+			for lado: float in [-1.0, 1.0]:
+				vigas.append(Transform3D(base * Basis.from_scale(Vector3(0.35, h, 0.45)), meio + lateral * (meia - 0.18) * lado + n * (h * 0.5)))
+			vigas.append(Transform3D(base * Basis.from_scale(Vector3(largura, 0.45, 0.45)), meio + n * (h - 0.25)))
+		if i % 2 == 0:
+			var t2 := Transform3D(base * Basis(Vector3(0, 0, 1), (h1 - 0.5) * 0.25) * Basis.from_scale(Vector3(1.8 + 1.5 * h2, 0.05, 1.6 + h1)), meio + lateral * (h2 - 0.5) * largura * 0.7 + n * (h + 0.75))
+			if h1 < 0.25:
+				pintada.append(t2)
+			else:
+				sucata.append(t2)
 
 ## Distância até a saída pintada na pista (400, 300, 200, 100 m), legível para quem desce.
 func _marcas_distancia() -> void:
@@ -387,6 +559,21 @@ func material_aco(chao: float, ferrugem := 0.4) -> ShaderMaterial:
 	return m
 
 
+## Ferro-velho enferrujado (chapas, vigas, pontas), coordenadas do mundo.
+func ferro_velho(cor_tinta: Color, desgaste: float) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/ferro_trem.gdshader")
+	m.set_shader_parameter("ruido", Terreno._textura_ruido(0.012, 5, 97 + indice_equipe))
+	m.set_shader_parameter("cor_tinta", cor_tinta)
+	m.set_shader_parameter("desgaste", desgaste)
+	return m
+
+
+## Material das muretas e do túnel (a arena usa pedra).
+func material_muro() -> Material:
+	return material_concreto(perfil.pontos[perfil.pontos.size() - 1].y)
+
+
 func material_listras() -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = load("res://shaders/listras_perigo.gdshader")
@@ -422,9 +609,10 @@ func _montar_portico() -> void:
 	add_child(painel)
 	adicionar_colisoes(_estruturas, [painel.transform * Transform3D(Basis.from_scale(bm.size), Vector3.ZERO)])
 	var texto := Label3D.new()
-	texto.text = "EQUIPE " + Config.EQUIPES[indice_equipe].nome
+	texto.text = texto_portico()
 	texto.font_size = 180
-	texto.pixel_size = 0.009
+	# Cabe no painel (pistas estreitas encolhem o texto)
+	texto.pixel_size = minf(0.009, largura * 0.78 / (texto.text.length() * 180.0 * 0.6))
 	texto.outline_size = 24
 	texto.modulate = Color.WHITE
 	texto.transform = Transform3D(olhando, base + Vector3.UP * 13.2 - frente * 0.25)
@@ -454,13 +642,13 @@ func _montar_portico() -> void:
 	semaforo(0)
 
 
-## Acende `acesas` lâmpadas vermelhas (0 a 3) ou todas verdes.
+## Acende `acesas` lâmpadas vermelhas (0 a 3) ou todas verdes (de 3 em 3: pórtico e portão da arena).
 func semaforo(acesas: int, verde := false) -> void:
 	if _mat_semaforo.is_empty():
 		_mat_semaforo = [_material_metal(Color(0.12, 0.02, 0.02), 0.2, 0.3),
 			_material_luz(Color(1.0, 0.08, 0.05), 9.0), _material_luz(Color(0.2, 1.0, 0.3), 9.0)]
 	for k in _semaforo.size():
-		var m: Material = _mat_semaforo[2] if verde else (_mat_semaforo[1] if k < acesas else _mat_semaforo[0])
+		var m: Material = _mat_semaforo[2] if verde else (_mat_semaforo[1] if k % 3 < acesas else _mat_semaforo[0])
 		_semaforo[k].material_override = m
 
 

@@ -6,6 +6,7 @@ uniform float raios[5];            // raio externo das zonas 5, 4, 3, 2, 1
 uniform vec3 cor_vermelha : source_color = vec3(0.78, 0.1, 0.09);
 uniform vec3 cor_branca : source_color = vec3(0.92, 0.9, 0.86);
 uniform vec3 cor_borda : source_color = vec3(0.12, 0.12, 0.14);
+uniform float divisorias = 1.0;     // 0 = alvo liso (mosca sem as linhas escuras entre as zonas)
 uniform sampler2D ruido : filter_linear_mipmap, repeat_enable;
 
 varying vec3 pos_local;
@@ -28,7 +29,7 @@ void fragment() {
 			break;
 		}
 	}
-	cor = mix(cor_borda, cor, linha);
+	cor = mix(cor_borda, cor, mix(1.0, linha, divisorias));
 	float sujeira = texture(ruido, pos_local.xz / 9.0).r;
 	cor *= 0.86 + 0.18 * sujeira;
 

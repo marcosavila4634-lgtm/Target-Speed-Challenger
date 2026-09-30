@@ -26,6 +26,7 @@ var _nitro_ant := false
 var _vel_ant := Vector3.ZERO
 var _espera_batida := 0.0
 var _ativo := true
+var _parados := false   # loops parados pela explosão; religam quando o carro volta à pista
 
 
 func montar(veiculo: Veiculo) -> void:
@@ -50,6 +51,7 @@ func montar(veiculo: Veiculo) -> void:
 	v.ejetor_usado.connect(_ao_ejetor)
 	v.paraquedas_mudou.connect(_ao_paraquedas)
 	v.foi_eliminado.connect(_ao_eliminado)
+	v.impulso_usado.connect(_ao_impulso)
 
 
 ## Partida do motor (carro do jogador, antes da contagem).
@@ -90,6 +92,8 @@ func _process(delta: float) -> void:
 		for p in _loops:
 			p.set("volume_db", -80.0)   # carregando a partida: carros empilhados, mudos
 		return
+	if _parados:
+		_religar()
 	var cam := get_viewport().get_camera_3d()
 	var perto := v.eh_jogador or cam == null or cam.global_position.distance_to(v.global_position) < DIST_MUDO
 	if perto != _ativo:
@@ -106,7 +110,7 @@ func _process(delta: float) -> void:
 	# No ar o "pra frente" controla o voo, não o motor: sem acelerar o som (pedido do dono)
 	var voando := not no_chao and v.tempo_no_ar >= 0.3
 	var acel := 0.0 if v.travado or voando else float(v.entrada.acelerar)
-	var re := 0.0 if v.travado or voando else float(v.entrada.re)
+	var re := 0.0 if v.travado or voando or v.freando else float(v.entrada.re)
 	var carga := maxf(acel, re)
 
 	# ---- Rotação: marchas no chão, marcha lenta no ar, só marcha lenta depois do alvo (motor bloqueado)
@@ -128,7 +132,9 @@ func _process(delta: float) -> void:
 		var lo: float = MARCHAS[m - 1]
 		var hi: float = MARCHAS[m]
 		alvo_rpm = lerpf(0.3 if m > 1 else 0.14, 1.0, clampf((f - lo) / (hi - lo), 0.0, 1.0))
-		if re > 0.1:
+		if v.borrachao:
+			alvo_rpm = 0.85   # borrachão: motor berrando com as rodas patinando
+		elif re > 0.1:
 			alvo_rpm = lerpf(0.25, 0.6, re)
 		elif acel < 0.1:
 			alvo_rpm = maxf(alvo_rpm * 0.85, 0.14)
@@ -150,11 +156,13 @@ func _process(delta: float) -> void:
 	_rolagem.pitch_scale = lerpf(0.7, 1.4, clampf(v_chao / 45.0, 0.0, 1.0))
 	_nivel(_rolagem, clampf(v_chao / 25.0, 0.0, 1.0) * 0.35)
 	var derrapa := 0.0
-	if no_chao:
+	if no_chao and not v.freeze:   # parado na largada (congelado): pneu mudo
 		var lateral := absf(vel.dot(base.x))
 		derrapa = clampf((lateral - 2.0) / 6.0, 0.0, 1.0)
 		if v.travado:
 			derrapa = maxf(derrapa, clampf(vel.length() / 3.0, 0.0, 1.0) * clampf(v.atividade_volante() / 8.0, 0.0, 1.0))
+		if v.borrachao:
+			derrapa = 1.0
 	_pneu.pitch_scale = lerpf(0.9, 1.1, derrapa)
 	_nivel(_pneu, derrapa * 0.55)
 
@@ -185,10 +193,23 @@ func _process(delta: float) -> void:
 	_espera_batida -= delta
 	var dv := (vel - _vel_ant).length()
 	if v.contato_corpo and dv > 3.5 and _espera_batida <= 0.0:
-		var tipo := "pesada" if dv > 9.0 else ("media" if dv > 5.5 else "leve")
-		Audio.tocar("efeitos/batida_%s_" % tipo, v.global_position, clampf(-10.0 + dv, -10.0, 4.0), 1.0, 0.08, "Efeitos", 14.0)
+		var outro := v.contato_veiculo
+		if outro != null and is_instance_valid(outro):
+			# Carro contra carro: um som só por batida (toca quem tiver o menor id), mais grave quanto mais forte.
+			if v.get_instance_id() < outro.get_instance_id():
+				var forca := clampf((dv - 3.5) / 10.0, 0.0, 1.0)
+				Audio.tocar("efeitos/batida_carro.mp3", v.global_position, lerpf(-8.0, 3.0, forca), lerpf(1.1, 0.9, forca), 0.06, "Efeitos", 14.0)
+		else:
+			var tipo := "pesada" if dv > 9.0 else ("media" if dv > 5.5 else "leve")
+			Audio.tocar("efeitos/batida_%s_" % tipo, v.global_position, clampf(-10.0 + dv, -10.0, 4.0), 1.0, 0.08, "Efeitos", 14.0)
 		_espera_batida = 0.25
 	_vel_ant = vel
+
+
+## Ponto de aceleração: rajada forte e o motor vai lá em cima.
+func _ao_impulso(_v: Veiculo) -> void:
+	Audio.tocar("efeitos/whoosh.wav", v.global_position, 2.0, 0.8, 0.05, "Efeitos", 20.0)
+	_rpm = 1.0
 
 
 ## Para todos os sons contínuos (carros que saem de cena na comemoração final).
@@ -213,7 +234,24 @@ func _ao_paraquedas(_v: Veiculo, aberto: bool) -> void:
 		Audio.tocar("efeitos/paraquedas_abrir_", v.global_position + Vector3.UP * 4.0, -7.0, 1.3, 0.05, "Efeitos", 12.0)
 
 
+## De volta à pista (etapa seguinte depois de explodir): os loops tinham parado na explosão.
+func _religar() -> void:
+	_parados = false
+	for p in _loops:
+		p.set("volume_db", -80.0)
+		p.set("stream_paused", false)
+		var st: AudioStream = p.get("stream")
+		p.call("play", randf() * maxf(st.get_length() - 0.05, 0.0))
+	_rpm = 0.15
+	_marcha = 1
+	_nitro_ant = false
+	_no_ar_ant = 0.0
+	_vel_ant = v.linear_velocity
+	_ativo = true
+
+
 func _ao_eliminado(_v: Veiculo) -> void:
+	_parados = true
 	for p in _loops:
 		p.call("stop")
 	if str(v.telemetria.get("motivo", "")) == "agua":

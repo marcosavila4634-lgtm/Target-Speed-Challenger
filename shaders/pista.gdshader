@@ -45,11 +45,24 @@ void fragment() {
 			rugosidade = 0.7;
 		}
 	} else {
-		cor = vec3(0.23, 0.23, 0.25) * (0.8 + 0.4 * n);
+		// Asfalto (pedido do dono: cor e textura de asfalto, não marrom): base escura e neutra,
+		// grão fino, pedrinhas claras do agregado, remendos e a trilha dos pneus mais escura.
+		vec2 pm = vec2(xm, v);
+		float grao = texture(ruido, pm * 1.9).r;
+		float grao2 = texture(ruido, pm * 7.3 + 0.37).r;
+		float pedra = step(0.74, grao2) * (0.6 + 0.4 * grao);
+		float remendo = smoothstep(0.35, 0.75, texture(ruido, pm / 23.0).r);
+		cor = vec3(0.135, 0.142, 0.158) * (0.72 + 0.56 * grao);
+		cor += vec3(0.07, 0.07, 0.072) * pedra;
+		cor *= 0.88 + 0.22 * remendo * (0.8 + 0.4 * n);
+		float trilha = exp(-pow((abs(u - 0.5) * 2.0 - 0.45) / 0.16, 2.0));
+		cor *= 1.0 - 0.16 * trilha;
+		rugosidade = 0.8 + 0.15 * grao2 - 0.1 * trilha;
 		// Setas (chevrons) no centro a cada 24 m; na rampa final ficam âmbar e brilham.
 		float x = abs(u - 0.5) * 2.0;
 		float fase = fract(v / 24.0);
-		float seta = step(abs(fase - 0.1 - x * 0.08), 0.02) * step(x, 0.35);
+		// Ponta no centro à frente (v cresce no sentido da corrida), braços para trás.
+		float seta = step(abs(fase - 0.1 + x * 0.08), 0.02) * step(x, 0.35);
 		vec3 cor_seta = v > inicio_rampa ? vec3(1.0, 0.6, 0.15) : cor_equipe * 0.9;
 		cor = mix(cor, cor_seta, seta);
 		emissao += cor_seta * seta * (v > inicio_rampa ? 1.5 : 0.4);

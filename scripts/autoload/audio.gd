@@ -108,12 +108,23 @@ func painel_volumes() -> GridContainer:
 	return grade
 
 
+var _efeitos_mudos := false
+
+
+## Tela de carregamento: nenhum efeito (motor, pneus, batidas, ambiente, interface); só a música.
+func silenciar_efeitos(sim: bool) -> void:
+	_efeitos_mudos = sim
+	for canal: String in CANAIS:
+		if canal != "Musica":
+			_aplicar(canal)
+
+
 func _aplicar(canal: String) -> void:
 	var i := AudioServer.get_bus_index(canal)
 	if i < 0:
 		return
 	var v: float = volumes[canal]
-	AudioServer.set_bus_mute(i, v <= 0.001)
+	AudioServer.set_bus_mute(i, v <= 0.001 or (_efeitos_mudos and canal != "Musica" and canal != "Master"))
 	AudioServer.set_bus_volume_db(i, linear_to_db(maxf(v, 0.001)))
 
 
@@ -273,6 +284,34 @@ func bipe(longo := false) -> void:
 	p.stream = _bipes["longo" if longo else "curto"]
 	p.bus = "Efeitos"
 	p.volume_db = -6.0
+	add_child(p)
+	p.play()
+	p.finished.connect(p.queue_free)
+
+
+## Blip de checkpoint: dois tons curtos subindo (gerado uma vez).
+var _blip_checkpoint: AudioStreamWAV
+func checkpoint() -> void:
+	if _blip_checkpoint == null:
+		var taxa := 44100
+		var dados := PackedByteArray()
+		for tom: Vector2 in [Vector2(1175.0, 0.07), Vector2(1760.0, 0.12)]:   # (Hz, duração)
+			var n := int(taxa * tom.y)
+			var ini := dados.size()
+			dados.resize(ini + n * 2)
+			for i in n:
+				var t := float(i) / taxa
+				var env := minf(t / 0.004, 1.0) * minf((tom.y - t) / 0.03, 1.0)
+				var s := sin(TAU * tom.x * t) + sin(TAU * tom.x * 2.0 * t) * 0.25
+				dados.encode_s16(ini + i * 2, int(clampf(s * env * 0.4, -1.0, 1.0) * 32767.0))
+		_blip_checkpoint = AudioStreamWAV.new()
+		_blip_checkpoint.format = AudioStreamWAV.FORMAT_16_BITS
+		_blip_checkpoint.mix_rate = taxa
+		_blip_checkpoint.data = dados
+	var p := AudioStreamPlayer.new()
+	p.stream = _blip_checkpoint
+	p.bus = "Efeitos"
+	p.volume_db = -4.0
 	add_child(p)
 	p.play()
 	p.finished.connect(p.queue_free)

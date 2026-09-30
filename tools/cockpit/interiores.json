@@ -1,0 +1,47 @@
+{
+	"revuelto": {
+		"arquivo": "res://assets/partes de veiculo interno/interior lamborguini/lamborghini_revuelto.glb",
+		"frente_mais_z": true,
+		"caixa": [-0.95, 0.95, 0.1, 1.15, -1.5, 0.9],
+		"olho": [-0.37, 0.9, -0.1],
+		"marcas": [
+			{"material": ["m_label", "m_label_0"], "ops": [
+				{"poligono": [[0.14, 0.09], [0.86, 0.09], [0.85, 0.42], [0.76, 0.64], [0.62, 0.8], [0.5, 0.86], [0.38, 0.8], [0.24, 0.64], [0.15, 0.42]], "fundo": [0.93, 0.92, 0.88]},
+				{"r": [0.2, 0.14, 0.8, 0.27], "texto": "CHALLENGER", "cor": [0.78, 0.6, 0.18], "fonte": "sans"},
+				{"r": [0.22, 0.32, 0.78, 0.64], "texto": "TSC", "cor": [0.78, 0.6, 0.18], "fonte": "racing"}
+			]},
+			{"material": ["m_badge"], "canal": "normal", "ops": [
+				{"r": [0.0, 0.0, 1.0, 1.0], "fundo": [0.5, 0.5, 1.0]}
+			]},
+			{"material": ["m_badge"], "canal": "metal", "ops": [
+				{"r": [0.0, 0.0, 1.0, 1.0], "fundo": [1.0, 0.3, 1.0]},
+				{"r": [0.2, 0.12, 0.8, 0.3], "texto": "CHALLENGER", "cor": [1.0, 0.9, 0.0], "fonte": "sans"},
+				{"r": [0.22, 0.32, 0.78, 0.66], "texto": "TSC", "cor": [1.0, 0.9, 0.0], "fonte": "racing"}
+			]},
+			{"material": ["m_badge"], "canal": "rugosidade", "ops": [
+				{"r": [0.0, 0.0, 1.0, 1.0], "fundo": [1.0, 0.3, 1.0]},
+				{"r": [0.2, 0.12, 0.8, 0.3], "texto": "CHALLENGER", "cor": [1.0, 0.9, 0.0], "fonte": "sans"},
+				{"r": [0.22, 0.32, 0.78, 0.66], "texto": "TSC", "cor": [1.0, 0.9, 0.0], "fonte": "racing"}
+			]},
+			{"material": ["m_badge"], "criar": [512, 512, [1, 1, 1]], "ops": [
+				{"r": [0.2, 0.12, 0.8, 0.3], "texto": "CHALLENGER", "cor": [0.1, 0.08, 0.04], "fonte": "sans"},
+				{"r": [0.22, 0.32, 0.78, 0.66], "texto": "TSC", "cor": [0.1, 0.08, 0.04], "fonte": "racing"}
+			]},
+			{"material": ["m_badge.001"], "canal": "normal", "ops": [
+				{"r": [0.0, 0.0, 1.0, 1.0], "fundo": [0.5, 0.5, 1.0]}
+			]},
+			{"material": ["m_badge.001"], "canal": "rugosidade", "ops": [
+				{"r": [0.02, 0.02, 0.98, 0.98], "fundo": "auto"}
+			]},
+			{"material": ["m_badge.001"], "ops": [
+				{"r": [0.2, 0.12, 0.8, 0.3], "texto": "CHALLENGER", "cor": [0.12, 0.1, 0.05], "fonte": "sans"},
+				{"r": [0.22, 0.32, 0.78, 0.66], "texto": "TSC", "cor": [0.12, 0.1, 0.05], "fonte": "racing"}
+			]},
+			{"material": ["m_label.001"], "ops": [
+				{"r": [0.0, 0.0, 1.0, 1.0], "fundo": [1, 1, 1], "alfa": true},
+				{"r": [0.05, 0.04, 0.95, 0.68], "texto": "TSChallenger", "cor": [1, 1, 1], "fonte": "racing", "alfa": true},
+				{"r": [0.18, 0.72, 0.82, 0.95], "texto": "CARBON CERAMIC", "cor": [1, 1, 1], "fonte": "sans", "alfa": true}
+			]}
+		]
+	}
+}

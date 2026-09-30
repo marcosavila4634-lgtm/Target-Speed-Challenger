@@ -29,6 +29,10 @@ var _xp_barra: ProgressBar
 var _valores := {}          # chave -> Label
 var _linhas: VBoxContainer
 var _aviso: Label
+var _esq: Control
+var _sep: Control
+var _drag: AjusteDrag
+var _abas := {}
 
 
 func _init() -> void:
@@ -39,6 +43,7 @@ func _init() -> void:
 
 	# Coluna do carro: nível, XP e atributos
 	var esq := VBoxContainer.new()
+	_esq = esq
 	esq.custom_minimum_size.x = 470
 	esq.add_theme_constant_override("separation", 4)
 	h.add_child(esq)
@@ -78,7 +83,8 @@ func _init() -> void:
 		linha.add_child(val)
 		esq.add_child(linha)
 
-	h.add_child(VSeparator.new())
+	_sep = VSeparator.new()
+	h.add_child(_sep)
 
 	# Coluna dos upgrades
 	var dir := VBoxContainer.new()
@@ -87,11 +93,29 @@ func _init() -> void:
 	h.add_child(dir)
 	var cab := HBoxContainer.new()
 	var t := Label.new()
-	t.text = "TUNING — UPGRADES"
+	t.text = "TUNING"
 	t.add_theme_font_override("font", Estilo.fonte_titulo(800))
 	t.add_theme_font_size_override("font_size", 30)
-	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cab.add_child(t)
+	cab.add_theme_constant_override("separation", 14)
+	# Abas: UPGRADES (os 5 sistemas) | AJUSTE DRAG (câmbio, pneus e nitro do Drag Racing)
+	var grupo := ButtonGroup.new()
+	for aba: Array in [["upgrades", "UPGRADES"], ["drag", "AJUSTE DRAG"]]:
+		var b := Button.new()
+		b.text = aba[1]
+		b.toggle_mode = true
+		b.button_group = grupo
+		b.button_pressed = aba[0] == "upgrades"
+		b.custom_minimum_size = Vector2(170, 36)
+		b.focus_mode = Control.FOCUS_NONE
+		b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		b.add_theme_stylebox_override("pressed", Estilo.caixa_neon(Color(0.05, 0.16, 0.4, 0.95), Estilo.AZUL_NEON, 0.8, 6))
+		b.pressed.connect(_aba.bind(aba[0] == "drag"))
+		cab.add_child(b)
+		_abas[aba[0]] = b
+	var vao := Control.new()
+	vao.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cab.add_child(vao)
 	var voltar := Button.new()
 	voltar.text = "VOLTAR"
 	voltar.custom_minimum_size = Vector2(150, 36)
@@ -104,11 +128,27 @@ func _init() -> void:
 	dir.add_child(_linhas)
 	_aviso = Estilo.rotulo("", 15, Estilo.TEXTO_FRACO)
 	dir.add_child(_aviso)
+	_drag = AjusteDrag.new()
+	_drag.visible = false
+	dir.add_child(_drag)
+
+
+## Troca entre UPGRADES e AJUSTE DRAG (no Drag a coluna de atributos some para caber o acerto).
+func _aba(drag: bool) -> void:
+	_linhas.visible = not drag
+	_aviso.visible = not drag
+	_esq.visible = not drag
+	_sep.visible = not drag
+	_drag.visible = drag
+	if drag:
+		_drag.mostrar(veiculo_id)
 
 
 func mostrar(id: String) -> void:
 	veiculo_id = id
 	_atualizar()
+	if _drag.visible:
+		_drag.mostrar(id)
 
 
 func _atualizar() -> void:

@@ -21,6 +21,8 @@ var _popup: Control
 var _tuning: Tuning
 var _abas_garagem: Array[Button] = []
 var _nos_inicio: Array[Control] = []   # cartões e painel da tela inicial (somem no tuning)
+var _botao_rapida: Button
+var _rotulo_etapa: Label   # etapa escolhida para a partida rápida (embaixo do nome do modo)
 
 
 func _ready() -> void:
@@ -48,6 +50,9 @@ func _ready() -> void:
 	if OS.get_environment("TSC_FOTO_MENU") != "":
 		if OS.get_environment("TSC_FOTO_TUNING") != "":
 			_abrir_tuning()
+			if OS.get_environment("TSC_FOTO_TUNING") == "drag":
+				_tuning._abas.drag.emit_signal("pressed")
+				_tuning._abas.drag.button_pressed = true
 		await get_tree().create_timer(3.0).timeout
 		get_viewport().get_texture().get_image().save_png(OS.get_environment("TSC_FOTO_MENU"))
 		get_tree().quit()
@@ -245,7 +250,6 @@ func _montar_menu_lateral() -> void:
 		["passe", "PASSE", "breve", Callable()],
 		["noticias", "NOTÍCIAS E EVENTOS", "breve", Callable()],
 		["config", "CONFIGURAÇÕES", "", _abrir_configuracao],
-		["info", "CRÉDITOS", "", _mostrar_creditos],
 		["sair", "SAIR", "", func(): get_tree().quit()],
 	]
 	var normal := StyleBoxFlat.new()
@@ -420,8 +424,8 @@ func _montar_cartoes() -> void:
 	jogar.pressed.connect(_jogar)
 	_nos_inicio.append(jogar)
 	add_child(jogar)
+	# Foto do mapa escolhido (muda junto com o mapa)
 	var img := TextureRect.new()
-	img.texture = load("res://assets/ui/cartao_target_flight.jpg")
 	img.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	img.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	img.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -431,13 +435,63 @@ func _montar_cartoes() -> void:
 	var rodape := _linha([Estilo.icone("play", 34, Color.WHITE), _titulo("JOGAR TARGET FLIGHT", 36)], 18)
 	rodape.position = Vector2(30, 138)
 	jogar.add_child(rodape)
+	# Mapa: nome grande direto sobre a foto (sem caixa), letra de corrida, e setas grandes dos lados
+	var nome_mapa := Label.new()
+	nome_mapa.add_theme_font_override("font", load("res://assets/fontes/RacingSansOne-Regular.ttf"))
+	nome_mapa.add_theme_font_size_override("font_size", 48)
+	nome_mapa.add_theme_color_override("font_color", Color.WHITE)
+	nome_mapa.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.9))
+	nome_mapa.add_theme_constant_override("outline_size", 12)
+	nome_mapa.add_theme_color_override("font_shadow_color", Color(1.0, 0.45, 0.1, 0.6))
+	nome_mapa.add_theme_constant_override("shadow_offset_x", 0)
+	nome_mapa.add_theme_constant_override("shadow_offset_y", 4)
+	nome_mapa.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nome_mapa.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	nome_mapa.position = Vector2(64, 4)
+	nome_mapa.size = Vector2(432, 128)
+	nome_mapa.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	jogar.add_child(nome_mapa)
+	var mostrar_mapa := func():
+		nome_mapa.text = Config.nome_mapa().to_upper()
+		# Nome comprido encolhe até caber entre as setas
+		var fonte: Font = nome_mapa.get_theme_font("font")
+		var tam := 48
+		while tam > 22 and fonte.get_string_size(nome_mapa.text, HORIZONTAL_ALIGNMENT_LEFT, -1, tam).x > nome_mapa.size.x - 16.0:
+			tam -= 2
+		nome_mapa.add_theme_font_size_override("font_size", tam)
+		img.texture = load(str(Config.mapa_atual().get("imagem", "res://assets/ui/cartao_target_flight.jpg")))
+	mostrar_mapa.call()
+	var trocar_mapa := func(passo: int):
+		var lista := Config.mapas()
+		var i := lista.find(Config.mapa_atual())
+		Sessao.escolher_mapa(str(lista[posmod(i + passo, lista.size())].get("id", "")))
+		Sessao.salvar()
+		Audio.interface("confirmar", -6.0)
+		mostrar_mapa.call()
+		_atualizar_etapa_rapida()   # outro mapa, outras etapas
+	for lado: int in [-1, 1]:
+		var seta := _botao_vazio(StyleBoxEmpty.new(), StyleBoxEmpty.new())
+		seta.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		seta.tooltip_text = "Mapa anterior" if lado < 0 else "Próximo mapa"
+		seta.position = Vector2(4 if lado < 0 else 492, 4)
+		seta.size = Vector2(64, 128)
+		var icone := Estilo.icone("esquerda" if lado < 0 else "direita", 72, Color.WHITE)
+		icone.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.9))
+		icone.add_theme_constant_override("outline_size", 10)
+		icone.set_anchors_preset(Control.PRESET_FULL_RECT)
+		seta.add_child(icone)
+		seta.mouse_entered.connect(func(): icone.add_theme_color_override("font_color", Color(1.0, 0.72, 0.3)))
+		seta.mouse_exited.connect(func(): icone.add_theme_color_override("font_color", Color.WHITE))
+		seta.pressed.connect(trocar_mapa.bind(lado))
+		jogar.add_child(seta)
 
-	# JOGAR DRAG RACING — bloqueado
-	var drag := _botao_vazio(Estilo.caixa_neon(Color(0.02, 0.04, 0.08, 0.9), Color(0.35, 0.4, 0.5, 0.5), 0.0, 10),
-		Estilo.caixa_neon(Color(0.02, 0.04, 0.08, 0.9), Color(0.35, 0.4, 0.5, 0.5), 0.0, 10))
-	drag.tooltip_text = "Em breve"
-	drag.mouse_default_cursor_shape = Control.CURSOR_FORBIDDEN
+	# JOGAR DRAG RACING — offline contra bot (1/8 de milha na Reta do Canyon)
+	var drag := _botao_vazio(Estilo.caixa_neon(Color(0.02, 0.05, 0.12, 0.9), Estilo.AZUL_NEON, 0.7, 10),
+		Estilo.caixa_neon(Color(0.04, 0.1, 0.24, 0.95), Color(0.6, 0.8, 1.0), 1.3, 10))
+	drag.tooltip_text = "Arrancada de 1/8 de milha contra bot"
+	drag.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_colocar(drag, Vector2(0.5, 1), Vector2(1016, y), Vector2(470, 206))
+	drag.pressed.connect(_jogar_drag)
 	add_child(drag)
 	_nos_inicio.append(drag)
 	var img2 := TextureRect.new()
@@ -447,18 +501,51 @@ func _montar_cartoes() -> void:
 	img2.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	img2.position = Vector2(4, 4)
 	img2.size = Vector2(462, 128)
-	var cinza := ShaderMaterial.new()
-	cinza.shader = Shader.new()
-	cinza.shader.code = "shader_type canvas_item;\nvoid fragment() {\n\tvec4 c = texture(TEXTURE, UV);\n\tfloat l = dot(c.rgb, vec3(0.3, 0.59, 0.11));\n\tCOLOR = vec4(vec3(l) * 0.45, c.a);\n}"
-	img2.material = cinza
 	drag.add_child(img2)
-	var cad := Estilo.icone("cadeado", 48, Color(0.85, 0.88, 0.95))
-	cad.position = Vector2(207, 40)
-	cad.size = Vector2(56, 56)
-	drag.add_child(cad)
-	var rod2 := _linha([_titulo("JOGAR DRAG RACING", 30, Color(0.6, 0.64, 0.72)), Estilo.rotulo("—  EM BREVE", 18, Color(0.55, 0.6, 0.68), 600)], 12)
-	rod2.position = Vector2(30, 146)
+	var rod2 := _linha([Estilo.icone("play", 30, Color.WHITE), _titulo("JOGAR DRAG RACING", 30)], 16)
+	rod2.position = Vector2(30, 142)
 	drag.add_child(rod2)
+	# Pista do Drag: nome sobre a foto e setas dos lados (TSC Dragway, Reta do Canyon...)
+	var nome_pista := Label.new()
+	nome_pista.add_theme_font_override("font", load("res://assets/fontes/RacingSansOne-Regular.ttf"))
+	nome_pista.add_theme_font_size_override("font_size", 42)
+	nome_pista.add_theme_color_override("font_color", Color.WHITE)
+	nome_pista.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.9))
+	nome_pista.add_theme_constant_override("outline_size", 12)
+	nome_pista.add_theme_color_override("font_shadow_color", Color(0.2, 0.5, 1.0, 0.6))
+	nome_pista.add_theme_constant_override("shadow_offset_x", 0)
+	nome_pista.add_theme_constant_override("shadow_offset_y", 4)
+	nome_pista.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nome_pista.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	nome_pista.position = Vector2(64, 4)
+	nome_pista.size = Vector2(342, 128)
+	nome_pista.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	nome_pista.text = str(Sessao.drag_pista().get("nome", "")).to_upper()
+	drag.add_child(nome_pista)
+	var trocar_pista := func(passo: int):
+		var lista: Array = Config.valor("drag.pistas", [])
+		if lista.is_empty():
+			return
+		var i := lista.find(Sessao.drag_pista())
+		Sessao.drag_pista_id = str(lista[posmod(i + passo, lista.size())].get("id", ""))
+		Sessao.salvar()
+		Audio.interface("confirmar", -6.0)
+		nome_pista.text = str(Sessao.drag_pista().get("nome", "")).to_upper()
+	for lado: int in [-1, 1]:
+		var seta := _botao_vazio(StyleBoxEmpty.new(), StyleBoxEmpty.new())
+		seta.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		seta.tooltip_text = "Pista anterior" if lado < 0 else "Próxima pista"
+		seta.position = Vector2(4 if lado < 0 else 402, 4)
+		seta.size = Vector2(64, 128)
+		var icone := Estilo.icone("esquerda" if lado < 0 else "direita", 64, Color.WHITE)
+		icone.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.9))
+		icone.add_theme_constant_override("outline_size", 10)
+		icone.set_anchors_preset(Control.PRESET_FULL_RECT)
+		seta.add_child(icone)
+		seta.mouse_entered.connect(func(): icone.add_theme_color_override("font_color", Color(0.5, 0.75, 1.0)))
+		seta.mouse_exited.connect(func(): icone.add_theme_color_override("font_color", Color.WHITE))
+		seta.pressed.connect(trocar_pista.bind(lado))
+		drag.add_child(seta)
 
 	# Modos
 	var modos := _linha([], 10)
@@ -480,10 +567,31 @@ func _montar_cartoes() -> void:
 			conteudo.add_child(Estilo.icone("cadeado", 16, cor))
 			b.disabled = true
 			b.tooltip_text = "Em breve (online)"
-		conteudo.add_child(Estilo.rotulo(m[0], 18, cor, 600))
+		if m[0] == "PARTIDA RÁPIDA":
+			# Nome do modo e, embaixo, a etapa escolhida (a partida rápida joga só ela)
+			var textos := VBoxContainer.new()
+			textos.alignment = BoxContainer.ALIGNMENT_CENTER
+			textos.add_theme_constant_override("separation", -4)
+			textos.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			var titulo := Estilo.rotulo(m[0], 17, cor, 600)
+			titulo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			textos.add_child(titulo)
+			_rotulo_etapa = Estilo.rotulo("", 13, Color(1.0, 0.72, 0.3), 600)
+			_rotulo_etapa.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			textos.add_child(_rotulo_etapa)
+			conteudo.add_child(textos)
+			_botao_rapida = b
+			_atualizar_etapa_rapida()
+			b.button_pressed = Sessao.modo_jogo == "rapida"
+			b.pressed.connect(_escolher_etapa)
+		else:
+			conteudo.add_child(Estilo.rotulo(m[0], 18, cor, 600))
 		b.add_child(_preencher(conteudo))
 		if m[0] == "CONTRA BOTS":
-			b.button_pressed = true
+			b.button_pressed = Sessao.modo_jogo != "rapida"
+			b.pressed.connect(func():
+				Sessao.modo_jogo = "bots"
+				Sessao.salvar())
 		modos.add_child(b)
 
 
@@ -514,7 +622,7 @@ func _montar_painel_direito() -> void:
 	cfg.pressed.connect(_abrir_configuracao)
 	v.add_child(cfg)
 	var botoes := _linha([], 10)
-	for b_dados: Array in [["perfil", "PERFIL", _abrir_perfil], ["info", "CRÉDITOS", _mostrar_creditos]]:
+	for b_dados: Array in [["perfil", "PERFIL", _abrir_perfil]]:   # créditos ficam dentro de Configurações
 		var b := _botao_vazio(Estilo.caixa_neon(Color(0.03, 0.08, 0.18, 0.9), Estilo.AZUL_NEON, 0.3, 8),
 			Estilo.caixa_neon(Color(0.07, 0.2, 0.5, 0.95), Estilo.AZUL_NEON, 0.9, 8))
 		b.custom_minimum_size = Vector2(0, 48)
@@ -611,6 +719,66 @@ func _jogar() -> void:
 	get_tree().change_scene_to_file("res://cenas/partida.tscn")
 
 
+## Etapa da partida rápida no botão do modo (com o nome dela na dica).
+func _atualizar_etapa_rapida() -> void:
+	if _rotulo_etapa == null:
+		return
+	var etapas := Sessao.etapas_do_mapa()
+	if etapas.is_empty():
+		_rotulo_etapa.text = ""
+		return
+	var i := clampi(Sessao.etapa_rapida, 0, etapas.size() - 1)
+	_rotulo_etapa.text = "ETAPA %d/%d" % [i + 1, etapas.size()]
+	_botao_rapida.tooltip_text = "Joga só a etapa escolhida: %s (clique para trocar)" % str(etapas[i].get("nome", ""))
+
+
+## Partida rápida: janela para escolher a etapa do mapa atual; a partida joga só ela.
+func _escolher_etapa() -> void:
+	Sessao.modo_jogo = "rapida"
+	Sessao.salvar()
+	var etapas := Sessao.etapas_do_mapa()
+	if etapas.is_empty():
+		return
+	Sessao.etapa_rapida = clampi(Sessao.etapa_rapida, 0, etapas.size() - 1)
+	var v := _janela("PARTIDA RÁPIDA", 640)
+	v.add_child(Estilo.rotulo("Escolha a etapa de " + Config.nome_mapa() + " — a partida joga só ela.", 19, Estilo.TEXTO_FRACO))
+	var grupo := ButtonGroup.new()
+	for i in etapas.size():
+		var b := Button.new()
+		b.text = "ETAPA %d  —  %s" % [i + 1, str(etapas[i].get("nome", "")).to_upper()]
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.custom_minimum_size.y = 52
+		b.add_theme_font_size_override("font_size", 20)
+		b.add_theme_stylebox_override("normal", Estilo.caixa_neon(Color(0.03, 0.08, 0.18, 0.9), Estilo.AZUL_NEON, 0.3, 8))
+		b.add_theme_stylebox_override("hover", Estilo.caixa_neon(Color(0.07, 0.2, 0.5, 0.95), Estilo.AZUL_NEON, 0.9, 8))
+		b.add_theme_stylebox_override("pressed", Estilo.caixa_neon(Color(0.1, 0.26, 0.6, 1.0), Color(1.0, 0.72, 0.3), 1.0, 8))
+		b.focus_mode = Control.FOCUS_NONE
+		b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		b.toggle_mode = true
+		b.button_group = grupo
+		b.button_pressed = i == Sessao.etapa_rapida
+		b.pressed.connect(func():
+			Sessao.etapa_rapida = i
+			Sessao.salvar()
+			_atualizar_etapa_rapida()
+			Audio.interface("confirmar", -6.0))
+		v.add_child(b)
+	var jogar := Button.new()
+	jogar.text = "JOGAR ETAPA"
+	jogar.custom_minimum_size.y = 56
+	jogar.add_theme_font_size_override("font_size", 22)
+	jogar.add_theme_stylebox_override("normal", Estilo.caixa_neon(Color(0.35, 0.2, 0.02, 0.95), Color(1.0, 0.72, 0.3), 0.8, 8))
+	jogar.add_theme_stylebox_override("hover", Estilo.caixa_neon(Color(0.55, 0.32, 0.04, 1.0), Color.WHITE, 1.0, 8))
+	jogar.pressed.connect(_jogar)
+	v.add_child(jogar)
+	_botao_fechar(v)
+
+
+func _jogar_drag() -> void:
+	Sessao.salvar()
+	get_tree().change_scene_to_file("res://cenas/drag.tscn")
+
+
 # ------------------------------------------------------------------ janelas
 
 func _janela(titulo: String, largura := 720.0) -> VBoxContainer:
@@ -680,13 +848,13 @@ func _abrir_configuracao() -> void:
 	modo.item_selected.connect(func(i): Sessao.tempo_modo = "partida" if i == 1 else "etapa")
 	modo.custom_minimum_size.x = 260
 	grade.add_child(modo)
-	grade.add_child(Estilo.rotulo("Segundos", 21))
+	grade.add_child(Estilo.rotulo("Segundos (" + Config.nome_mapa() + ")", 21))
 	var seg := SpinBox.new()
 	seg.min_value = 30
 	seg.max_value = 900
 	seg.step = 15
-	seg.value = Sessao.tempo_segundos
-	seg.value_changed.connect(func(x): Sessao.tempo_segundos = int(x))
+	seg.value = Sessao.tempo_do_mapa()
+	seg.value_changed.connect(func(x): Sessao.definir_tempo_do_mapa(int(x)))
 	grade.add_child(seg)
 	grade.add_child(Estilo.rotulo("Jogadores por equipe", 21))
 	var jpe := SpinBox.new()
@@ -695,9 +863,30 @@ func _abrir_configuracao() -> void:
 	jpe.value = Sessao.jogadores_por_equipe
 	jpe.value_changed.connect(func(x): Sessao.jogadores_por_equipe = int(x))
 	grade.add_child(jpe)
+	grade.add_child(Estilo.rotulo("Nível dos bots", 21))
+	var nivel := OptionButton.new()
+	var ids := ["facil", "medio", "alto", "pro"]
+	for id in ids:
+		nivel.add_item(str(Config.valor("bots.niveis." + id + ".nome", id.to_upper())))
+	nivel.selected = maxi(ids.find(Sessao.nivel_bots), 0)
+	nivel.item_selected.connect(func(i): Sessao.nivel_bots = ids[i])
+	grade.add_child(nivel)
 	v.add_child(HSeparator.new())
 	v.add_child(Estilo.rotulo("ÁUDIO", 22, Estilo.TEXTO_FRACO, 600))
 	v.add_child(Audio.painel_volumes())
+	# Créditos só aqui dentro (pedido do dono)
+	v.add_child(HSeparator.new())
+	var creditos := _botao_vazio(Estilo.caixa_neon(Color(0.03, 0.08, 0.18, 0.9), Estilo.AZUL_NEON, 0.3, 8),
+		Estilo.caixa_neon(Color(0.07, 0.2, 0.5, 0.95), Estilo.AZUL_NEON, 0.9, 8))
+	creditos.custom_minimum_size = Vector2(0, 48)
+	creditos.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	var linha_c := _linha([Estilo.icone("info", 20), Estilo.rotulo("CRÉDITOS", 19, Estilo.TEXTO, 600)], 10)
+	linha_c.alignment = BoxContainer.ALIGNMENT_CENTER
+	creditos.add_child(_preencher(linha_c))
+	creditos.pressed.connect(func():
+		_fechar_popup()
+		_mostrar_creditos())
+	v.add_child(creditos)
 	_botao_fechar(v)
 
 
@@ -706,16 +895,28 @@ func _mostrar_creditos() -> void:
 	v.add_child(Estilo.rotulo("TARGET SPEED CHALLENGER — KZULO STUDIOS", 22))
 	v.add_child(Estilo.rotulo("Feito com Godot Engine (licença MIT) — godotengine.org/license", 18, Estilo.TEXTO_FRACO))
 	v.add_child(Estilo.rotulo("Fonte Exo 2 — Copyright 2013 The Exo 2 Project Authors — SIL Open Font License 1.1", 18, Estilo.TEXTO_FRACO))
+	v.add_child(Estilo.rotulo("Fonte Racing Sans One — Copyright (c) 2012 Pablo Impallari, Rodrigo Fuenzalida — SIL Open Font License 1.1", 18, Estilo.TEXTO_FRACO))
 	v.add_child(HSeparator.new())
 	v.add_child(Estilo.rotulo("Modelos 3D (carros e pilotos)", 22, Estilo.TEXTO_FRACO, 600))
-	for d in _veiculos + _avatares:   # carros e pilotos
-		var arq: String = d.modelo.get_base_dir() + "/creditos.txt"
-		var texto := ""
-		if FileAccess.file_exists(arq):
-			for l in FileAccess.get_file_as_string(arq).split("\n"):
-				if l.begins_with("\"") or l.begins_with("Modelo:"):
-					texto = l
-		var rot := Estilo.rotulo(texto if texto != "" else d.nome, 17)
+	var arquivos := []   # [creditos.txt, nome de reserva]: carros, pilotos (com as luvas) e interiores do cockpit
+	for d in _veiculos + _avatares:
+		arquivos.append([d.modelo.get_base_dir() + "/creditos.txt", d.nome])
+	for pasta in DirAccess.get_directories_at("res://assets/cockpit"):
+		arquivos.append(["res://assets/cockpit/%s/creditos.txt" % pasta, pasta])
+	for a: Array in arquivos:
+		# Uma linha por obra do arquivo (o texto de crédito pronto; senão a linha "Modelo:")
+		var obras: Array[String] = []
+		var modelos: Array[String] = []
+		if FileAccess.file_exists(a[0]):
+			for l in FileAccess.get_file_as_string(a[0]).split("\n"):
+				if l.begins_with("\"") or l.begins_with("This work is based"):
+					obras.append(l)
+				elif l.begins_with("Crédito: "):
+					obras.append(l.trim_prefix("Crédito: "))
+				elif l.begins_with("Modelo:"):
+					modelos.append(l)
+		var texto := "\n".join(obras if not obras.is_empty() else modelos)
+		var rot := Estilo.rotulo(texto if texto != "" else a[1], 17)
 		rot.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		rot.custom_minimum_size.x = 900
 		v.add_child(rot)

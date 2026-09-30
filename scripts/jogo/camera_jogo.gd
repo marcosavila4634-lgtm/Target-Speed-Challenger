@@ -4,7 +4,23 @@ extends Node3D
 ## sem segurar botão. Afasta-se no voo para enquadrar carro e paraquedas e continua afastada
 ## na aproximação do alvo. Também faz a apresentação cinematográfica e o modo espectador.
 
-enum Modo { SEGUIR, CINEMATICA, PODIO }
+enum Modo { SEGUIR, CINEMATICA, PODIO, DRONE }
+
+## Abertura da partida (pedido do dono): drone filmando o mapa em planos, com faixas de cinema.
+## Cada plano: {"pos": [pontos], "olhar": [pontos], "dur": s}. A câmera percorre uma curva suave
+## pelos pontos, com balanço de drone e inclinação nas curvas; entre os planos, corte com fade.
+## O último plano termina na posição da câmera de jogo (sem pulo quando a contagem começa).
+var _planos: Array = []
+var _plano_i := 0
+var _t_plano := 0.0
+var _curva_pos: Curve3D
+var _curva_olhar: Curve3D
+var _rolagem := 0.0
+var _rumo_ant := 0.0
+var _cinema: CanvasLayer
+var _faixa_cima: ColorRect
+var _faixa_baixo: ColorRect
+var _fade: ColorRect
 
 const ARFAGEM_PADRAO := -0.2
 
@@ -24,9 +40,14 @@ var _t_cine := 0.0
 var _foco := Vector3.ZERO
 var _arfagem_veiculo := 0.0
 var zoom := 1.0   # rodinha do mouse
+var _dist_livre := 999.0   # até onde a câmera pode ficar sem entrar em parede/teto
+var _olhando_tras := false
 
 
 func _ready() -> void:
+	# A câmera anda no _process (a cada quadro): fica fora da interpolação de física e segue a
+	# posição JÁ interpolada do carro (senão o carro desenhado suave e a câmera aos trancos se desencontram)
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	cam = Camera3D.new()
 	cam.near = 0.15
 	cam.far = 20000.0
@@ -39,13 +60,17 @@ func _ready() -> void:
 
 func seguir(v: Veiculo, instantaneo := false) -> void:
 	veiculo = v
+	if modo == Modo.DRONE:
+		_mostrar_cinema(false)
 	modo = Modo.SEGUIR
+	cam.rotation.z = 0.0
 	if instantaneo and v:
 		_yaw_base = _rumo_de(v)
 		_yaw_extra = 0.0
 		_arfagem = ARFAGEM_PADRAO
 		_distancia = _distancia_desejada(v)
 		_foco = v.global_position + Vector3.UP * 1.6
+		_dist_livre = 999.0
 
 
 func cinematica(centro: Vector3) -> void:
@@ -75,7 +100,134 @@ func _unhandled_input(evento: InputEvent) -> void:
 			zoom = clampf(zoom / 0.9, 0.55, 1.8)
 
 
+## Começa a filmagem do drone (ver _planos). Devolve a duração total.
+func drone(planos: Array) -> float:
+	_planos = planos
+	_plano_i = 0
+	_t_plano = 0.0
+	_rolagem = 0.0
+	modo = Modo.DRONE
+	cam.fov = 60.0
+	_preparar_plano()
+	_mostrar_cinema(true)
+	var total := 0.0
+	for p: Dictionary in planos:
+		total += float(p.dur)
+	return total
+
+
+## Onde a câmera de jogo fica atrás de `v` (posição e foco), para o drone terminar ali.
+func pose_seguir(v: Veiculo) -> Array:
+	var foco := v.global_position + Vector3.UP * 1.6
+	var b := Basis.from_euler(Vector3(ARFAGEM_PADRAO, _rumo_de(v), 0.0))
+	var pos := foco + b * Vector3(0.0, 0.0, _distancia_desejada(v))
+	# Como no jogo: não atravessa muro/grade (vaga encostada no muro da largada)
+	var hit := get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(foco, pos, 1))
+	if not hit.is_empty():
+		pos = foco + (pos - foco).normalized() * maxf(foco.distance_to(hit.position) - 0.6, 1.2)
+	return [pos, foco]
+
+
+func _preparar_plano() -> void:
+	var p: Dictionary = _planos[_plano_i]
+	_curva_pos = _curva_suave(p.pos)
+	_curva_olhar = _curva_suave(p.olhar)
+	_t_plano = 0.0
+
+
+static func _curva_suave(lista: Array) -> Curve3D:
+	var c := Curve3D.new()
+	c.bake_interval = 0.5
+	# Pontos repetidos seguidos (o olhar parado no carro) fazem trechos de comprimento zero:
+	# a curva dava erro e podia devolver NaN
+	var pontos: Array[Vector3] = []
+	for q: Vector3 in lista:
+		if pontos.is_empty() or pontos[-1].distance_to(q) > 0.05:
+			pontos.append(q)
+	var n := pontos.size()
+	for i in n:
+		var ant: Vector3 = pontos[maxi(i - 1, 0)]
+		var prox: Vector3 = pontos[mini(i + 1, n - 1)]
+		var h := (prox - ant) / 6.0
+		c.add_point(pontos[i], -h, h)
+	return c
+
+
+## Ponto da curva do drone na fração s (curva de comprimento zero: o primeiro ponto).
+static func _amostra(c: Curve3D, s: float) -> Vector3:
+	var comp := c.get_baked_length()
+	if comp < 0.01:
+		return c.get_point_position(0) if c.point_count > 0 else Vector3.ZERO
+	return c.sample_baked(s * comp, true)
+
+
+func _processar_drone(delta: float) -> void:
+	_t_plano += delta
+	var p: Dictionary = _planos[_plano_i]
+	var dur := float(p.dur)
+	if _t_plano >= dur and _plano_i < _planos.size() - 1:
+		_plano_i += 1
+		_preparar_plano()
+		p = _planos[_plano_i]
+		dur = float(p.dur)
+	var u := clampf(_t_plano / dur, 0.0, 1.0)
+	# Movimento de câmera de cinema: sai e chega devagar (o último plano pousa suave atrás do carro)
+	var s := lerpf(u, u * u * (3.0 - 2.0 * u), 0.55 if _plano_i < _planos.size() - 1 else 1.0)
+	var pos := _amostra(_curva_pos, s)
+	var olhar := _amostra(_curva_olhar, s)
+	if not (pos.is_finite() and olhar.is_finite()):
+		return   # a câmera é o "ouvido" dos sons 3D: posição NaN emudece motor, pneus e batidas
+	# Balanço de drone, que some no fim do último plano
+	var tt := Time.get_ticks_msec() / 1000.0
+	var balanco := 1.0 if _plano_i < _planos.size() - 1 else 1.0 - s
+	pos += Vector3(sin(tt * 1.3), sin(tt * 1.9) * 0.5, cos(tt * 1.1)) * 0.35 * balanco
+	global_position = pos
+	if pos.distance_to(olhar) > 0.1:
+		look_at(olhar)
+	# Inclina para dentro da curva, como um drone de filmagem
+	var rumo := rotation.y
+	var giro := wrapf(rumo - _rumo_ant, -PI, PI) / maxf(delta, 0.001)
+	_rumo_ant = rumo
+	_rolagem = lerpf(_rolagem, clampf(giro * 0.12, -0.18, 0.18) * balanco, 1.0 - exp(-delta * 3.0))
+	cam.rotation.z = _rolagem
+	# Corte entre planos: escurece no fim de um e clareia no começo do outro (não no fim do último)
+	var a := 0.0
+	if _plano_i > 0:
+		a = maxf(a, 1.0 - clampf(_t_plano / 0.35, 0.0, 1.0))
+	if _plano_i < _planos.size() - 1:
+		a = maxf(a, 1.0 - clampf((dur - _t_plano) / 0.35, 0.0, 1.0))
+	_fade.color.a = a
+
+
+func _mostrar_cinema(sim: bool) -> void:
+	if _cinema == null:
+		_cinema = CanvasLayer.new()
+		_cinema.layer = 20
+		add_child(_cinema)
+		_faixa_cima = ColorRect.new()
+		_faixa_baixo = ColorRect.new()
+		_fade = ColorRect.new()
+		for r: ColorRect in [_faixa_cima, _faixa_baixo, _fade]:
+			r.color = Color.BLACK
+			r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			_cinema.add_child(r)
+		_fade.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_faixa_cima.anchor_right = 1.0
+		_faixa_baixo.anchor_right = 1.0
+		_faixa_baixo.anchor_top = 1.0
+		_faixa_baixo.anchor_bottom = 1.0
+	_fade.color.a = 0.0
+	# Faixas presas no topo e no pé da tela: a altura vem dos offsets (âncoras fixas na borda)
+	var altura := get_viewport().get_visible_rect().size.y * 0.11
+	var tw := create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(_faixa_cima, "offset_bottom", altura if sim else 0.0, 0.8)
+	tw.tween_property(_faixa_baixo, "offset_top", -altura if sim else 0.0, 0.8)
+
+
 func _process(delta: float) -> void:
+	if modo == Modo.DRONE:
+		_processar_drone(delta)
+		return
 	if modo == Modo.CINEMATICA:
 		_t_cine += delta
 		var a := _t_cine * 0.22 + 0.6
@@ -94,7 +246,7 @@ func _process(delta: float) -> void:
 	if veiculo == null:
 		return
 	var v := veiculo
-	var foco_alvo := v.global_position + Vector3.UP * 1.6
+	var foco_alvo := v.get_global_transform_interpolated().origin + Vector3.UP * 1.6
 	if v.paraquedas_aberto:
 		foco_alvo += Vector3.UP * 3.5
 	_foco = _foco.lerp(foco_alvo, 1.0 - exp(-delta * 12.0)) if _foco.distance_to(foco_alvo) < 50.0 else foco_alvo
@@ -105,20 +257,41 @@ func _process(delta: float) -> void:
 	if _ocioso > 2.5:
 		_yaw_extra = lerp_angle(_yaw_extra, 0.0, 1.0 - exp(-delta * 1.2))
 		_arfagem = lerpf(_arfagem, ARFAGEM_PADRAO, 1.0 - exp(-delta * 1.2))
-	# Na pista, a câmera acompanha a inclinação do carro (descida e rampa).
+	# Na pista, a câmera acompanha a inclinação da PISTA (descida e rampa), não a da carroceria:
+	# numa batida o carro empina e sacode, e a câmera sacudia junto
 	var alvo_arf := 0.0
 	if not v.eliminado and v.estado == Veiculo.Estado.APOIADO:
-		alvo_arf = asin(clampf(-v.global_transform.basis.z.y, -1.0, 1.0))
+		var dp := _dir_pista(v)
+		if dp != Vector3.ZERO:
+			alvo_arf = asin(clampf(dp.y, -1.0, 1.0))
+		else:
+			alvo_arf = asin(clampf(-v.global_transform.basis.z.y, -1.0, 1.0))
 	_arfagem_veiculo = lerpf(_arfagem_veiculo, alvo_arf, 1.0 - exp(-delta * 4.0))
-	var b := Basis.from_euler(Vector3(_arfagem + _arfagem_veiculo, _yaw_base + _yaw_extra, 0.0))
+	# C segurado: visão traseira — câmera na frente do carro olhando para trás (sem o giro do mouse)
+	var olhando_tras := Input.is_action_pressed("olhar_tras") and modo == Modo.SEGUIR and not v.eliminado
+	var yaw := _yaw_base + PI if olhando_tras else _yaw_base + _yaw_extra
+	var arf := ARFAGEM_PADRAO if olhando_tras else _arfagem
+	if olhando_tras != _olhando_tras:
+		_olhando_tras = olhando_tras
+		_dist_livre = 999.0   # troca na hora, sem aproximar devagar
+	var b := Basis.from_euler(Vector3(arf - _arfagem_veiculo if olhando_tras else arf + _arfagem_veiculo, yaw, 0.0))
 	var pos := _foco + b * Vector3(0.0, 0.0, _distancia)
 	var chao := terreno.altura_em(pos.x, pos.z) + 3.0 if terreno else -INF
 	pos.y = maxf(pos.y, chao)
-	# Não atravessa pista, plataforma nem alvo
+	# Não atravessa pista, túnel, muretas, plataforma nem alvo. Encosta na hora, mas volta devagar:
+	# sem isso, com o carro sacudindo numa batida dentro do túnel, o raio batia/não batia a cada
+	# quadro e a câmera ficava pulando entre colada no carro e longe.
 	var q := PhysicsRayQueryParameters3D.create(_foco, pos, 1)
 	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	var para_cam := pos - _foco
+	var livre := para_cam.length()
 	if not hit.is_empty():
-		pos = hit.position + (_foco - pos).normalized() * 0.6
+		livre = maxf(_foco.distance_to(hit.position) - 0.6, 1.2)
+	_dist_livre = livre if livre < _dist_livre else lerpf(_dist_livre, livre, 1.0 - exp(-delta * 2.5))
+	pos = _foco + para_cam.normalized() * minf(para_cam.length(), _dist_livre)
+	if not (pos.is_finite() and _foco.is_finite()):
+		_foco = foco_alvo if foco_alvo.is_finite() else global_position
+		return   # posição NaN emudeceria todos os sons 3D (a câmera é o "ouvido")
 	global_position = pos
 	look_at(_foco)
 	var vel := v.linear_velocity.length() if not v.eliminado else 0.0
@@ -140,6 +313,15 @@ func _rumo_de(v: Veiculo) -> float:
 	if v.paraquedas_aberto:
 		return v.rumo
 	var ref := v.linear_velocity
+	# Na pista (reta até a saída): olha para onde a pista vai. Só segue a velocidade se o carro sair
+	# muito do rumo (rodou numa batida e está indo de lado/para trás de verdade)
+	var dp := _dir_pista(v) if not v.eliminado and v.estado == Veiculo.Estado.APOIADO else Vector3.ZERO
+	if dp != Vector3.ZERO:
+		var f := dp
+		var rumo_pista := atan2(-f.x, -f.z)
+		var h := Vector2(ref.x, ref.z)
+		if h.length() < 4.0 or absf(wrapf(atan2(-h.x, -h.y) - rumo_pista, -PI, PI)) < 1.0:
+			return rumo_pista
 	ref.y = 0.0
 	if ref.length() < 4.0:
 		ref = -v.global_transform.basis.z
@@ -147,3 +329,10 @@ func _rumo_de(v: Veiculo) -> float:
 	if ref.length() < 0.01:
 		return _yaw_base
 	return atan2(-ref.x, -ref.z)
+
+
+## Direção 3D da pista sob o carro (descida, rampa ou a estrada do Climb to Death); zero fora dela.
+func _dir_pista(v: Veiculo) -> Vector3:
+	if v.complexo == null:
+		return Vector3.ZERO
+	return v.complexo.direcao_pista(v.global_position)

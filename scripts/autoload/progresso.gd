@@ -83,6 +83,14 @@ func faixa_xp(id: String) -> Vector2i:
 	return Vector2i(xp(id) - ini, int(tabela[n]) - ini)
 
 
+## Soma `ganho` de XP ao carro. Devolve {ganho, subiu_nivel, nivel}.
+func ganhar_xp(id: String, ganho: int) -> Dictionary:
+	var antes := nivel(id)
+	_carro(id).xp = xp(id) + ganho
+	salvar()
+	return {"ganho": ganho, "subiu_nivel": nivel(id) > antes, "nivel": nivel(id)}
+
+
 ## XP da partida para o carro usado. Devolve {ganho, subiu_nivel, nivel}.
 func registrar_partida(id: String, pontos: int, venceu: bool) -> Dictionary:
 	var antes := nivel(id)
@@ -168,3 +176,16 @@ func dados_jogador(id: String) -> Dictionary:
 func dados_bot(dados: Dictionary, id_jogador: String) -> Dictionary:
 	var niveis := niveis_upgrade(id_jogador) if _prog("bots", "espelhar") == "espelhar" else {}
 	return aplicar(dados, niveis)
+
+
+# ------------------------------------------------------------------ acerto do Drag
+
+## Acerto do Drag do carro ({marchas, final, pneu_traseiro, pneu_dianteiro, nitro}); vazio = de fábrica.
+func ajustes_drag(id: String) -> Dictionary:
+	var d = _carro(id).get("drag", {})
+	return d.duplicate(true) if d is Dictionary else {}
+
+
+func definir_ajustes_drag(id: String, ajustes: Dictionary) -> void:
+	_carro(id)["drag"] = ajustes.duplicate(true)
+	salvar()

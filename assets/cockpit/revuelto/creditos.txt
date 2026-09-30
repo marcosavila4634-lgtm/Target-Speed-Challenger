@@ -1,0 +1,7 @@
+Modelo: Lamborghini Revuelto (só o interior, recortado por tools/cockpit/extrair.gd; marcas trocadas por TSChallenger)
+Autor: Anatolian Studios (https://sketchfab.com/AnatolianStudios)
+Licença: CC Attribution — http://creativecommons.org/licenses/by/4.0/
+Link: https://sketchfab.com/3d-models/lamborghini-revuelto-099b60042519463ead19ce054d479724
+
+Crédito (exibir nos créditos do jogo):
+This work is based on "Lamborghini Revuelto" (https://sketchfab.com/3d-models/lamborghini-revuelto-099b60042519463ead19ce054d479724) by Anatolian Studios (https://sketchfab.com/AnatolianStudios) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

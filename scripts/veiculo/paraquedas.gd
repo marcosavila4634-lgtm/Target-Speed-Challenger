@@ -47,6 +47,8 @@ func montar(v: Veiculo, cor: Color, caixa: AABB) -> void:
 	veiculo = v
 	name = "Paraquedas"
 	top_level = true
+	# Posicionado a cada quadro a partir do carro já interpolado (ver _atualizar): fora da interpolação
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	altura = float(Config.valor("fisica.paraquedas.altura_cobertura", 9)) + caixa.end.y
 	_cobertura = Node3D.new()
 	add_child(_cobertura)
@@ -60,10 +62,13 @@ func montar(v: Veiculo, cor: Color, caixa: AABB) -> void:
 	_cobertura.add_child(_malha)
 
 	_montar_suporte(v, cor, caixa)
-	for i in 12:
-		var x := lerpf(-ENVERGADURA * 0.47, ENVERGADURA * 0.47, i / 11.0)
-		for zc: float in [-CORDA * 0.3, 0.0, CORDA * 0.3]:
-			_pontas.append(Vector3(x, _perfil(x) - 0.4, zc))
+	# Fios presos nas costuras entre as células (ali o tecido não estufa), logo abaixo da face de
+	# baixo: na altura fixa de antes a ponta ficava dentro do velame perto da borda de fuga (a face
+	# de baixo desce para trás) e aparecia do outro lado do tecido (pedido do dono).
+	for i in CELULAS + 1:
+		var x := lerpf(-ENVERGADURA * 0.5, ENVERGADURA * 0.5, float(i) / CELULAS)
+		for cz: float in [0.2, 0.5, 0.8]:
+			_pontas.append(Vector3(x, _y_face_baixo(x, cz) - 0.07, lerpf(-CORDA * 0.5, CORDA * 0.5, cz)))
 
 	_linhas = ImmediateMesh.new()
 	var linhas := MeshInstance3D.new()
@@ -119,6 +124,17 @@ const PLACA_ESPESSURA := 0.02
 const PLACA_FOLGA := 0.01          # acima da lataria, para não piscar com ela
 const OLHAL_RAIO := 0.075
 const OLHAL_ALTURA := 0.022
+
+## Sem paraquedas de teto (Drag Racing: o carro usa o de frenagem, atrás): tira a placa de reforço
+## e as argolas do teto, e esconde o velame.
+func remover() -> void:
+	for p in _presilhas:
+		if is_instance_valid(p):
+			p.queue_free()
+	_presilhas.clear()
+	_fixacoes.clear()
+	visible = false
+
 
 func _montar_suporte(v: Veiculo, cor: Color, caixa: AABB) -> void:
 	var h_teto := func(x: float, z: float) -> float:
@@ -325,7 +341,7 @@ func _process(delta: float) -> void:
 
 
 func _atualizar(delta: float) -> void:
-	var xf_carro := veiculo.global_transform
+	var xf_carro := veiculo.get_global_transform_interpolated()   # onde o carro está desenhado
 	var topo_carro := xf_carro * Vector3(0, veiculo.caixa_corpo.end.y, 0)
 	if aberto:
 		var euler := xf_carro.basis.get_euler()
@@ -445,13 +461,13 @@ func _fita(a: Vector3, b: Vector3, largura: float, olho: Vector3) -> void:
 
 func _ao_encostar(corpo: Node) -> void:
 	if aberto and corpo != veiculo:
-		veiculo.fechar_paraquedas()
+		veiculo.murchar_velame()
 
 
 ## Duas coberturas se enroscando: as duas fecham.
 func _ao_encostar_cobertura(outra: Area3D) -> void:
 	if aberto and outra != _area:
-		veiculo.fechar_paraquedas()
+		veiculo.murchar_velame()
 
 
 static func _suave(x: float) -> float:
@@ -471,6 +487,11 @@ func _perfil(x: float) -> float:
 	# Arco da envergadura: pontas mais baixas que o centro.
 	var r := ENVERGADURA * 0.6
 	return sqrt(maxf(r * r - x * x, 0.0)) - r
+
+
+## Altura da face de baixo da cobertura em x e na fração cz da corda (mesma conta de _malha_cobertura).
+func _y_face_baixo(x: float, cz: float) -> float:
+	return _perfil(x) + sin(PI * pow(cz, 0.7)) * 0.1 - 0.42 - cz * 0.25
 
 
 ## Cobertura: faces de cima e de baixo por célula, bocas na frente e estabilizadores nas pontas.

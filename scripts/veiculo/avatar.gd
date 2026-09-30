@@ -28,6 +28,14 @@ var _chao_pes := -INF                  # altura do assoalho sob os pés (espaço
 var _giro_volante := 0.0             # rotação do volante; positivo = horário (curva à direita)
 var _festa := 0.0                      # > 0: comemorando (intensidade)
 var _t_festa := 0.0
+var _folga_pegada := Vector2.ZERO   # pulso fora do aro (x) e para o piloto (y): mão fechando no aro
+var _giro_maos := {}                  # cockpit: punhos girados, palma de frente para o aro
+var _alvo_cambio := Vector3.ZERO     # cockpit: manopla do câmbio (espaço do avatar)
+var _mix_cambio := 0.0               # 0 = mão direita no volante, 1 = na alavanca
+var _puxao_esq := 0.0                # cockpit: dedos puxando a borboleta (0..1)
+var _puxao_dir := 0.0
+var _mao_fixa := {}                  # índice do osso da mão -> giro (espaço do avatar) da pose de repouso até a pegada
+var _eixo_dedo := {}                 # índice da falange -> eixo local da dobra (fecha para a palma)
 
 
 static func criar(d: Dictionary) -> Avatar:
@@ -61,6 +69,7 @@ func _indexar() -> void:
 			_dobra_dedo[i] = 0.35
 		if p >= 0 and not _filho.has(p):
 			_filho[p] = i
+	_medir_eixos_dedos()
 
 
 ## Escala o modelo para a altura pedida (topo da cabeça no repouso).
@@ -166,6 +175,115 @@ func sentar_em(v: Veiculo) -> void:
 	_pose_sentado()
 
 
+## Luvas de piloto (tools/luvas/vestir.py): malhas presas aos ossos da mão deste mesmo avatar,
+## que passam para o esqueleto dele e fecham junto com os dedos.
+func vestir_luvas(arquivo: String) -> void:
+	if arquivo == "" or not ResourceLoader.exists(arquivo):
+		return
+	var cena: Node = (load(arquivo) as PackedScene).instantiate()
+	for mi: MeshInstance3D in cena.find_children("*", "MeshInstance3D", true, false):
+		if mi.skin == null:
+			continue
+		mi.owner = null
+		mi.get_parent().remove_child(mi)
+		esqueleto.add_child(mi)
+		mi.transform = Transform3D.IDENTITY
+		mi.skeleton = NodePath("..")
+		mi.layers = 1
+		mi.set_meta("luva", true)
+	cena.free()
+	_tirar_malha(["LeftHand", "RightHand"])
+
+
+## Sentado no cockpit do Drag (visão interna, sem carro por baixo): o volante vem no espaço do
+## pai (centro, normal apontando para o piloto e raio do aro) e o olho do piloto fica em `olho`.
+## A cabeça some (a câmera está dentro dela); ficam o tronco, os braços e as mãos no aro.
+func sentar_cockpit(centro: Vector3, eixo: Vector3, raio: float, olho: Vector3) -> void:
+	_vol_eixo = eixo.normalized()
+	_vol_raio = raio
+	var palma := (_pos_repouso("LeftHandMiddle1") - _pos_repouso("LeftHand")).length()
+	_folga_pegada = Vector2(0.02 * escala_rel(), palma * 0.25)   # pulso fora e atrás do aro: a palma encosta nele
+	_giro_maos = {"LeftHand": Basis.IDENTITY, "RightHand": Basis.IDENTITY}   # só marca o modo cockpit (a pegada é _mao_fixa)
+	modelo.position -= _pos_repouso("Hips")
+	_m_esq = _cadeia(esqueleto)
+	position = olho + Vector3(0, -0.72, 0.12) * escala_rel()
+	var cabeca: int = _ossos["Head"]
+	for i in 3:   # acerta o quadril até o olho do modelo cair no olho pedido
+		_vol_centro = centro - position
+		_pose_sentado()
+		var c := _m_esq * esqueleto.get_bone_global_pose(cabeca).origin
+		var olho_modelo := c + Vector3(0, 0.08, -0.1) * escala_rel()
+		position += olho - (position + olho_modelo)
+	# A cabeça fica escondida (a câmera está nela): o corpo pode ir para a frente até os braços
+	# alcançarem o aro com o cotovelo dobrado, como um piloto de verdade (banco perto do volante).
+	var braco := (_pos_repouso("LeftForeArm") - _pos_repouso("LeftArm")).length() + (_pos_repouso("LeftHand") - _pos_repouso("LeftForeArm")).length()
+	for i in 4:
+		_vol_centro = centro - position
+		_pose_sentado()
+		var ombro := _m_esq * esqueleto.get_bone_global_pose(_ossos["LeftArm"]).origin
+		var falta := (_pegada(-1.0) - ombro).length() - braco * 0.85
+		if falta <= 0.005:
+			break
+		position += (_pegada(-1.0) - ombro).normalized() * Vector3(0.3, 0.3, 1.0) * falta
+	_vol_centro = centro - position
+	_pose_sentado()
+	_tirar_malha(["Head"])
+	if OS.get_environment("TSC_DEBUG_MAO") != "":
+		_debug_alcance()
+
+
+## Some com os triângulos presos a esses ossos e aos filhos deles: a cabeça na visão interna (rosto,
+## cabelo e boné na frente da câmera) e as mãos de pele sob as luvas (senão os dedos furam a luva).
+func _tirar_malha(raizes: Array) -> void:
+	var cab := {}
+	var pilha := []
+	for r in raizes:
+		if _ossos.has(r):
+			pilha.append(_ossos[r])
+	while not pilha.is_empty():
+		var i: int = pilha.pop_back()
+		cab[i] = true
+		for k in esqueleto.get_bone_count():
+			if esqueleto.get_bone_parent(k) == i:
+				pilha.append(k)
+	for mi: MeshInstance3D in modelo.find_children("*", "MeshInstance3D", true, false):
+		if mi.skin == null or mi.mesh == null or mi.has_meta("luva"):
+			continue
+		var da_cabeca := {}   # índice do bind -> é osso da cabeça
+		for b in mi.skin.get_bind_count():
+			var osso_b := mi.skin.get_bind_bone(b)
+			if osso_b < 0:
+				osso_b = esqueleto.find_bone(mi.skin.get_bind_name(b))
+			da_cabeca[b] = cab.has(osso_b)
+		var nova := ArrayMesh.new()
+		for s in mi.mesh.get_surface_count():
+			var arr := mi.mesh.surface_get_arrays(s)
+			var fmt: int = mi.mesh.surface_get_format(s)
+			var por_v: int = 8 if fmt & Mesh.ARRAY_FLAG_USE_8_BONE_WEIGHTS else 4
+			var ossos_v = arr[Mesh.ARRAY_BONES]
+			var pesos_v = arr[Mesh.ARRAY_WEIGHTS]
+			if ossos_v != null and arr[Mesh.ARRAY_INDEX] != null:
+				var fora := PackedByteArray()
+				fora.resize(arr[Mesh.ARRAY_VERTEX].size())
+				for v in fora.size():
+					var p := 0.0
+					for j in por_v:
+						if da_cabeca.get(ossos_v[v * por_v + j], false):
+							p += pesos_v[v * por_v + j]
+					fora[v] = 1 if p > 0.25 else 0
+				var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX]
+				var fica := PackedInt32Array()
+				for t in range(0, idx.size(), 3):
+					if not (fora[idx[t]] or fora[idx[t + 1]] or fora[idx[t + 2]]):
+						fica.append_array([idx[t], idx[t + 1], idx[t + 2]])
+				arr[Mesh.ARRAY_INDEX] = fica
+				if fica.is_empty():
+					continue
+			nova.add_surface_from_arrays(mi.mesh.surface_get_primitive_type(s), arr, [], {}, fmt & Mesh.ARRAY_FLAG_USE_8_BONE_WEIGHTS)
+			nova.surface_set_material(nova.get_surface_count() - 1, mi.mesh.surface_get_material(s))
+		mi.mesh = nova
+
+
 func escala_rel() -> float:
 	return escala * _altura_repouso() / 1.75
 
@@ -185,16 +303,44 @@ func _pose_sentado() -> void:
 		"LeftUpLeg": {"alvo_rel": Vector3(-0.07, -0.36, -0.62) * s, "polo": Vector3(-0.25, 1, -0.3), "chao": _chao_pes},
 		"RightUpLeg": {"alvo_rel": Vector3(0.07, -0.36, -0.62) * s, "polo": Vector3(0.25, 1, -0.3), "chao": _chao_pes},
 		"LeftArm": {"alvo": _pegada(-1.0), "polo": Vector3(-0.7, -1, 0.35)},
-		"RightArm": {"alvo": _pegada(1.0), "polo": Vector3(0.7, -1, 0.35)},
+		"RightArm": {"alvo": _pegada(1.0).lerp(_alvo_cambio, _mix_cambio), "polo": Vector3(0.7, -1, 0.35)},
 	}
+	if not _giro_maos.is_empty():
+		for lado: float in [-1.0, 1.0]:
+			_calcular_pegada(lado)
 	var olhar := Basis(Vector3.UP, -_giro_volante * 0.25)
-	_posar(dirs, ik, Basis(Vector3.RIGHT, deg_to_rad(6.0)), {"Head": olhar}, 1.2)
+	var extra := {"Head": olhar}
+	extra.merge(_giro_maos)
+	if _mix_cambio > 0.0 and extra.has("RightHand"):   # na alavanca: palma para baixo, por cima da manopla
+		extra["RightHand"] = Basis(Vector3.RIGHT, deg_to_rad(90.0 * (1.0 - _mix_cambio)))
+	_posar(dirs, ik, Basis(Vector3.RIGHT, deg_to_rad(6.0)), extra, 1.2 if _giro_maos.is_empty() else 1.3)
+
+
+## Pegada do cockpit: dedos apontando para a frente (longe do piloto) e um pouco para dentro do
+## aro, polegar por cima (ao longo do aro), palma encostada no lado de fora do aro. O giro leva
+## os eixos da mão em repouso (pulso -> dedo médio, mindinho -> indicador) até esses.
+func _calcular_pegada(lado: float) -> void:
+	var nome := "LeftHand" if lado < 0.0 else "RightHand"
+	var pre := "Left" if lado < 0.0 else "Right"
+	var lr := (_pos_repouso(pre + "HandMiddle1") - _pos_repouso(nome)).normalized()
+	var tr := _pos_repouso(pre + "HandIndex1") - _pos_repouso(pre + "HandPinky1")
+	tr = (tr - lr * tr.dot(lr)).normalized()
+	var e := _vol_eixo
+	var fora := (Vector3.RIGHT - e * e.dot(Vector3.RIGHT)).normalized().rotated(e, -_giro_volante) * lado
+	var cima := e.cross(fora * lado).normalized()   # tangente do aro (para cima nas 9h/3h)
+	var puxa: float = _puxao_esq if lado < 0.0 else _puxao_dir
+	var l := (-e - fora * (0.12 + puxa * 0.25)).normalized()
+	var t := (cima - l * cima.dot(l)).normalized()
+	var rep := Basis(lr, tr, lr.cross(tr))
+	var des := Basis(l, t, l.cross(t))
+	_mao_fixa[_ossos[nome]] = des * rep.inverse()
 
 
 ## Ponto da mão no aro (lado -1 = esquerda, 1 = direita), girado junto com o volante.
 func _pegada(lado: float) -> Vector3:
 	var direita := (Vector3.RIGHT - _vol_eixo * _vol_eixo.dot(Vector3.RIGHT)).normalized()
-	var ponto := direita * lado * _vol_raio * 0.95
+	var puxa: float = _puxao_esq if lado < 0.0 else _puxao_dir
+	var ponto := direita * lado * (_vol_raio * 0.95 + _folga_pegada.x - puxa * 0.025) + _vol_eixo * (_folga_pegada.y + puxa * 0.02)
 	return _vol_centro + ponto.rotated(_vol_eixo, -_giro_volante)
 
 
@@ -243,9 +389,11 @@ func _posar(dirs: Dictionary, ik: Dictionary, incl: Basis, extra: Dictionary, de
 			if atual.cross(desejada).length() > 0.0001 or atual.dot(desejada) < 0.0:
 				g.basis = Basis(Quaternion(atual, desejada)) * g.basis
 		if _dobra_dedo.has(i):
-			g.basis = g.basis * Basis(_EIXO_DEDO, _dobra_dedo[i] * dedos)
+			g.basis = g.basis * Basis(_eixo_dedo.get(i, _EIXO_DEDO) if not _giro_maos.is_empty() else _EIXO_DEDO, _dobra_dedo[i] * dedos)
 		if extra_i.has(i):
 			g.basis = (inv.basis * (extra_i[i] as Basis) * _m_esq.basis).orthonormalized() * g.basis
+		if _mao_fixa.has(i):   # cockpit: mão com orientação completa (palma no aro, polegar por cima)
+			g.basis = (inv.basis * (_mao_fixa[i] as Basis) * _m_esq.basis * esqueleto.get_bone_global_rest(i).basis).orthonormalized()
 		globais[i] = g
 		var local: Transform3D = (globais[p].affine_inverse() * g) if p >= 0 else g
 		esqueleto.set_bone_pose_rotation(i, local.basis.get_rotation_quaternion())
@@ -373,3 +521,50 @@ func _process(delta: float) -> void:
 	if _volante:
 		_volante.basis = Basis(_vol_eixo, -_giro_volante)
 	_pose_sentado()
+
+
+## Troca de marcha (cockpit): leva a mão direita do aro até a manopla (`alvo` no espaço do pai do
+## avatar) na fração `mistura` (0 = volante, 1 = alavanca).
+func mao_no_cambio(alvo: Vector3, mistura: float) -> void:
+	_alvo_cambio = alvo - position
+	_mix_cambio = clampf(mistura, 0.0, 1.0)
+	_pose_sentado()
+
+
+## Borboleta do câmbio (cockpit): `lado` 1 = direita (sobe), -1 = esquerda (reduz); `forca` 0..1.
+## A mão fica no aro, desliza um pouco para dentro e os dedos fecham puxando.
+func puxar_borboleta(lado: float, forca: float) -> void:
+	if lado > 0.0:
+		_puxao_dir = forca
+	else:
+		_puxao_esq = forca
+	_pose_sentado()
+
+
+## Eixo em que cada falange fecha para a palma, medido na mão em repouso: a linha dos nós
+## (mindinho -> indicador). Na mão esquerda a dobra positiva é em torno de -T, na direita de +T.
+## O eixo fixo do Mixamo (X local) em alguns modelos dobrava os dedos para o lado.
+func _medir_eixos_dedos() -> void:
+	for pre in ["Left", "Right"]:
+		if not (_ossos.has(pre + "Hand") and _ossos.has(pre + "HandIndex1") and _ossos.has(pre + "HandPinky1") and _ossos.has(pre + "HandMiddle1")):
+			continue
+		var r := func(n: String) -> Vector3: return esqueleto.get_bone_global_rest(_ossos[n]).origin
+		var l: Vector3 = (r.call(pre + "HandMiddle1") - r.call(pre + "Hand")).normalized()
+		var t: Vector3 = r.call(pre + "HandIndex1") - r.call(pre + "HandPinky1")
+		t = (t - l * t.dot(l)).normalized()
+		var eixo := -t if pre == "Left" else t
+		for i: int in _dobra_dedo:
+			var nome := esqueleto.get_bone_name(i)
+			if not nome.begins_with(pre) or "Thumb" in nome:
+				continue
+			var b := esqueleto.get_bone_global_rest(i).basis.orthonormalized()
+			_eixo_dedo[i] = (b.inverse() * eixo).normalized()
+
+
+func _debug_alcance() -> void:
+	for pre in ["Left", "Right"]:
+		var alvo := _pegada(-1.0 if pre == "Left" else 1.0)
+		var tem := _m_esq * esqueleto.get_bone_global_pose(_ossos[pre + "Hand"]).origin
+		var ombro := _m_esq * esqueleto.get_bone_global_pose(_ossos[pre + "Arm"]).origin
+		var braco := (_pos_repouso(pre + "ForeArm") - _pos_repouso(pre + "Arm")).length() + (_pos_repouso(pre + "Hand") - _pos_repouso(pre + "ForeArm")).length()
+		print("[ALCANCE] ", pre, " erro ", snappedf((tem - alvo).length(), 0.001), " ombro->alvo ", snappedf((alvo - ombro).length(), 0.001), " braço ", snappedf(braco, 0.001))

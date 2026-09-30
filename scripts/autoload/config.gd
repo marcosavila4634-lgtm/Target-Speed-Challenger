@@ -16,7 +16,11 @@ const CONTROLES := {
 	"paraquedas": [KEY_E],
 	"nitro": [KEY_SHIFT],
 	"proxima_camera": [KEY_TAB],
+	"olhar_tras": [KEY_C],
 	"pausa": [KEY_ESCAPE],
+	# Drag Racing (direção automática: A/D ficam livres para o câmbio)
+	"subir_marcha": [KEY_E, KEY_D],
+	"reduzir_marcha": [KEY_Q, KEY_A],
 }
 
 const EQUIPES := [
@@ -30,6 +34,9 @@ var jogo: Dictionary = {}
 var veiculos: Array = []
 var avatares: Array = []
 var upgrades: Dictionary = {}
+## Fase escolhida (jogo.json → mapas). Os valores em "sobrepor" da fase têm prioridade em valor().
+var mapa_id := ""
+var _sobrepor: Dictionary = {}
 
 
 func _ready() -> void:
@@ -38,6 +45,7 @@ func _ready() -> void:
 	avatares = _ler_json(CAMINHO_AVATARES).get("avatares", [])
 	upgrades = _ler_json(CAMINHO_UPGRADES)
 	_registrar_controles()
+	escolher_mapa(OS.get_environment("TSC_MAPA"))
 
 
 func _ler_json(caminho: String) -> Dictionary:
@@ -52,14 +60,61 @@ func _ler_json(caminho: String) -> Dictionary:
 
 
 ## Lê um valor pelo caminho "secao.chave", por exemplo valor("fisica.ejetor_impulso", 12).
+## Primeiro procura nos valores próprios da fase escolhida ("sobrepor"), depois no jogo.json.
 func valor(caminho: String, padrao = null):
-	var atual = jogo
-	for parte in caminho.split("."):
+	var partes := caminho.split(".")
+	var achou := [false]
+	var v = _buscar(_sobrepor, partes, achou)
+	if achou[0]:
+		return v
+	v = _buscar(jogo, partes, achou)
+	return v if achou[0] else padrao
+
+
+func _buscar(raiz: Dictionary, partes: PackedStringArray, achou: Array):
+	var atual = raiz
+	for parte in partes:
 		if atual is Dictionary and atual.has(parte):
 			atual = atual[parte]
 		else:
-			return padrao
+			return null
+	achou[0] = true
 	return atual
+
+
+func mapas() -> Array:
+	return jogo.get("mapas", [{"id": "canyon_rush", "nome": "Canyon Rush"}])
+
+
+func mapa_atual() -> Dictionary:
+	for m in mapas():
+		if m.get("id") == mapa_id:
+			return m
+	return mapas()[0]
+
+
+## Troca a fase ativa (id vazio ou desconhecido = a primeira da lista).
+func escolher_mapa(id: String) -> void:
+	var m: Dictionary = mapas()[0]
+	for c in mapas():
+		if c.get("id") == id:
+			m = c
+	mapa_id = m.get("id", "")
+	_sobrepor = m.get("sobrepor", {})
+
+
+## Plataforma conjunta: todas as equipes largam juntas da mesma arena.
+func mapa_arena() -> bool:
+	return mapa_atual().get("tipo", "") == "arena"
+
+
+## Tipo de mapa: "" (Canyon Rush, uma rampa por equipe), "arena" ou "subida" (Climb to Death).
+func mapa_tipo() -> String:
+	return str(mapa_atual().get("tipo", ""))
+
+
+func nome_mapa() -> String:
+	return str(mapa_atual().get("nome", "Canyon Rush"))
 
 
 func veiculos_ativos() -> Array:
