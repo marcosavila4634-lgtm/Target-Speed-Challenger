@@ -1835,6 +1835,7 @@ func _animar_focas(g: Dictionary) -> void:
 # ------------------------------------------------------------------ yetis (Frozen Peak)
 
 const YETI := preload("res://scripts/mundo/yeti.gd")
+static var ultimo_agarrado: Veiculo   # conferência (vista gelo_yeti_seguir)
 const YETI_SALTO := 0.6   # segundos do pulo até o teto do carro
 
 ## Pedido do dono (2026-10-03): dois yetis, cada um numa geleira (a mesma das focas) de um lado da
@@ -1874,10 +1875,9 @@ func _montar_yetis(item: Array, cfg: Dictionary) -> void:
 		ComplexoLancamento.adicionar_colisoes(est, col)
 		var suporte := Node3D.new()
 		no.add_child(suporte)
-		var casa := Transform3D(Basis.looking_at(lat * s_k, Vector3.UP) * Basis(Vector3.UP, PI), Vector3(pe.x, topo + 0.4, pe.z))
+		var casa := Transform3D(Basis.looking_at(lat * s_k, Vector3.UP), Vector3(pe.x, topo + 0.4, pe.z))
 		suporte.global_transform = casa
 		var y := YETI.criar(suporte, 300 + k + i)
-		(y.raiz as Node3D).scale = Vector3.ONE * 1.35
 		bichos.append({"y": y, "no": suporte, "casa": casa, "estado": "parado", "t0": -100.0, "v": null, "de": casa.origin, "ginga": 0.0})
 	_portoes.append({"tipo": "yeti", "i": i, "s": sub.progresso_amostra(i), "comp": 0.0, "fase": 0.0, "c": c, "lat": lat, "tan": -b.z,
 		"segura": float(cfg.get("segura_s", 5.0)), "descanso": float(cfg.get("descanso_s", 3.0)), "bichos": bichos, "total": false})
@@ -1893,6 +1893,18 @@ func _teto(v: Veiculo) -> Transform3D:
 
 
 func _animar_yetis(g: Dictionary) -> void:
+	# Conferência: TSC_YETI_TESTE=1 põe o primeiro yeti no teto do carro do jogador (parado na largada)
+	if OS.get_environment("TSC_YETI_TESTE") != "" and g == _primeiro_yeti() and _t > 1.0:
+		var yt: Dictionary = g.bichos[0]
+		if yt.estado == "parado":
+			for no_v in get_tree().get_nodes_in_group("veiculo"):
+				var vj := no_v as Veiculo
+				if vj and vj.name.contains("KZULO"):
+					yt.v = vj
+					yt.estado = "agarrado"
+					yt.t0 = _t
+					vj.yeti(9999.0)
+					ultimo_agarrado = vj
 	var lat: Vector3 = g.lat
 	var tan: Vector3 = g.tan
 	var dt := get_physics_process_delta_time()
@@ -1941,6 +1953,7 @@ func _animar_yetis(g: Dictionary) -> void:
 					yb.estado = "agarrado"
 					yb.t0 = _t
 					v.yeti(float(g.segura))
+					ultimo_agarrado = v
 					if OS.get_environment("TSC_SUB_LOG") != "":
 						print("[YETI] pegou %s em %.1f s" % [v.name, _t])
 			"agarrado":
@@ -2029,7 +2042,7 @@ func _montar_yetis_plataforma(cfg: Dictionary) -> void:
 		ComplexoLancamento.adicionar_colisoes(est, col)
 		var suporte := Node3D.new()
 		no.add_child(suporte)
-		suporte.global_transform = Transform3D(Basis.looking_at(r.lateral * s, Vector3.UP) * Basis(Vector3.UP, PI), pe + Vector3.UP * 2.8)
+		suporte.global_transform = Transform3D(Basis.looking_at(r.lateral * s, Vector3.UP), pe + Vector3.UP * 2.8)
 		var y := YETI.criar(suporte, 700 + k)
 		(y.raiz as Node3D).scale = Vector3.ONE * 1.35
 		var bola := MeshInstance3D.new()
@@ -2094,3 +2107,10 @@ func _animar_yetis_plataforma(g: Dictionary) -> void:
 		var ate := melhor.global_position + melhor.linear_velocity * dur + Vector3.UP * 0.6
 		(yb.bola as MeshInstance3D).visible = true
 		yb.voo = {"de": de, "ate": ate, "t0": _t, "dur": dur, "arco": dist * 0.12, "v": melhor}
+
+
+func _primeiro_yeti() -> Dictionary:
+	for g: Dictionary in _portoes:
+		if g.tipo == "yeti":
+			return g
+	return {}

@@ -59,10 +59,13 @@ static func _carregar_modelo() -> Array:
 			if n is Node3D:
 				xf = (n as Node3D).transform * xf
 			n = n.get_parent()
+		# Só a escala do nó: o arquivo vem girado 20° em volta de Y (o yeti ficava torto); a malha já olha +Z
+		xf = Transform3D(Basis.from_scale(xf.basis.get_scale()), Vector3.ZERO)
 		var ab := xf * mi.mesh.get_aabb()
 		lo = minf(lo, ab.position.y)
 		hi = maxf(hi, ab.end.y)
-		pecas.append([mi.mesh, xf])
+		var mat := mi.get_active_material(0) as BaseMaterial3D
+		pecas.append([mi.mesh, xf, mat.albedo_texture if mat else null, mat.normal_texture if mat and mat.normal_enabled else null])
 	cena.free()
 	# Pés em y = 0 e ALTURA de altura
 	var esc := ALTURA / maxf(hi - lo, 0.01)
@@ -115,12 +118,22 @@ static func criar(pai: Node3D, semente: int) -> Dictionary:
 		pai.add_child(r)
 		var corpo := Node3D.new()
 		r.add_child(corpo)
+		var mats := []
 		for p: Array in md:
 			var mi := MeshInstance3D.new()
 			mi.mesh = p[0]
 			mi.transform = p[1]
+			# Material próprio por yeti: braços e pernas dobram no shader (cada um com a sua pose)
+			var sm := ShaderMaterial.new()
+			sm.shader = load("res://shaders/yeti_modelo.gdshader")
+			sm.set_shader_parameter("tex_cor", p[2])
+			if p[3]:
+				sm.set_shader_parameter("tex_normal", p[3])
+				sm.set_shader_parameter("tem_normal", true)
+			mi.material_override = sm
 			corpo.add_child(mi)
-		return {"raiz": r, "corpo": corpo, "fase": rng.randf() * TAU}
+			mats.append(sm)
+		return {"raiz": r, "corpo": corpo, "mats": mats, "esc": (md[0][1] as Transform3D).basis.get_scale().y, "fase": rng.randf() * TAU}
 	var raiz := Node3D.new()
 	raiz.name = "Yeti"
 	pai.add_child(raiz)
@@ -306,25 +319,62 @@ static func pose(y: Dictionary, t: float, modo: String, u := 0.0, ginga := 0.0) 
 				esq.set_bone_pose_rotation(o["canela_d" if s > 0.0 else "canela_e"], q.call(Vector3.RIGHT, 0.5 + 0.4 * chute))
 
 
-## Yeti pronto (sem ossos): o corpo inteiro respira, balança e se inclina. Parado: olha em volta e de vez em
-## quando dá um pulinho batendo no peito; salto: encolhe e se inclina para a frente; arremesso: joga o
-## corpo para trás e para a frente; agarrado: deitado no teto, se debatendo com o balanço do carro.
+## Yeti pronto: o corpo inteiro respira, balança e se inclina, e o shader (yeti_modelo.gdshader) dobra ombros,
+## cotovelos, mãos e quadris. Ângulos dos braços: [para a frente, para fora, cotovelo]; braco_e = lado +X
+## da malha (mão esquerda do yeti), braco_d = mão direita.
+## - parado: braços soltos balançando; de vez em quando bate no peito, um punho de cada vez, pulando;
+## - salto: braços para cima e para fora, pernas encolhidas;
+## - arremesso: a mão direita vai para trás por cima do ombro (u até 1) e o corpo torce;
+## - agarrado: deitado de bruços no teto (o nó já vem deitado), braços abertos por cima do teto e os
+##   antebraços descendo pelas laterais com as mãos fechadas na lataria; os braços puxam e soltam um de
+##   cada vez (escorrega e se segura) e acompanham o balanço da curva; as pernas pendem e chutam.
 static func _pose_modelo(y: Dictionary, t: float, modo: String, u: float, ginga: float) -> void:
 	var c: Node3D = y.corpo
 	var ph: float = t + float(y.fase)
 	var resp := sin(ph * 1.4)
+	var be := Vector3.ZERO
+	var bd := Vector3.ZERO
+	var pe := Vector2.ZERO
+	var maos := 0.3
 	match modo:
 		"parado":
 			var bate := clampf(sin(ph * 0.35) * 4.0 - 3.0, 0.0, 1.0)
-			c.position = Vector3(0.0, absf(sin(ph * 9.0)) * 0.25 * bate, 0.0)
-			c.basis = Basis(Vector3.UP, 0.4 * sin(ph * 0.4)) * Basis(Vector3.RIGHT, 0.08 + 0.03 * resp - 0.12 * bate) * Basis(Vector3.BACK, 0.05 * sin(ph * 0.7)) 				* Basis.from_scale(Vector3(1.0 + 0.02 * resp, 1.0 - 0.015 * resp, 1.0 + 0.02 * resp))
+			var soco_e := 0.5 + 0.5 * sin(ph * 10.0)
+			c.position = Vector3(0.0, absf(sin(ph * 10.0)) * 0.12 * bate, 0.0)
+			c.basis = Basis(Vector3.UP, 0.4 * sin(ph * 0.4)) * Basis(Vector3.RIGHT, 0.08 + 0.03 * resp - 0.1 * bate) 				* Basis.from_scale(Vector3(1.0 + 0.02 * resp, 1.0 - 0.015 * resp, 1.0 + 0.02 * resp))
+			var solto := Vector3(0.12 * sin(ph * 0.9), 0.08 + 0.04 * resp, 0.15)
+			be = solto.lerp(Vector3(1.1 + 0.35 * soco_e, -0.35, 1.6), bate)
+			bd = Vector3(0.12 * sin(ph * 0.9 + 1.3), 0.08 + 0.04 * resp, 0.15).lerp(Vector3(1.1 + 0.35 * (1.0 - soco_e), -0.35, 1.6), bate)
+			maos = 0.3 + 0.7 * bate
 		"salto":
 			var e := sin(u * PI)
 			c.position = Vector3.ZERO
-			c.basis = Basis(Vector3.RIGHT, 0.5 * e) * Basis.from_scale(Vector3(1.0 + 0.08 * e, 1.0 - 0.15 * e, 1.0 + 0.08 * e))
+			c.basis = Basis(Vector3.RIGHT, 0.4 * e) * Basis.from_scale(Vector3(1.0 + 0.05 * e, 1.0 - 0.1 * e, 1.0 + 0.05 * e))
+			be = Vector3(2.3 * e, 0.7 * e, 0.4)
+			bd = be
+			pe = Vector2(1.0, 1.0) * 1.0 * e
+			maos = 0.0
 		"arremesso":
 			c.position = Vector3.ZERO
-			c.basis = Basis(Vector3.UP, -0.5 * u) * Basis(Vector3.RIGHT, -0.35 * u)
+			c.basis = Basis(Vector3.UP, -0.5 * u) * Basis(Vector3.RIGHT, -0.2 * u)
+			bd = Vector3(2.7 * u, 0.25, 1.3 * u)
+			be = Vector3(0.7 * u, 0.3, 0.4)
+			pe = Vector2(0.25, -0.15) * u
+			maos = 0.8
 		"agarrado":
-			c.position = Vector3(0.0, -0.9, 0.0)
-			c.basis = Basis(Vector3.BACK, 0.2 * ginga + 0.08 * sin(ph * 7.0)) * Basis(Vector3.RIGHT, 0.06 * sin(ph * 9.0))
+			# Peito em cima do meio do teto, barriga encostada na lataria
+			var esc: float = y.get("esc", 1.37)
+			const NO_TETO := 0.95   # um pouco menor no teto: o carro tem ~2 m de largura
+			c.position = Vector3(0.0, -1.28 * esc * NO_TETO, -0.15)
+			c.basis = Basis(Vector3.BACK, 0.15 * ginga + 0.05 * sin(ph * 6.0)) * Basis(Vector3.RIGHT, 0.04 * sin(ph * 9.0)) * Basis.from_scale(Vector3.ONE * NO_TETO)
+			# Um braço puxa enquanto o outro afrouxa; na curva o de fora estica e o de dentro encolhe
+			var puxa := sin(ph * 4.5)
+			be = Vector3(0.3 + 0.12 * puxa, 1.85 - 0.15 * ginga, 0.7 + 0.25 * puxa)
+			bd = Vector3(0.3 - 0.12 * puxa, 1.85 + 0.15 * ginga, 0.7 - 0.25 * puxa)
+			pe = Vector2(0.55 + 0.4 * sin(ph * 5.0), 0.55 + 0.4 * sin(ph * 5.0 + PI))
+			maos = 1.0
+	for m: ShaderMaterial in y.mats:
+		m.set_shader_parameter("braco_e", be)
+		m.set_shader_parameter("braco_d", bd)
+		m.set_shader_parameter("pernas", pe)
+		m.set_shader_parameter("maos", maos)
