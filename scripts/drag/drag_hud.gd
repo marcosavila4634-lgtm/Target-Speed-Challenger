@@ -219,7 +219,7 @@ func atualizar(delta: float, m: DragMotor, rival: DragMotor, tempo_corrida: floa
 	else:
 		_nitro.text = "NITRO — PRONTO"
 	_nitro_barra.value = m.nitro_restante / maxf(m.nitro_total, 0.001) if m.nitro_ativo or not m.nitro_usado else 0.0
-	var fim := float(Config.valor("drag.distancia_m", 201.168))
+	var fim := Sessao.drag_distancia()
 	_dist_eu.position = Vector2(clampf(m.distancia / fim, 0.0, 1.0) * 432.0, -4)
 	_dist_rival.position = Vector2(clampf(rival.distancia / fim, 0.0, 1.0) * 432.0, -4)
 	_aviso_t -= delta
@@ -234,12 +234,14 @@ func carregando(nome_carro: String) -> void:
 	_carga.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_carga.theme = Estilo.tema()
 	add_child(_carga)
+	var fotos := fotos_pista(Sessao.drag_fotos_id())
+	fotos.shuffle()
 	var img := TextureRect.new()
-	img.texture = load("res://assets/ui/cartao_drag_racing.jpg")
+	img.texture = fotos[0] if not fotos.is_empty() else load("res://assets/ui/cartao_drag_racing.jpg")
 	img.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	img.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	img.set_anchors_preset(Control.PRESET_FULL_RECT)
-	img.modulate = Color(0.55, 0.55, 0.6)
+	img.modulate = Color(0.62, 0.62, 0.66)
 	_carga.add_child(img)
 	var col := _coluna([], 16)
 	col.set_anchors_preset(Control.PRESET_CENTER)
@@ -255,7 +257,7 @@ func carregando(nome_carro: String) -> void:
 	titulo.add_theme_constant_override("outline_size", 16)
 	titulo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(titulo)
-	var sub := Estilo.rotulo("%s  —  1/8 DE MILHA  —  %s" % [str(Sessao.drag_pista().get("nome", "")).to_upper(), nome_carro.to_upper()], 26, Color(0.8, 0.88, 1.0), 600)
+	var sub := Estilo.rotulo("%s  —  %s  —  %s" % [str(Sessao.drag_pista().get("nome", "")).to_upper(), "1/4 DE MILHA" if Sessao.drag_distancia() > 300.0 else "1/8 DE MILHA", nome_carro.to_upper()], 26, Color(0.8, 0.88, 1.0), 600)
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(sub)
 	# Comandos só aqui, antes da corrida (na pista não há instruções na tela)
@@ -267,6 +269,36 @@ func carregando(nome_carro: String) -> void:
 	_barra_carga.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_barra_carga.value = 0.0
 	col.add_child(_barra_carga)
+	# Textos de arrancada (curiosidades e dicas) e as fotos da pista trocando enquanto carrega
+	var textos: Array = (Config.valor("drag.textos_carga", []) as Array).duplicate()
+	textos.shuffle()
+	var texto := Estilo.rotulo(str(textos[0]) if not textos.is_empty() else "", 24, Color(1.0, 0.8, 0.35), 600)
+	texto.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	texto.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	texto.custom_minimum_size = Vector2(900, 70)
+	col.add_child(texto)
+	var relogio := Timer.new()
+	relogio.wait_time = 3.5
+	relogio.autostart = true
+	_carga.add_child(relogio)
+	var vez := [0]
+	relogio.timeout.connect(func():
+		vez[0] += 1
+		if not fotos.is_empty():
+			img.texture = fotos[vez[0] % fotos.size()]
+		if not textos.is_empty():
+			texto.text = str(textos[vez[0] % textos.size()]))
+
+
+## Fotos da pista do Drag para o carregamento e o menu (assets/ui/drag_carga, tiradas pela própria
+## corrida com TSC_FOTOS_CARGA). `tomada` filtra uma só (borrachao, alinhados, arrancada, chegada).
+static func fotos_pista(id: String, tomada := "") -> Array[Texture2D]:
+	var lista: Array[Texture2D] = []
+	for t: String in (["borrachao", "alinhados", "arrancada", "chegada"] if tomada == "" else [tomada]):
+		var arq := "res://assets/ui/drag_carga/%s_%s.jpg" % [id, t]
+		if ResourceLoader.exists(arq):
+			lista.append(load(arq))
+	return lista
 
 
 func progresso_carga(v: float) -> void:

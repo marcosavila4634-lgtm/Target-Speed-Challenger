@@ -8,7 +8,7 @@ const MEIO_INTERNO := 3400.0
 const N_INTERNO := 513
 const MEIO_EXTERNO := 14000.0
 const N_EXTERNO := 257
-const VERSAO_CACHE := 19
+const VERSAO_CACHE := 22
 
 var perfil: PerfilRampa
 var distancia_saida: float
@@ -29,6 +29,10 @@ var _vale_largura := [230.0, 320.0, 400.0]   # meia-largura na saída, no meio e
 var _vale_fundo := 380.0                       # até onde o vale vai atrás do alvo
 var _esporoes: Array = []                      # [base, ponta, raio na base, raio na ponta] (coordenadas do vale)
 var _rota_vale: Array[Vector2] = []
+## Altura (m) de cada ponto da rota, 0 = livre (Frozen Peak: janelas das muralhas de gelo)
+var _rota_alt := PackedFloat32Array()
+## Rotas de voo alternativas da etapa (montanhas.etapas.N.rotas_alt: listas de [x, z, altura]): Vector3(x, altura, z)
+var rotas_alt: Array = []
 var _etapa_vale := -1
 var _malha_interna: MeshInstance3D
 var _mat_terreno: ShaderMaterial
@@ -64,6 +68,22 @@ var _muralha_estrada := 0.0
 var _veg_subida: Node3D
 ## A malha de longe tem um ponto a cada ~110 m: um pináculo nela vira um cone pontudo, então lá não tem
 var _amostrando_externo := false
+# City Rush (Config.mapa_cidade): chão plano de ruas e prédios no lugar das mesas (ver Cidade)
+var _modo_cidade := false
+var cidade: Cidade
+# Pharaoh's Climb (Config.mapa_egito): deserto, Nilo, pirâmides e obeliscos (ver Egito)
+var _modo_egito := false
+var egito: Egito
+# Serpent's Climb (Config.mapa_selva): selva, templos, rio e cachoeira (ver Selva)
+var _modo_selva := false
+var selva: Selva
+# Frozen Peak (Config.mapa_gelo): montanhas nevadas, lago congelado e estruturas de gelo (ver Gelo)
+var _modo_gelo := false
+var gelo: Gelo
+# Extinction Day (Config.mapa_dino): selva de árvores gigantes, vulcão com túnel e lava (ver Dino)
+var _modo_dino := false
+var dino: Dino
+const CHAO_CIDADE := 6.0
 
 
 func gerar(p_perfil: PerfilRampa) -> void:
@@ -102,6 +122,35 @@ func gerar(p_perfil: PerfilRampa) -> void:
 	_ruido_detalhe.fractal_octaves = 3
 	_ruido_planalto.seed = semente + 29
 	_ruido_planalto.frequency = 1.0 / 900.0
+	_modo_egito = Config.mapa_egito()
+	if _modo_egito:
+		egito = Egito.new()
+		egito.name = "Egito"
+		add_child(egito)
+		egito.preparar(self)
+	_modo_selva = Config.mapa_selva()
+	if _modo_selva:
+		selva = Selva.new()
+		selva.name = "Selva"
+		add_child(selva)
+		selva.preparar(self)
+	_modo_gelo = Config.mapa_gelo()
+	if _modo_gelo:
+		gelo = Gelo.new()
+		gelo.name = "Gelo"
+		add_child(gelo)
+		gelo.preparar(self)
+	_modo_dino = Config.mapa_dino()
+	if _modo_dino:
+		dino = Dino.new()
+		dino.name = "Dino"
+		add_child(dino)
+		dino.preparar(self)
+	_modo_cidade = Config.mapa_cidade()
+	if _modo_cidade:
+		cidade = Cidade.new()
+		add_child(cidade)
+		cidade.gerar(self, CHAO_CIDADE)
 
 	if not _carregar_cache():
 		alturas_interno = _amostrar(MEIO_INTERNO, N_INTERNO, false)
@@ -124,6 +173,20 @@ func gerar(p_perfil: PerfilRampa) -> void:
 	add_child(_malha_interna)
 	add_child(_criar_malha(alturas_externo, MEIO_EXTERNO, N_EXTERNO, _mat_terreno))
 	_criar_agua()
+	if _modo_cidade:
+		return   # sem vegetação do deserto nem bruma de cânion
+	if _modo_selva:
+		selva.montar()   # templos, mata, cachoeira e bichos
+		return
+	if _modo_gelo:
+		gelo.montar()   # fortalezas de gelo, vilas, pinheiros nevados, neve caindo
+		return
+	if _modo_dino:
+		dino.montar()   # vulcão, lava, árvores gigantes, parque e dinossauros
+		return
+	if _modo_egito:
+		egito.montar()   # palmeiras, pirâmides, obeliscos, templos (sem zimbros nem bruma de cânion)
+		return
 	_criar_vegetacao()
 	if _canion_fechado:
 		_criar_vegetacao_vale()
@@ -149,10 +212,24 @@ static func direcoes_lancamento() -> Array[Vector2]:
 
 
 ## Altura do terreno no ponto (x, z) do mundo.
+## No City Rush inclui os prédios (telhado = chão; bater na fachada = bater no terreno).
 func altura_em(x: float, z: float) -> float:
+	var h: float
 	if absf(x) < MEIO_INTERNO and absf(z) < MEIO_INTERNO:
-		return _bilinear(alturas_interno, MEIO_INTERNO, N_INTERNO, x, z)
-	return _bilinear(alturas_externo, MEIO_EXTERNO, N_EXTERNO, x, z)
+		h = _bilinear(alturas_interno, MEIO_INTERNO, N_INTERNO, x, z)
+	else:
+		h = _bilinear(alturas_externo, MEIO_EXTERNO, N_EXTERNO, x, z)
+	if cidade:
+		h = maxf(h, cidade.altura(x, z))
+	if egito:
+		h = maxf(h, egito.altura(x, z))
+	if selva:
+		h = maxf(h, selva.altura(x, z))
+	if gelo:
+		h = maxf(h, gelo.altura(x, z))
+	if dino:
+		h = maxf(h, dino.altura(x, z))
+	return h
 
 
 func _bilinear(dados: PackedFloat32Array, meio: float, n: int, x: float, z: float) -> float:
@@ -225,6 +302,8 @@ static func _abrir(dados: PackedFloat32Array, n: int) -> PackedFloat32Array:
 func _altura_procedural(x: float, z: float) -> float:
 	if _modo_subida:
 		return _altura_subida(x, z)
+	if _modo_cidade:
+		return _altura_cidade(x, z)
 	var nb := _ruido_base.get_noise_2d(x, z)
 	var nd := _ruido_detalhe.get_noise_2d(x, z)
 	# Mesas em degraus: platôs planos separados por paredões.
@@ -279,6 +358,14 @@ func _altura_procedural(x: float, z: float) -> float:
 	return h
 
 
+## City Rush: chão plano no nível da rua; o rio (longe, rio_deslocamento) corre num canal de concreto.
+## Os prédios não entram na malha (ficam em Cidade, somados em altura_em).
+func _altura_cidade(x: float, z: float) -> float:
+	var x_rio := -170.0 + _desvio_rio + 260.0 * sin(z / 760.0) + 90.0 * sin(z / 230.0 + 1.3)
+	var d_rio := absf(x - x_rio)
+	return lerpf(-6.0, CHAO_CIDADE, smoothstep(70.0, 80.0, d_rio))
+
+
 ## Vale do Canyon Combat (mapa.canion_fechado), como no desenho do dono visto de cima: um vale largo
 ## da saída da rampa até o alvo, cercado de montanhas quase da altura da plataforma, e esporões
 ## gigantes saindo de lados opostos. O 1º encosta no meio do vale (dá para sair reto da rampa); o 2º
@@ -323,6 +410,14 @@ func _altura_subida(x: float, z: float) -> float:
 	if d > 0.0:
 		d = maxf(d + 30.0 * _ruido_planalto.get_noise_2d(x * 1.3, z * 1.3) + 12.0 * nd, 0.0)
 		var alt := minf(380.0 + 45.0 * _ruido_planalto.get_noise_2d(x, z), 420.0)
+		if _modo_selva:
+			alt = selva.penhasco + 40.0 * _ruido_planalto.get_noise_2d(x, z)
+		if _modo_egito:
+			alt = egito.penhasco + 35.0 * _ruido_planalto.get_noise_2d(x, z)   # penhascos de calcário mais baixos
+		if _modo_gelo:
+			alt = gelo.penhasco + 70.0 * _ruido_planalto.get_noise_2d(x, z)
+		if _modo_dino:
+			alt = dino.penhasco + 60.0 * _ruido_planalto.get_noise_2d(x, z)
 		var parede := alt * _degraus(smoothstep(0.0, 150.0, d)) + 10.0
 		# Longe do vale volta às mesas normais do cânion
 		var nb := _ruido_base.get_noise_2d(x, z)
@@ -330,6 +425,14 @@ func _altura_subida(x: float, z: float) -> float:
 		var fm := floorf(mesa)
 		var mesas := (fm + smoothstep(0.55, 1.0, mesa - fm)) / 3.0 * (320.0 + 55.0 * _ruido_planalto.get_noise_2d(x, z)) + 10.0 + 6.0 * nd
 		mesas = maxf(mesas, _pinaculos(x, z))
+		if _modo_selva:
+			mesas = _morros(x, z)   # longe do vale: morros cobertos de mata
+		if _modo_egito:
+			mesas = _dunas(x, z)   # longe do vale: mar de dunas
+		if _modo_gelo:
+			mesas = _picos(x, z)   # longe do vale: maciços nevados
+		if _modo_dino:
+			mesas = _morros(x, z) * 1.4   # longe do vale: serras cobertas de mata
 		h = maxf(h, lerpf(mesas, parede, smoothstep(1500.0, 900.0, d)))
 	# Morro entre a subida e o alvo
 	if not _sub_morro.is_empty() and not _sem_morro:
@@ -351,12 +454,63 @@ func _altura_subida(x: float, z: float) -> float:
 		var face := float(Config.valor("mapa.subida.montanhas.face", 50))
 		var p := Vector2(x, z)
 		for c: Array in _sub_fixas + _sub_montanhas:
+			if c.size() > 5 and c[5]:
+				h = maxf(h, _duna(p, c))   # duna: encosta lisa de areia, sem degraus
+				continue
 			var de := _dentro_esporao(p, c) + 14.0 * nd
 			if de > 0.0:
 				h = maxf(h, float(c[4]) * _perfil_esporao(p, c, de, face) + 6.0 + 20.0 * _ruido_planalto.get_noise_2d(x * 3.0, z * 3.0))
 	if not _sub_tunel.is_empty():
 		h = _cavar_tunel(Vector2(x, z), h)
+	if _modo_egito:
+		h = egito.cavar_nilo(x, z, h)
+	if _modo_selva:
+		h = selva.cavar_rio(x, z, h)
+	if _modo_gelo:
+		h = gelo.cavar(x, z, h)
+	if _modo_dino:
+		h = dino.relevo(x, z, h)   # vulcão, leitos de lava e o corte das estradas
 	return h
+
+
+## Pharaoh's Climb: mar de dunas longe do vale (cristas compridas alinhadas com o vento, de
+## 15 a 60 m, sobre ondulações largas).
+func _dunas(x: float, z: float) -> float:
+	var q := Vector2(x * 0.8 + z * 0.35, z * 1.1 - x * 0.25)   # cristas tortas, na diagonal
+	var crista := 1.0 - absf(_ruido_detalhe.get_noise_2d(q.x * 0.55, q.y * 0.18))
+	var grande := _ruido_base.get_noise_2d(x * 0.7, z * 0.7)
+	return 14.0 + 45.0 * (grande * 0.5 + 0.5) + 42.0 * crista * crista * (0.6 + 0.4 * grande)
+
+
+## Serpent's Climb: morros arredondados cobertos de mata longe do vale (60 a 260 m), com vales entre eles.
+func _morros(x: float, z: float) -> float:
+	var grande := _ruido_base.get_noise_2d(x * 0.8, z * 0.8) * 0.5 + 0.5
+	var medio := _ruido_detalhe.get_noise_2d(x * 0.45, z * 0.45) * 0.5 + 0.5
+	return 40.0 + 170.0 * grande * grande + 70.0 * medio
+
+
+## Frozen Peak: maciços nevados largos e arredondados longe do vale (150 a 650 m), com cristas
+## compridas — nada de pico em cone (a malha de longe tem um ponto a cada ~110 m).
+func _picos(x: float, z: float) -> float:
+	var grande := _ruido_base.get_noise_2d(x * 0.55, z * 0.55) * 0.5 + 0.5
+	var medio := _ruido_detalhe.get_noise_2d(x * 0.22, z * 0.22) * 0.5 + 0.5
+	var crista := 1.0 - absf(_ruido_planalto.get_noise_2d(x * 0.6, z * 0.6))
+	return 130.0 + 330.0 * grande * grande + 120.0 * medio + 150.0 * crista * crista * grande
+
+
+## Duna gigante (cápsula com duna = true): perfil liso em sino, crista um pouco ondulada.
+func _duna(p: Vector2, c: Array) -> float:
+	var de := _dentro_esporao(p, c)
+	if de <= 0.0:
+		return -INF
+	var a: Vector2 = c[0]
+	var ab: Vector2 = c[1] - a
+	var t := clampf((p - a).dot(ab) / maxf(ab.length_squared(), 0.01), 0.0, 1.0)
+	var raio := lerpf(c[2], c[3], t)
+	var n := clampf(de / raio, 0.0, 1.0)
+	var perfil := n * n * (3.0 - 2.0 * n)
+	perfil = lerpf(perfil, sqrt(n), 0.35)   # topo arredondado, pé espalhado
+	return float(c[4]) * perfil * (0.92 + 0.08 * _ruido_detalhe.get_noise_2d(p.x * 2.0, p.y * 2.0)) + 6.0
 
 
 ## Altura "natural" da montanha, sem a vala do túnel (a rocha por cima do túnel é desenhada por
@@ -382,6 +536,28 @@ func altura_natural_malha(x: float, z: float) -> float:
 		if not _natural_nos.has(no):
 			_natural_nos[no] = altura_natural(-MEIO_INTERNO + no.x * passo, -MEIO_INTERNO + no.y * passo)
 		h[k] = _natural_nos[no]
+	var tx := fx - ix
+	var tz := fz - iz
+	return lerpf(lerpf(h[0], h[1], tx), lerpf(h[2], h[3], tx), tz)
+
+
+## Extinction Day: altura natural sem o corte das estradas (a capa de rocha do túnel do vulcão refaz
+## a encosta por cima da vala), interpolada como a malha de perto (pontos a cada ~13 m).
+var _sem_estrada_nos := {}
+func altura_sem_estrada_malha(x: float, z: float) -> float:
+	var passo := MEIO_INTERNO * 2.0 / (N_INTERNO - 1)
+	var fx := (x + MEIO_INTERNO) / passo
+	var fz := (z + MEIO_INTERNO) / passo
+	var ix := floori(fx)
+	var iz := floori(fz)
+	var h := [0.0, 0.0, 0.0, 0.0]
+	for k in 4:
+		var no := Vector2i(ix + (k & 1), iz + (k >> 1))
+		if not _sem_estrada_nos.has(no):
+			dino.sem_estrada = true
+			_sem_estrada_nos[no] = _altura_procedural(-MEIO_INTERNO + no.x * passo, -MEIO_INTERNO + no.y * passo)
+			dino.sem_estrada = false
+		h[k] = _sem_estrada_nos[no]
 	var tx := fx - ix
 	var tz := fz - iz
 	return lerpf(lerpf(h[0], h[1], tx), lerpf(h[2], h[3], tx), tz)
@@ -413,7 +589,7 @@ static func _capsulas(lista: Array) -> Array:
 	var r := []
 	for c: Dictionary in lista:
 		r.append([Vector2(float(c.a[0]), float(c.a[1])), Vector2(float(c.b[0]), float(c.b[1])),
-			float(c.raio[0]), float(c.raio[1]), float(c.get("altura", 320))])
+			float(c.raio[0]), float(c.raio[1]), float(c.get("altura", 320)), bool(c.get("duna", false))])
 	return r
 
 
@@ -458,8 +634,16 @@ func _sortear_barreiras(etapa: int) -> void:
 	if not desenho.is_empty():
 		_sub_barreiras.clear()
 		_rota_vale.clear()
+		_rota_alt.clear()
+		rotas_alt.clear()
+		for lista in desenho.get("rotas_alt", []):
+			var alt_r: Array[Vector3] = []
+			for w in lista:
+				alt_r.append(Vector3(float(w[0]), float(w[2]) if w.size() > 2 else 0.0, float(w[1])))
+			rotas_alt.append(alt_r)
 		for w in desenho.get("rota", []):
 			_rota_vale.append(Vector2(-float(w[1]), float(w[0])))   # coordenadas do vale: u = -z, lateral = x
+			_rota_alt.append(float(w[2]) if w.size() > 2 else 0.0)
 		_etapa_vale = etapa
 		return
 	var cfg := _sub_barreiras_cfg
@@ -472,6 +656,7 @@ func _sortear_barreiras(etapa: int) -> void:
 	var esp := float(cfg.get("espessura", 60))
 	_sub_barreiras.clear()
 	_rota_vale.clear()
+	_rota_alt.clear()
 	var anteriores: Array[float] = []
 	var vindo := 0.0   # x de onde os bots vêm (a rampa final fica em x = 0)
 	for fil: Dictionary in cfg.get("fileiras", []):
@@ -695,6 +880,7 @@ func _sortear_vale(etapa: int) -> void:
 	var lado := 1.0 if rng.randf() < 0.5 else -1.0
 	_esporoes.clear()
 	_rota_vale.clear()
+	_rota_alt.clear()
 	# 1º esporão: vem do lado "lado" e para pouco antes do meio (a saída reta passa raspando)
 	var u1 := rng.randf_range(float(cfg.get("u1_min", 510)), float(cfg.get("u1_max", 570)))
 	var rb1 := rng.randf_range(80.0, 95.0)
@@ -718,15 +904,17 @@ func _sortear_vale(etapa: int) -> void:
 
 ## Metros do alvo em direção à rampa (coordenada u do vale) de um ponto do mundo.
 func u_no_vale(p: Vector3) -> float:
+	if _modo_cidade:
+		return Vector2(p.x, p.z).length()   # City Rush: cada corredor vem reto para o alvo
 	return _no_vale(p.x, p.z).x
 
 
 ## Rota dos bots pelo vale (pontos no mundo, do mais perto da rampa ao mais perto do alvo).
 func rota_vale() -> Array[Vector3]:
 	var lista: Array[Vector3] = []
-	for q in _rota_vale:
-		var p := _do_vale(q)
-		lista.append(Vector3(p.x, 0.0, p.y))
+	for k in _rota_vale.size():
+		var p := _do_vale(_rota_vale[k])
+		lista.append(Vector3(p.x, _rota_alt[k] if k < _rota_alt.size() else 0.0, p.y))
 	return lista
 
 
@@ -825,6 +1013,54 @@ func _criar_malha(dados: PackedFloat32Array, meio: float, n: int, mat: Material)
 
 func _material_terreno() -> ShaderMaterial:
 	var mat := ShaderMaterial.new()
+	if _modo_cidade:
+		var cfg: Dictionary = Config.valor("mapa.cidade", {})
+		mat.shader = load("res://shaders/cidade_chao.gdshader")
+		mat.set_shader_parameter("ruido", _textura_ruido(0.004, 5, 7))
+		mat.set_shader_parameter("ruido_fino", _textura_ruido(0.02, 4, 13))
+		mat.set_shader_parameter("quadra", float(cfg.get("quadra", 150)))
+		mat.set_shader_parameter("rua", float(cfg.get("rua", 24)))
+		mat.set_shader_parameter("calcada", float(cfg.get("calcada", 5)))
+		mat.set_shader_parameter("praca", float(cfg.get("praca", 430)))
+		mat.set_shader_parameter("nivel_chao", CHAO_CIDADE)
+		return mat
+	if _modo_selva:
+		# Chão da mata (folhas e terra), rocha úmida com musgo nos paredões, barro e capim na margem do rio
+		mat.shader = load("res://shaders/terreno_selva.gdshader")
+		mat.set_shader_parameter("ruido", _textura_ruido(0.004, 5, 7))
+		mat.set_shader_parameter("ruido_fino", _textura_ruido(0.02, 4, 13))
+		mat.set_shader_parameter("nivel_agua", float(Config.valor("mapa.nivel_agua", 4)))
+		mat.set_shader_parameter("mascara_rio", selva.textura_margem(MEIO_INTERNO))
+		mat.set_shader_parameter("meio_mascara", MEIO_INTERNO)
+		return mat
+	if _modo_dino:
+		# Chão da mata pré-histórica, basalto e cinza no vulcão, lava acesa nos leitos e na cratera
+		mat.shader = load("res://shaders/terreno_dino.gdshader")
+		mat.set_shader_parameter("ruido", _textura_ruido(0.004, 5, 7))
+		mat.set_shader_parameter("ruido_fino", _textura_ruido(0.02, 4, 13))
+		mat.set_shader_parameter("mascara", dino.textura_mascara(MEIO_INTERNO))
+		mat.set_shader_parameter("meio_mascara", MEIO_INTERNO)
+		mat.set_shader_parameter("centro_vulcao", dino.centro_vulcao)
+		mat.set_shader_parameter("base_vulcao", dino.base_vulcao)
+		return mat
+	if _modo_gelo:
+		# Neve com ondas do vento, rocha em camadas nas encostas íngremes e gelo azul na margem do lago
+		mat.shader = load("res://shaders/terreno_gelo.gdshader")
+		mat.set_shader_parameter("ruido", _textura_ruido(0.004, 5, 7))
+		mat.set_shader_parameter("ruido_fino", _textura_ruido(0.02, 4, 13))
+		mat.set_shader_parameter("nivel_agua", float(Config.valor("mapa.nivel_agua", 4)))
+		mat.set_shader_parameter("mascara_lago", gelo.textura_margem(MEIO_INTERNO))
+		mat.set_shader_parameter("meio_mascara", MEIO_INTERNO)
+		return mat
+	if _modo_egito:
+		# Areia com ondulações, calcário em camadas nos penhascos e plantações verdes na margem do Nilo
+		mat.shader = load("res://shaders/terreno_egito.gdshader")
+		mat.set_shader_parameter("ruido", _textura_ruido(0.004, 5, 7))
+		mat.set_shader_parameter("ruido_fino", _textura_ruido(0.02, 4, 13))
+		mat.set_shader_parameter("nivel_agua", float(Config.valor("mapa.nivel_agua", 4)))
+		mat.set_shader_parameter("mascara_nilo", egito.textura_margem(MEIO_INTERNO))
+		mat.set_shader_parameter("meio_mascara", MEIO_INTERNO)
+		return mat
 	mat.shader = load("res://shaders/terreno.gdshader")
 	mat.set_shader_parameter("ruido", _textura_ruido(0.004, 5, 7))
 	mat.set_shader_parameter("ruido_fino", _textura_ruido(0.02, 4, 13))
@@ -853,10 +1089,15 @@ func _criar_agua() -> void:
 	mi.mesh = plano
 	mi.position.y = Config.valor("mapa.nivel_agua", 4)
 	var mat := ShaderMaterial.new()
-	mat.shader = load("res://shaders/agua.gdshader")
-	mat.set_shader_parameter("ruido", _textura_ruido(0.03, 3, 41))
-	mat.set_shader_parameter("normal_a", _textura_normal(0.02, 4, 43, 6.0))
-	mat.set_shader_parameter("normal_b", _textura_normal(0.045, 3, 47, 4.0))
+	if _modo_gelo:
+		# Frozen Peak: o lago e o rio são gelo (cair neles elimina do mesmo jeito)
+		mat.shader = load("res://shaders/lago_gelo.gdshader")
+		mat.set_shader_parameter("ruido", _textura_ruido(0.03, 3, 41))
+	else:
+		mat.shader = load("res://shaders/agua.gdshader")
+		mat.set_shader_parameter("ruido", _textura_ruido(0.03, 3, 41))
+		mat.set_shader_parameter("normal_a", _textura_normal(0.02, 4, 43, 6.0))
+		mat.set_shader_parameter("normal_b", _textura_normal(0.045, 3, 47, 4.0))
 	mi.material_override = mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)

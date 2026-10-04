@@ -34,7 +34,7 @@ func montar(complexo: ComplexoLancamento, p_terreno: Terreno) -> void:
 		_torre_holofotes(x_borda - 28.0, meia + 16.0, lado)   # longe do paredão, com a base na mesa
 		for k in 4:
 			_mastro_bandeira(10.0 + k * 15.0, meia + 6.0, lado, k * 1.3 + lado)
-		_banner(24.0, meia + 10.0, lado, "CANYON RUSH")
+		_banner(24.0, meia + 10.0, lado, Config.nome_mapa().to_upper())
 		_banner(44.0, meia + 10.0, lado, "TARGET FLIGHT")
 	_cabine_narracao(30.0, meia + 22.0, 1.0)
 	_painel_paredao(x_borda)
@@ -131,8 +131,16 @@ func _torre_holofotes(x: float, desloc: float, lado: float) -> void:
 
 func _mastro_bandeira(x: float, desloc: float, lado: float, fase: float) -> void:
 	var base := _chao(x, desloc * lado)
-	base.y = maxf(base.y, cx.perfil.pontos[0].y - 6.0)
-	var altura := cx.perfil.pontos[0].y + 14.0 - base.y
+	var plat_y := cx.perfil.pontos[0].y
+	if base.y < plat_y - 6.0:
+		# Chão muito abaixo (beira do paredão): o mastro ficava com o pé no ar. Agora sai em balanço da lateral
+		# da plataforma — braço horizontal até o pé do mastro e mão-francesa por baixo
+		base.y = plat_y - 1.2
+		var na_plat := cx.ponto(x, plat_y - 1.0) + cx.lateral * lado * (cx.largura * 0.5 - 0.3)
+		_aco.append(ComplexoLancamento._viga(na_plat, base + Vector3.UP * 0.2, 0.34))
+		_aco.append(ComplexoLancamento._viga(na_plat + Vector3.DOWN * 3.4, base + Vector3.UP * 0.1, 0.22))
+		_aco.append(Transform3D(Basis.from_scale(Vector3(0.9, 0.5, 0.9)), base))
+	var altura := plat_y + 14.0 - base.y
 	var mastro := ComplexoLancamento._viga(base, base + Vector3.UP * altura, 0.3)
 	_aco.append(mastro)
 	_colisoes.append(mastro)

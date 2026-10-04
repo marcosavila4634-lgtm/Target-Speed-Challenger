@@ -9,6 +9,8 @@ uniform vec3 cor_pedra : source_color = vec3(0.58, 0.4, 0.29);
 uniform vec3 cor_argamassa : source_color = vec3(0.36, 0.33, 0.3);
 uniform float fiada = 0.55;       // altura de cada fiada (m)
 uniform float altura_chao = 0.0;
+uniform float musgo = 0.0;        // 0..1: musgo nas juntas, no alto dos blocos e em manchas
+uniform float rachaduras = 0.0;   // 0..1: fendas finas cortando os blocos
 
 varying vec3 pos_mundo;
 varying vec3 normal_mundo;
@@ -50,6 +52,11 @@ void fragment() {
 	cor *= 1.0 - 0.25 * escorre;
 	float poeira = smoothstep(2.5, 0.0, p.y - altura_chao);
 	cor = mix(cor, vec3(0.66, 0.46, 0.32), poeira * 0.5);
+
+	float fenda = (1.0 - smoothstep(0.0, 0.012, abs(texture(ruido, q / 2.6).r - 0.5))) * rachaduras;
+	cor = mix(cor, cor * 0.22, fenda);
+	float verde = smoothstep(0.52, 0.7, texture(ruido, q / 3.3 + 0.37).r + argamassa * 0.22 + max(normal_mundo.y, 0.0) * 0.3) * musgo;
+	cor = mix(cor, vec3(0.15, 0.23, 0.07) * (0.6 + 0.8 * fino), verde);
 
 	ALBEDO = cor;
 	ROUGHNESS = 0.9;

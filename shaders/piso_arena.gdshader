@@ -11,6 +11,7 @@ uniform vec3 vagas[16];           // (x, lateral, direção em radianos); x < -1
 uniform float comprimento = 110.0;
 uniform float saida_largura = 18.0;
 uniform vec3 cor_seta : source_color = vec3(1.0, 0.45, 0.08);
+uniform vec3 cor_piso : source_color = vec3(0.47, 0.43, 0.39);   // Egito: lajes de arenito
 
 float caixa(vec2 p, vec2 meio) {
 	vec2 d = abs(p) - meio;
@@ -26,7 +27,7 @@ void fragment() {
 	// Placas de concreto 6 x 6 m com juntas serradas e tom próprio
 	vec2 id = floor(q / 6.0);
 	float tom = fract(sin(dot(id, vec2(12.9898, 78.233))) * 43758.5453);
-	vec3 cor = vec3(0.47, 0.43, 0.39) * (0.84 + 0.26 * grande) * (0.93 + 0.1 * fino) * (0.93 + 0.1 * tom);
+	vec3 cor = cor_piso * (0.84 + 0.26 * grande) * (0.93 + 0.1 * fino) * (0.93 + 0.1 * tom);
 	vec2 f = fract(q / 6.0);
 	vec2 db = min(f, 1.0 - f) * 6.0;
 	float junta = 1.0 - smoothstep(0.02, 0.06, min(db.x, db.y));

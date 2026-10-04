@@ -11,6 +11,9 @@
 		{ "id": "veterano", "nome": "Veterano", "modelo": "res://assets/avatar/veterano/veterano.glb", "ativo": true, "altura": 1.74 },
 		{ "id": "casual7", "nome": "Casual", "modelo": "res://assets/avatar/casual7/casual7.glb", "ativo": true, "altura": 1.8 },
 		{ "id": "garota16", "nome": "Torcedora", "modelo": "res://assets/avatar/garota16/garota16.glb", "ativo": true, "altura": 1.66 },
-		{ "id": "garota17", "nome": "Estilosa", "modelo": "res://assets/avatar/garota17/garota17.glb", "ativo": true, "altura": 1.68 }
+		{ "id": "garota17", "nome": "Estilosa", "modelo": "res://assets/avatar/garota17/garota17.glb", "ativo": true, "altura": 1.68 },
+		{ "id": "terno", "nome": "Engravatado", "modelo": "res://assets/avatar/terno/terno.glb", "ativo": true, "altura": 1.8 },
+		{ "id": "recruta", "nome": "Recruta", "modelo": "res://assets/avatar/recruta/recruta.glb", "ativo": true, "altura": 1.76 },
+		{ "id": "professor", "nome": "Professor", "modelo": "res://assets/avatar/professor/professor.glb", "ativo": true, "altura": 1.76 }
 	]
 }

@@ -1,8 +1,9 @@
 extends SceneTree
 ## Recorta só o INTERIOR de um carro completo (.glb) e salva um .glb novo em assets/cockpit/<id>/.
 ## Peça entra se a caixa dela cabe na caixa da cabine (com folga) e o material não é de vidro,
-## lataria ou luz. O resultado sai em metros, frente para -Z, piloto do lado -X, e com texturas
-## de no máximo 2048 px. Também tira uma foto do ponto de vista do piloto para conferência.
+## lataria ou luz; as de incluir_nomes entram inteiras (ex.: retrovisores externos). O resultado
+## sai em metros, frente para -Z, piloto do lado -X, e com texturas de no máximo 2048 px. Também
+## tira uma foto do ponto de vista do piloto para conferência.
 ## Uso: godot -s tools/cockpit/extrair.gd -- <id> [pasta_fotos]
 ## (config em tools/cockpit/interiores.json)
 
@@ -34,6 +35,7 @@ func _init() -> void:
 	fora_mat.append_array(["glass", "window", "vidro", "paint", "light", "lamp", "tyre", "tire", "rotor", "caliper", "brake", "plate", "undercar", "wheel"])
 	var so_mat: Array = c.get("so_materiais", [])
 	var fora_nome: Array = c.get("excluir_nomes", [])
+	var incluir: Array = c.get("incluir_nomes", [])
 	var saida := Node3D.new()
 	saida.name = id
 	var n := 0
@@ -42,7 +44,9 @@ func _init() -> void:
 		var t := base * _glob(mi, fonte)
 		var ab := t * mi.get_aabb()
 		var recortar := false   # peça grande (carroceria + interior juntos): recorta por triângulo
-		if not caixa.grow(folga).encloses(ab):
+		# Peças que entram inteiras mesmo passando da cabine (ex.: retrovisores externos)
+		var inteira := incluir.any(func(k): return str(mi.name).contains(k) or str(mi.get_parent().name).contains(k))
+		if not inteira and not caixa.grow(folga).encloses(ab):
 			if not bool(c.get("recortar", true)) or not caixa.intersects(ab):
 				continue
 			recortar = true

@@ -113,6 +113,31 @@ func mapa_tipo() -> String:
 	return str(mapa_atual().get("tipo", ""))
 
 
+## Ambientação urbana (City Rush): prédios no lugar das mesas e pináculos do cânion.
+func mapa_cidade() -> bool:
+	return mapa_atual().get("ambiente", "") == "cidade"
+
+
+## Ambientação do Egito (Pharaoh's Climb): deserto com o Nilo, pirâmides, obeliscos e templos.
+func mapa_egito() -> bool:
+	return mapa_atual().get("ambiente", "") == "egito"
+
+
+func mapa_selva() -> bool:
+	return mapa_atual().get("ambiente", "") == "selva"
+
+
+## Ambientação de gelo (Frozen Peak): montanhas nevadas, lago congelado e estruturas de gelo e aço.
+func mapa_gelo() -> bool:
+	return mapa_atual().get("ambiente", "") == "gelo"
+
+
+## Ambientação do parque dos dinossauros (Extinction Day): selva de árvores gigantes, vulcão com túnel,
+## dinossauros andando e o meteoro chegando etapa a etapa.
+func mapa_dino() -> bool:
+	return mapa_atual().get("ambiente", "") == "dino"
+
+
 func nome_mapa() -> String:
 	return str(mapa_atual().get("nome", "Canyon Rush"))
 

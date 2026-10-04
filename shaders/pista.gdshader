@@ -10,8 +10,24 @@ uniform float largura = 22.0;
 uniform float comp_plataforma = 70.0;
 uniform float linha_largada = 21.0;
 uniform float inicio_rampa = 560.0;
+// Extinction Day à noite (pedido do dono): asfalto cinza-claro e sem o neon das bordas
+uniform vec3 cor_asfalto : source_color = vec3(0.135, 0.142, 0.158);
+uniform float neon_borda = 1.0;
+uniform float brilho_proprio = 0.0;   // à noite o asfalto claro precisa aparecer sem luz nenhuma em cima
+
+// Onda de choque do impacto final (Extinction Day): tudo o que fica dentro do raio é arrasado
+uniform vec3 onda_centro = vec3(0.0);
+uniform float onda_raio = -1.0;
+varying vec3 pos_mundo_o;
+
+void vertex() {
+	pos_mundo_o = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
 
 void fragment() {
+	if (onda_raio > 0.0 && distance(pos_mundo_o.xz, onda_centro.xz) < onda_raio - 30.0 - 90.0 * texture(ruido, pos_mundo_o.xz / 43.0).r) {
+		discard;   // a pista se desfaz atrás da onda
+	}
 	float u = UV.x;
 	float v = UV.y;
 	float xm = u * largura;
@@ -52,7 +68,7 @@ void fragment() {
 		float grao2 = texture(ruido, pm * 7.3 + 0.37).r;
 		float pedra = step(0.74, grao2) * (0.6 + 0.4 * grao);
 		float remendo = smoothstep(0.35, 0.75, texture(ruido, pm / 23.0).r);
-		cor = vec3(0.135, 0.142, 0.158) * (0.72 + 0.56 * grao);
+		cor = cor_asfalto * (0.72 + 0.56 * grao);
 		cor += vec3(0.07, 0.07, 0.072) * pedra;
 		cor *= 0.88 + 0.22 * remendo * (0.8 + 0.4 * n);
 		float trilha = exp(-pow((abs(u - 0.5) * 2.0 - 0.45) / 0.16, 2.0));
@@ -74,12 +90,12 @@ void fragment() {
 	// Faixas brancas e neon da equipe nas bordas.
 	float borda = step(u, 0.035) + step(0.965, u);
 	cor = mix(cor, vec3(0.85, 0.83, 0.78), clamp(borda, 0.0, 1.0));
-	float neon = step(u, 0.012) + step(0.988, u);
+	float neon = (step(u, 0.012) + step(0.988, u)) * neon_borda;
 	emissao += cor_equipe * 3.0 * clamp(neon, 0.0, 1.0);
 	cor = mix(cor, cor_equipe, clamp(neon, 0.0, 1.0));
 
 	ALBEDO = cor;
-	EMISSION = emissao;
+	EMISSION = emissao + cor * brilho_proprio;
 	METALLIC = metal;
 	ROUGHNESS = rugosidade;
 }

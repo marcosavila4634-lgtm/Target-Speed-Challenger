@@ -405,7 +405,8 @@ func _selecionar_avatar(indice: int) -> void:
 		_avatar.queue_free()
 	_avatar = Avatar.criar(d)
 	_hangar.add_child(_avatar)
-	_avatar.position = Vector3(3.75, 0.0, 0.2)
+	# Em cima do tampo da plataforma (dentro do raio dela; no chão os pés ficavam enterrados no disco)
+	_avatar.position = Vector3(3.75, _hangar.suporte_carro.position.y, 0.2)
 	# Virado para a câmera, levemente voltado para o carro
 	var para_cam := _hangar.camera.global_position - _avatar.global_position
 	_avatar.rotation.y = atan2(-para_cam.x, -para_cam.z) + deg_to_rad(-15.0)
@@ -459,7 +460,13 @@ func _montar_cartoes() -> void:
 		while tam > 22 and fonte.get_string_size(nome_mapa.text, HORIZONTAL_ALIGNMENT_LEFT, -1, tam).x > nome_mapa.size.x - 16.0:
 			tam -= 2
 		nome_mapa.add_theme_font_size_override("font_size", tam)
-		img.texture = load(str(Config.mapa_atual().get("imagem", "res://assets/ui/cartao_target_flight.jpg")))
+		var caminho_img := str(Config.mapa_atual().get("imagem", "res://assets/ui/cartao_target_flight.jpg"))
+		if ResourceLoader.exists(caminho_img):
+			img.texture = load(caminho_img)
+		else:
+			# Foto nova ainda não importada pelo editor: lê o arquivo direto
+			var foto := Image.load_from_file(ProjectSettings.globalize_path(caminho_img)) if FileAccess.file_exists(caminho_img) else null
+			img.texture = ImageTexture.create_from_image(foto) if foto else load("res://assets/ui/cartao_target_flight.jpg")
 	mostrar_mapa.call()
 	var trocar_mapa := func(passo: int):
 		var lista := Config.mapas()
@@ -485,7 +492,7 @@ func _montar_cartoes() -> void:
 		seta.pressed.connect(trocar_mapa.bind(lado))
 		jogar.add_child(seta)
 
-	# JOGAR DRAG RACING — offline contra bot (1/8 de milha na Reta do Canyon)
+	# JOGAR DRAG RACING — offline contra bot (1/8 de milha na pista escolhida)
 	var drag := _botao_vazio(Estilo.caixa_neon(Color(0.02, 0.05, 0.12, 0.9), Estilo.AZUL_NEON, 0.7, 10),
 		Estilo.caixa_neon(Color(0.04, 0.1, 0.24, 0.95), Color(0.6, 0.8, 1.0), 1.3, 10))
 	drag.tooltip_text = "Arrancada de 1/8 de milha contra bot"
@@ -495,7 +502,10 @@ func _montar_cartoes() -> void:
 	add_child(drag)
 	_nos_inicio.append(drag)
 	var img2 := TextureRect.new()
-	img2.texture = load("res://assets/ui/cartao_drag_racing.jpg")
+	var foto_pista := func() -> Texture2D:   # foto da pista escolhida (ou a arte antiga)
+		var f := DragHud.fotos_pista(Sessao.drag_fotos_id(), "arrancada")
+		return f[0] if not f.is_empty() else load("res://assets/ui/cartao_drag_racing.jpg")
+	img2.texture = foto_pista.call()
 	img2.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	img2.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	img2.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -531,6 +541,7 @@ func _montar_cartoes() -> void:
 		Sessao.salvar()
 		Audio.interface("confirmar", -6.0)
 		nome_pista.text = str(Sessao.drag_pista().get("nome", "")).to_upper()
+		img2.texture = foto_pista.call()
 	for lado: int in [-1, 1]:
 		var seta := _botao_vazio(StyleBoxEmpty.new(), StyleBoxEmpty.new())
 		seta.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -903,6 +914,7 @@ func _mostrar_creditos() -> void:
 		arquivos.append([d.modelo.get_base_dir() + "/creditos.txt", d.nome])
 	for pasta in DirAccess.get_directories_at("res://assets/cockpit"):
 		arquivos.append(["res://assets/cockpit/%s/creditos.txt" % pasta, pasta])
+	arquivos.append(["res://assets/egito/creditos.txt", "Pharaoh's Climb"])   # templos e estátua de Anúbis
 	for a: Array in arquivos:
 		# Uma linha por obra do arquivo (o texto de crédito pronto; senão a linha "Modelo:")
 		var obras: Array[String] = []

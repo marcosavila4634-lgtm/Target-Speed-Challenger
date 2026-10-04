@@ -4,7 +4,7 @@ extends Node3D
 ## área de frenagem depois. Faixa do jogador em x = -largura/2, do rival em x = +largura/2.
 ## Estilos (jogo.json → drag.pistas):
 ## - "estadio" (TSC Dragway): pista real de arrancada — muros de concreto com placas de patrocínio,
-##   alambrado, arquibancadas lotadas dos dois lados, torres de luz acesas, torre de controle,
+##   alambrado, arquibancadas lotadas dos dois lados (torcida em cartões), torres de luz acesas, torre de controle,
 ##   placares de tempo na chegada, caixa de brita e rede no fim; mesas do cânion bem ao longe.
 ## - "canyon" (Reta do Canyon): a mesma pista no fundo do cânion, com arquibancada só na largada.
 
@@ -22,6 +22,13 @@ var frenagem := 380.0
 var estilo := "estadio"
 var nome := "TSC Dragway"
 var publico_mat: ShaderMaterial
+## Torcida: 18 pessoas em 3 poses (gerado por tools/ambiente/torcida_atlas.gd).
+const ATLAS_TORCIDA := "res://assets/drag/torcida_atlas.png"
+const PESSOAS_ATLAS := 18
+const GRADE_CONTENCAO := "res://assets/drag/grade_contencao.glb"
+## Texturas do asfalto, da brita e dos pneus (tools/ambiente/texturas_drag.gd).
+const TEX := "res://assets/drag/"
+const LOGO := "res://assets/ui/logo_tsc.png"
 ## Luzes do semáforo por faixa (0 = jogador, 1 = rival)
 var _luzes: Array = [{}, {}]
 var _placar: Array[Label3D] = []
@@ -37,7 +44,7 @@ func montar(p_estilo := "estadio", p_nome := "TSC Dragway") -> void:
 	nome = p_nome
 	_rng.seed = 90210
 	var c: Dictionary = Config.valor("drag", {})
-	distancia = float(c.get("distancia_m", 201.168))
+	distancia = Sessao.drag_distancia()
 	largura = float(c.get("largura_faixa", 5.2))
 	frenagem = float(c.get("frenagem_m", 380))
 	_ruido = Terreno._textura_ruido(0.03, 4, 311)
@@ -57,10 +64,12 @@ func montar(p_estilo := "estadio", p_nome := "TSC Dragway") -> void:
 	_placares()
 	_torres_luz()
 	_fim_da_pista()
+	_baloes_no_ceu()
 	if estilo == "estadio":
 		_arquibancadas(30.0, -(distancia + 60.0), 20)
 		_torre_controle()
 		_paredoes(420.0, 70.0)
+		_montanhas()
 	else:
 		_arquibancadas(25.0, -35.0, 10)
 		_paredoes(40.0, 150.0)
@@ -88,10 +97,13 @@ func _chao() -> void:
 	# Faixa de serviço de asfalto velho entre o muro e as arquibancadas
 	var serv := PlaneMesh.new()
 	serv.size = Vector2(28.0, distancia + frenagem + 120.0)
-	var m := StandardMaterial3D.new()
-	m.albedo_texture = _ruido
-	m.albedo_color = Color(0.3, 0.29, 0.28)
-	m.uv1_scale = Vector3(6, 60, 1)
+	var m := StandardMaterial3D.new()   # asfalto velho, gasto e mais claro que o da pista
+	m.albedo_texture = load(TEX + "asfalto.png")
+	m.albedo_color = Color(0.62, 0.6, 0.57)
+	m.normal_enabled = true
+	m.normal_texture = load(TEX + "asfalto_normal.png")
+	m.uv1_scale = Vector3(serv.size.x / 3.5, serv.size.y / 3.5, 1)
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	m.roughness = 0.9
 	for lado: float in [-1.0, 1.0]:
 		var s := MeshInstance3D.new()
@@ -115,6 +127,8 @@ func _asfalto() -> void:
 	mat.set_shader_parameter("largura_faixa", largura)
 	mat.set_shader_parameter("distancia", distancia)
 	mat.set_shader_parameter("brilho", 1.0 if estilo == "estadio" else 0.7)
+	mat.set_shader_parameter("asfalto", load(TEX + "asfalto.png"))
+	mat.set_shader_parameter("asfalto_normal", load(TEX + "asfalto_normal.png"))
 	mi.material_override = mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
@@ -159,7 +173,11 @@ func _muros() -> void:
 		var z := 40.0
 		var i := 3 if lado > 0.0 else 0
 		while z > z_fim + 10.0:
-			_placa_muro(Vector3(x - lado * 0.14, 0.78, z - 5.8), lado, PATROCINIOS[i % PATROCINIOS.size()])
+			var pos_placa := Vector3(x - lado * 0.14, 0.78, z - 5.8)
+			if i % 4 == 1:   # uma a cada quatro é da logo do jogo
+				_placa_logo(pos_placa, lado)
+			else:
+				_placa_muro(pos_placa, lado, PATROCINIOS[i % PATROCINIOS.size()])
 			z -= 11.6
 			i += 1
 
@@ -271,11 +289,14 @@ func _arquibancadas(z_ini: float, z_fim: float, fileiras: int) -> void:
 	var x0 := _x_muro() + 7.0
 	var prof := 0.85
 	var sobe := 0.42
-	var pessoa := _malha_pessoa()
+	# Pessoa = cartão virado para a câmera (o shader monta o quadrado; a malha só dá a caixa de corte)
+	var pessoa := QuadMesh.new()
+	pessoa.size = Vector2(1.2, 2.4)
+	pessoa.center_offset = Vector3(0, 1.2, 0)
 	publico_mat = ShaderMaterial.new()
 	publico_mat.shader = load("res://shaders/drag_publico.gdshader")
-	var cores := [Color(0.1, 0.25, 0.7), Color(0.85, 0.1, 0.08), Color(0.95, 0.95, 0.95), Color(0.08, 0.08, 0.1),
-		Color(1.0, 0.75, 0.1), Color(0.2, 0.55, 0.25), Color(0.95, 0.45, 0.1), Color(0.5, 0.5, 0.55), Color(0.35, 0.2, 0.6)]
+	publico_mat.set_shader_parameter("atlas", load(ATLAS_TORCIDA))
+	publico_mat.set_shader_parameter("pessoas", float(PESSOAS_ATLAS))
 	for lado: float in [-1.0, 1.0]:
 		# Degraus (uma caixa por fileira)
 		for f in fileiras:
@@ -294,6 +315,10 @@ func _arquibancadas(z_ini: float, z_fim: float, fileiras: int) -> void:
 		mf.material_override = _mat_concreto
 		mf.position = Vector3(lado * (x0 + prof * fileiras + 0.2), (sobe * fileiras + 3.0) * 0.5, z_ini - comp * 0.5)
 		add_child(mf)
+		# Painéis gigantes de LED com a logo do jogo no alto do fundo
+		var paineis := maxi(1, int(comp / 95.0))
+		for k in paineis:
+			_painel_gigante(lado * (x0 + prof * fileiras + 0.2), sobe * fileiras + 3.0, z_ini - comp * (k + 0.5) / paineis, lado)
 		# Público: uma pessoa a cada ~0,55 m, 85% de ocupação
 		var mm := MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_3D
@@ -310,9 +335,9 @@ func _arquibancadas(z_ini: float, z_fim: float, fileiras: int) -> void:
 					z_ini - (k + _rng.randf_range(0.1, 0.9)) * 0.55)
 				var giro := Basis(Vector3.UP, (-PI * 0.5 if lado < 0.0 else PI * 0.5) + _rng.randf_range(-0.5, 0.5))
 				lista.append(Transform3D(giro.scaled(Vector3.ONE * _rng.randf_range(0.9, 1.08)), pos))
-				var cor: Color = cores[_rng.randi() % cores.size()]
-				cor = cor.lerp(Color(_rng.randf(), _rng.randf(), _rng.randf()), 0.25)
-				dados.append(Color(cor.r, cor.g, cor.b, _rng.randf()))
+				# Pessoa do atlas, empolgação, espelhada e fase (ver shaders/drag_publico.gdshader)
+				var quem := (_rng.randi() % PESSOAS_ATLAS + 0.5) / PESSOAS_ATLAS
+				dados.append(Color(quem, _rng.randf_range(0.2, 0.9), float(_rng.randf() < 0.5), _rng.randf()))
 		mm.instance_count = lista.size()
 		for k in lista.size():
 			mm.set_instance_transform(k, lista[k])
@@ -322,30 +347,38 @@ func _arquibancadas(z_ini: float, z_fim: float, fileiras: int) -> void:
 		mmi.material_override = publico_mat
 		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mmi)
+	_grades_contencao(x0 - 0.6, z_ini, maxf(z_fim, z_ini - 100.0))
 
 
-## Pessoa bem simples (vista de longe): pernas, tronco, braços e cabeça.
-func _malha_pessoa() -> ArrayMesh:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var partes := [
-		[Vector3(0, 0.45, 0), Vector3(0.3, 0.9, 0.2)],       # pernas
-		[Vector3(0, 1.1, 0), Vector3(0.42, 0.5, 0.24)],      # tronco
-		[Vector3(-0.25, 1.05, 0), Vector3(0.1, 0.5, 0.12)],  # braços
-		[Vector3(0.25, 1.05, 0), Vector3(0.1, 0.5, 0.12)],
-		[Vector3(0, 1.48, 0), Vector3(0.2, 0.24, 0.22)],     # cabeça (y > 1,35: cor de pele)
-	]
-	for pt: Array in partes:
-		var b := BoxMesh.new()
-		b.size = pt[1]
-		var arr := b.get_mesh_arrays()
-		var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
-		var normais: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
-		var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX]
-		for i in idx:
-			st.set_normal(normais[i])
-			st.add_vertex(verts[i] + (pt[0] as Vector3))
-	return st.commit()
+## Grades de contenção de metal (modelo Grade de Contenção) enfileiradas na frente das
+## arquibancadas, dos dois lados, de z_ini a z_fim; só no trecho da largada (a peça é detalhada).
+func _grades_contencao(x: float, z_ini: float, z_fim: float) -> void:
+	if not ResourceLoader.exists(GRADE_CONTENCAO):
+		return
+	var cena: Node = (load(GRADE_CONTENCAO) as PackedScene).instantiate()
+	var peca := cena.find_children("*", "MeshInstance3D", true, false)[0] as MeshInstance3D
+	var passo := 2.1   # comprimento da grade (2,08 m) com a folga do engate
+	var n := int((z_ini - z_fim) / passo)
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = peca.mesh
+	mm.instance_count = n * 2
+	var base := Basis.IDENTITY   # escala e giro do modelo (a cena não está na árvore)
+	var no: Node = peca
+	while no != cena.get_parent():
+		if no is Node3D:
+			base = (no as Node3D).basis * base
+		no = no.get_parent()
+	var giro := Basis(Vector3.UP, PI * 0.5) * base   # comprimento ao longo de Z
+	for k in n:
+		for i in 2:
+			var lado := -1.0 if i == 0 else 1.0
+			var pos := Vector3(lado * x, 0.0, z_ini - (k + 0.5) * passo)
+			mm.set_instance_transform(k * 2 + i, Transform3D(giro.rotated(Vector3.UP, _rng.randf_range(-0.02, 0.02)), pos))
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = mm
+	add_child(mmi)
+	cena.free()
 
 
 ## Torcida agitada (0..1): pulos e balanço.
@@ -371,6 +404,8 @@ func _torre_controle() -> void:
 	t.position = base + Vector3(4.6, 11.0, 0)
 	t.rotation.y = PI * 0.5
 	add_child(t)
+	# Banner gigante da logo na face da torre virada para a pista
+	_quadro_logo(Vector2(11.0, 11.0 / 2.72), base + Vector3(4.52, 5.5, 0), -1.0, _mat_logo(1.2))
 
 
 # ------------------------------------------------------------------ cânion
@@ -415,6 +450,59 @@ func _paredoes(recuo_base: float, alto_base: float) -> void:
 				else:
 					st.add_vertex(pontos[a]); st.add_vertex(pontos[c]); st.add_vertex(pontos[b])
 					st.add_vertex(pontos[b]); st.add_vertex(pontos[c]); st.add_vertex(pontos[d])
+		st.generate_normals()
+		var mi := MeshInstance3D.new()
+		mi.mesh = st.commit()
+		mi.material_override = mat
+		add_child(mi)
+
+
+## Montanhas avulsas do cânion no deserto entre a pista e os paredões (pedido do dono), de rocha
+## em degraus como os paredões. [x, z, raio da base, altura, 1 = pico / 0 = mesa]; longe dos balões.
+func _montanhas() -> void:
+	var lista := [
+		[-150.0, -60.0, 70.0, 140.0, 1.0], [-235.0, -330.0, 95.0, 170.0, 0.0], [-125.0, -540.0, 55.0, 110.0, 1.0],
+		[150.0, -110.0, 65.0, 130.0, 0.0], [255.0, -390.0, 95.0, 165.0, 1.0], [210.0, 110.0, 55.0, 115.0, 1.0],
+	]
+	var ruido := FastNoiseLite.new()
+	ruido.seed = 5521
+	ruido.frequency = 0.02
+	ruido.fractal_octaves = 4
+	var mat := _material_rocha()
+	var na := 64
+	var nr := 28
+	for k in lista.size():
+		var m: Array = lista[k]
+		var centro := Vector3(m[0], 0, m[1])
+		var raio: float = m[2]
+		var alto: float = m[3]
+		var pico: float = m[4]
+		var pontos := PackedVector3Array()
+		for ir in nr + 1:
+			var s := float(ir) / nr * 1.15   # passa um pouco da base para enterrar a borda
+			for ia in na:
+				var ang := TAU * ia / na
+				var dir := Vector3(cos(ang), 0, sin(ang))
+				# Contorno irregular: o raio varia com o ângulo
+				var r := raio * (1.0 + ruido.get_noise_2d(cos(ang) * 40.0 + k * 97.0, sin(ang) * 40.0) * 0.45)
+				var p := centro + dir * r * s
+				# Pico: encosta côncava até a ponta; mesa: paredão íngreme e topo quase plano
+				var h := pow(clampf(1.0 - s, 0.0, 1.0), 1.4) if pico > 0.5 else smoothstep(1.0, 0.7, s)
+				h *= alto
+				h = lerpf(h, floorf(h / 24.0) * 24.0 + smoothstep(0.55, 1.0, fmod(h, 24.0) / 24.0) * 24.0, 0.6)
+				h += ruido.get_noise_2d(p.x * 2.0, p.z * 2.0) * 8.0 * clampf(1.0 - s, 0.0, 1.0)
+				p.y = h if s < 1.0 else -0.5 - (s - 1.0) * 10.0
+				pontos.append(p)
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for ir in nr:
+			for ia in na:
+				var a := ir * na + ia
+				var b := ir * na + (ia + 1) % na
+				var c := a + na
+				var d := b + na
+				st.add_vertex(pontos[a]); st.add_vertex(pontos[c]); st.add_vertex(pontos[b])
+				st.add_vertex(pontos[b]); st.add_vertex(pontos[c]); st.add_vertex(pontos[d])
 		st.generate_normals()
 		var mi := MeshInstance3D.new()
 		mi.mesh = st.commit()
@@ -527,19 +615,23 @@ func _linha_de_largada() -> void:
 			_caixa(Vector3(0.09, 0.3, 0.09), Vector3(x, 0.15, -0.4), Color(0.9, 0.75, 0.1), null, 0.3)
 	var aco := Color(0.14, 0.15, 0.17)
 	var larg := _x_muro() * 2.0 + 1.0
+	# Logo do jogo bem grande na viga (pedido do dono), no lugar do nome da pista
+	var logo_larg := larg - 1.6
+	var logo_alt := logo_larg / 2.72
+	var viga_alt := logo_alt + 0.5
+	var viga_y := 6.4 + viga_alt * 0.5
 	for lado: float in [-1.0, 1.0]:
-		_caixa(Vector3(0.5, 8.0, 0.5), Vector3(lado * larg * 0.5, 4.0, 22.0), aco)
-	_caixa(Vector3(larg + 0.5, 1.6, 0.4), Vector3(0, 7.6, 22.0), Color(0.03, 0.05, 0.12), null, 0.3)
-	var t := Label3D.new()
-	t.text = nome.to_upper()
-	t.font = load("res://assets/fontes/RacingSansOne-Regular.ttf")
-	t.font_size = 160
-	t.pixel_size = 0.006
-	t.modulate = Color(0.35, 0.65, 1.0)
-	t.outline_size = 0
-	t.position = Vector3(0, 7.6, 21.78)
-	t.rotation.y = PI
-	add_child(t)
+		_caixa(Vector3(0.5, viga_y + viga_alt * 0.5, 0.5), Vector3(lado * larg * 0.5, (viga_y + viga_alt * 0.5) * 0.5, 22.0), aco)
+	_caixa(Vector3(larg + 0.5, viga_alt, 0.4), Vector3(0, viga_y, 22.0), Color(0.01, 0.01, 0.012), null, 0.3)
+	var q := QuadMesh.new()
+	q.size = Vector2(logo_larg, logo_alt)
+	var logo := MeshInstance3D.new()
+	logo.mesh = q
+	logo.material_override = _mat_logo(1.4)
+	logo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	logo.position = Vector3(0, viga_y, 21.78)
+	logo.rotation.y = PI   # virada para a pista, como era o nome
+	add_child(logo)
 
 
 # ------------------------------------------------------------------ chegada e placares
@@ -620,9 +712,11 @@ func _fim_da_pista() -> void:
 	mi.mesh = brita
 	mi.position = Vector3(0, 0.01, z - 30.0)
 	var m := StandardMaterial3D.new()
-	m.albedo_color = Color(0.62, 0.5, 0.38)
-	m.albedo_texture = _ruido
-	m.uv1_scale = Vector3(8, 8, 1)
+	m.albedo_texture = load(TEX + "brita.png")
+	m.normal_enabled = true
+	m.normal_texture = load(TEX + "brita_normal.png")
+	m.uv1_scale = Vector3(brita.size.x / 2.5, brita.size.y / 2.5, 1)
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	m.roughness = 1.0
 	mi.material_override = m
 	add_child(mi)
@@ -639,6 +733,25 @@ func _fim_da_pista() -> void:
 	r.material_override = mr
 	r.position = Vector3(0, 2.4, z - 58.0)
 	add_child(r)
+	_barreira_pneus(z - 57.0, _x_muro() * 2.0)
+
+
+## Barreira de pneus empilhados na frente da rede do fim da pista: face com a textura de duas
+## fileiras de pneus (2,4 m x 1,2 m por repetição) e o corpo preto atrás.
+func _barreira_pneus(z: float, largura: float) -> void:
+	var alt := 1.2
+	var face := QuadMesh.new()
+	face.size = Vector2(largura, alt)
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = load(TEX + "pneus.png")
+	m.uv1_scale = Vector3(largura / 2.4, 1, 1)
+	m.roughness = 0.95
+	var mi := MeshInstance3D.new()
+	mi.mesh = face
+	mi.material_override = m
+	mi.position = Vector3(0, alt * 0.5, z + 0.451)
+	add_child(mi)
+	_caixa(Vector3(largura, alt, 0.9), Vector3(0, alt * 0.5, z), Color(0.03, 0.03, 0.035), null, 0.0)
 
 
 # ------------------------------------------------------------------ luzes
@@ -684,3 +797,167 @@ func _torre_luz(p: Vector3, lado: float, com_luz: bool) -> void:
 		add_child(s)
 		s.position = p + Vector3(-lado * 0.8, 18.0, 0)
 		s.look_at(Vector3(0, 0, p.z - 12.0))
+
+
+# ------------------------------------------------------------------ logo do jogo
+
+## Material da logo TSC (fundo preto da própria imagem); `led` > 0 faz brilhar como painel de LED.
+func _mat_logo(led := 0.0) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = load(LOGO)
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	m.roughness = 0.5
+	if led > 0.0:
+		m.emission_enabled = true
+		m.emission_texture = m.albedo_texture
+		m.emission_energy_multiplier = led
+	return m
+
+
+## Quadro com a logo virado para a pista (o lado `lado` fica à direita/esquerda da pista).
+func _quadro_logo(tam: Vector2, pos: Vector3, lado: float, mat: Material) -> MeshInstance3D:
+	var q := QuadMesh.new()
+	q.size = tam
+	var mi := MeshInstance3D.new()
+	mi.mesh = q
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.basis = Basis(Vector3.UP, -lado * PI * 0.5)
+	mi.position = pos
+	add_child(mi)
+	return mi
+
+
+## Placa de muro preta com a logo repetida quatro vezes.
+func _placa_logo(pos: Vector3, lado: float) -> void:
+	_placa_muro(pos, lado, ["", Color(0.01, 0.01, 0.012), Color.WHITE])
+	var mat := _mat_logo()
+	for k in 4:
+		_quadro_logo(Vector2(1.5, 0.55), pos + Vector3(-lado * 0.012, 0, -4.2 + k * 2.8), lado, mat)
+
+
+## Painel gigante de LED com a logo em cima do fundo da arquibancada, com moldura e pernas.
+func _painel_gigante(x: float, topo: float, z: float, lado: float) -> void:
+	var larg := 22.0
+	var alt := larg / 2.72
+	var y := topo + 1.2 + alt * 0.5
+	_caixa(Vector3(0.6, alt + 0.8, larg + 0.8), Vector3(x + lado * 0.35, y, z), Color(0.03, 0.03, 0.035), null, 0.3)
+	for k: float in [-1.0, 1.0]:
+		_caixa(Vector3(0.35, 1.4, 0.35), Vector3(x + lado * 0.35, topo + 0.6, z + k * larg * 0.35), Color(0.12, 0.13, 0.15))
+	_quadro_logo(Vector2(larg, alt), Vector3(x + lado * 0.02, y, z), lado, _mat_logo(1.6))
+
+
+# ------------------------------------------------------------------ balões no céu
+
+## Balões de ar quente tripulados ao longe: derivam com o vento, sobem e descem devagar e o
+## maçarico solta labaredas de vez em quando. Dois levam a logo TSC.
+const PALETAS_BALAO := [
+	[Color(0.85, 0.1, 0.08), Color(0.95, 0.85, 0.2), Color(0.1, 0.25, 0.7)],
+	[Color(0.1, 0.3, 0.8), Color(0.95, 0.95, 0.95), Color(0.85, 0.1, 0.08)],
+	[Color(0.95, 0.5, 0.05), Color(0.2, 0.1, 0.35), Color(0.95, 0.85, 0.2)],
+	[Color(0.15, 0.6, 0.25), Color(0.95, 0.9, 0.2), Color(0.1, 0.1, 0.12)],
+	[Color(0.6, 0.1, 0.55), Color(0.2, 0.75, 0.9), Color(0.95, 0.95, 0.95)],
+	[Color(0.85, 0.1, 0.08), Color(0.08, 0.08, 0.1), Color(0.95, 0.95, 0.95)],
+	[Color(0.95, 0.75, 0.1), Color(0.85, 0.2, 0.1), Color(0.1, 0.3, 0.8)],
+]
+const VENTO := Vector3(0.35, 0.0, 0.1)   # m/s (fraco: os balões do fundo não saem da vista na corrida)
+
+var _baloes: Array[Dictionary] = []
+var _t_ceu := 0.0
+
+
+func _baloes_no_ceu() -> void:
+	# Os quatro primeiros ficam no fundo da pista, logo acima do horizonte, à vista do piloto pelo
+	# para-brisa (pedido do dono); os outros, dos lados e atrás, aparecem no voo do drone.
+	var lugares := [Vector3(-70, 58, -340), Vector3(-22, 82, -430), Vector3(6, 46, -560), Vector3(48, 68, -390),
+		Vector3(180, 95, -210), Vector3(-210, 130, -120), Vector3(135, 120, 60)]
+	var malha := _malha_balao(8.0)
+	var logo: Texture2D = load(LOGO)
+	for i in lugares.size():
+		var p: Vector3 = lugares[i] + Vector3(_rng.randf_range(-8, 8), _rng.randf_range(-5, 5), _rng.randf_range(-15, 15))
+		if estilo != "estadio":   # no cânion: entre os paredões
+			p.x = clampf(p.x, -30.0, 30.0)
+		var no := Node3D.new()
+		no.position = p
+		# Os da logo viram o painel para a largada; os outros, para qualquer lado
+		no.rotation.y = -PI * 0.25 + _rng.randf_range(-0.3, 0.3) if i == 1 or i == 5 else _rng.randf_range(0.0, TAU)
+		no.scale = Vector3.ONE * 1.5   # envelope de 12 m de raio, ~27 m de altura
+		add_child(no)
+		var env := MeshInstance3D.new()
+		env.mesh = malha
+		var mat := ShaderMaterial.new()
+		mat.shader = load("res://shaders/balao.gdshader")
+		var pal: Array = PALETAS_BALAO[i % PALETAS_BALAO.size()]
+		mat.set_shader_parameter("cor_a", pal[0])
+		mat.set_shader_parameter("cor_b", pal[1])
+		mat.set_shader_parameter("cor_c", pal[2])
+		mat.set_shader_parameter("logo", logo)
+		mat.set_shader_parameter("com_logo", 1.0 if i == 1 or i == 5 else 0.0)
+		env.material_override = mat
+		env.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		no.add_child(env)
+		# Cesto de vime, cordas até a boca, dois tripulantes e o maçarico
+		var vime := Color(0.42, 0.28, 0.14)
+		_caixa(Vector3(1.4, 1.1, 1.4), Vector3(0, -3.55, 0), vime, no, 0.0)
+		for c: Vector2 in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
+			var a := Vector3(c.x * 1.1, 0.1, c.y * 1.1)
+			var b := Vector3(c.x * 0.65, -3.0, c.y * 0.65)
+			var corda := _caixa(Vector3(0.05, a.distance_to(b), 0.05), (a + b) * 0.5, Color(0.15, 0.12, 0.1), no, 0.0)
+			corda.basis = Basis(Quaternion(Vector3.UP, (a - b).normalized()))
+		for k: float in [-0.35, 0.35]:
+			_caixa(Vector3(0.4, 0.55, 0.3), Vector3(k, -2.75, 0.1), Color(0.1, 0.15, 0.3) if k < 0.0 else Color(0.6, 0.1, 0.08), no, 0.0)
+			_caixa(Vector3(0.24, 0.26, 0.24), Vector3(k, -2.33, 0.1), Color(0.8, 0.62, 0.48), no, 0.0)
+		var chama := _caixa(Vector3(0.5, 1.4, 0.5), Vector3(0, -1.1, 0), Color(1.0, 0.5, 0.1), no, 0.0)
+		var mc := chama.material_override as StandardMaterial3D
+		mc.emission_enabled = true
+		mc.emission = Color(1.0, 0.55, 0.15)
+		mc.emission_energy_multiplier = 6.0
+		for n: GeometryInstance3D in no.find_children("*", "GeometryInstance3D", true, false):
+			n.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_baloes.append({"no": no, "base": p, "fase": _rng.randf_range(0.0, TAU), "chama": chama})
+
+
+## Envelope por revolução: boca estreita embaixo, bojo arredondado e cúpula no alto (altura 2,25 R).
+## UV.x dá a volta e UV.y vai de 0 na boca a 1 no topo.
+static func _malha_balao(r: float) -> ArrayMesh:
+	var voltas := 32
+	var perfil: Array[Vector2] = []   # (raio, altura)
+	var h_bojo := r * 1.25
+	for i in 25:
+		var u := float(i) / 24.0
+		perfil.append(Vector2(lerpf(r * 0.2, r, sin(u * PI * 0.5)), u * h_bojo))
+	for i in range(1, 17):
+		var a := float(i) / 16.0 * PI * 0.5
+		perfil.append(Vector2(r * cos(a), h_bojo + r * sin(a)))
+	var topo := h_bojo + r
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for j in perfil.size():
+		for i in voltas + 1:
+			var ang := float(i) / voltas * TAU
+			st.set_uv(Vector2(float(i) / voltas, perfil[j].y / topo))
+			st.add_vertex(Vector3(cos(ang) * perfil[j].x, perfil[j].y, sin(ang) * perfil[j].x))
+	for j in perfil.size() - 1:
+		for i in voltas:
+			var a := j * (voltas + 1) + i
+			var b := a + voltas + 1
+			st.add_index(a)
+			st.add_index(b)
+			st.add_index(a + 1)
+			st.add_index(a + 1)
+			st.add_index(b)
+			st.add_index(b + 1)
+	st.generate_normals()
+	return st.commit()
+
+
+func _process(delta: float) -> void:
+	_t_ceu += delta
+	for b in _baloes:
+		var no := b.no as Node3D
+		var f: float = b.fase
+		no.position = (b.base as Vector3) + VENTO * _t_ceu + Vector3(0, sin(_t_ceu * 0.15 + f) * 3.0, 0)
+		no.rotation.z = sin(_t_ceu * 0.4 + f) * 0.02
+		# Labaredas: rajadas de ~1,5 s a cada ~9 s, tremendo
+		var ligado := fmod(_t_ceu + f * 3.0, 9.0) < 1.5
+		(b.chama as Node3D).scale = Vector3.ONE * ((0.9 + 0.2 * sin(_t_ceu * 40.0 + f)) if ligado else 0.05)

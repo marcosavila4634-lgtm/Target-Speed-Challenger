@@ -55,6 +55,8 @@ func _ready() -> void:
 ## Tempo (s) do mapa escolhido: o que o jogador ajustou para ele, senão o padrão do mapa
 ## (Climb to Death = 5 min), senão o geral.
 func tempo_do_mapa() -> int:
+	if OS.get_environment("TSC_TEMPO_ETAPA") != "":
+		return int(OS.get_environment("TSC_TEMPO_ETAPA"))   # teste: etapa curta (ex.: conferir o fim)
 	if tempo_por_mapa.has(mapa_id):
 		return int(tempo_por_mapa[mapa_id])
 	var padrao = Config.mapa_atual().get("sobrepor", {}).get("partida", {}).get("tempo_segundos", null)
@@ -132,3 +134,14 @@ func drag_pista() -> Dictionary:
 		if p.get("id") == id:
 			return p
 	return lista[0]
+
+
+## Distância da pista do Drag escolhida (a própria "distancia_m" dela ou a padrão do drag).
+func drag_distancia() -> float:
+	return float(drag_pista().get("distancia_m", Config.valor("drag.distancia_m", 201.168)))
+
+
+## Id cujas fotos (assets/ui/drag_carga) a pista usa: "fotos" no jogo.json ou o próprio id.
+func drag_fotos_id() -> String:
+	var p := drag_pista()
+	return str(p.get("fotos", p.get("id", "")))

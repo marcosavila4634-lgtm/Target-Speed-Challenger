@@ -246,6 +246,8 @@ func _process(delta: float) -> void:
 	if veiculo == null:
 		return
 	var v := veiculo
+	if _camera_looping(v, delta):
+		return
 	var foco_alvo := v.get_global_transform_interpolated().origin + Vector3.UP * 1.6
 	if v.paraquedas_aberto:
 		foco_alvo += Vector3.UP * 3.5
@@ -296,6 +298,38 @@ func _process(delta: float) -> void:
 	look_at(_foco)
 	var vel := v.linear_velocity.length() if not v.eliminado else 0.0
 	cam.fov = lerpf(cam.fov, 70.0 + clampf((vel - 20.0) * 0.25, 0.0, 12.0), 1.0 - exp(-delta * 2.0))
+
+
+## Looping: a câmera gira junto com a pista, atrás do carro — o "para cima" dela é a normal do piso
+## (com o céu fixo ela ficaria do lado de fora da fita, tapada, quando o carro está de cabeça para baixo).
+var _loop_n := Vector3.UP
+var _loop_t := Vector3.FORWARD
+var _no_loop := false
+
+func _camera_looping(v: Veiculo, delta: float) -> bool:
+	var sub := v.complexo as ComplexoSubida
+	var lp := sub.looping_em(v.global_position) if sub and not v.eliminado and not v.paraquedas_aberto else null
+	if lp == null:
+		_no_loop = false
+		return false
+	var j := lp.amostra_em(v.global_position)
+	if not _no_loop:
+		_no_loop = true
+		_loop_n = Vector3.UP
+		_loop_t = lp.rumo
+	var k := 1.0 - exp(-delta * 9.0)
+	_loop_n = _loop_n.lerp(lp.nrm[j], k).normalized()
+	_loop_t = _loop_t.lerp(lp.tan[j], k).normalized()
+	_distancia = lerpf(_distancia, _distancia_desejada(v), 1.0 - exp(-delta * 1.5))
+	_foco = v.get_global_transform_interpolated().origin + _loop_n * 1.6
+	_yaw_base = atan2(-lp.rumo.x, -lp.rumo.z)
+	_arfagem_veiculo = 0.0
+	var pos := _foco - _loop_t * _distancia * 0.95 + _loop_n * _distancia * 0.3
+	if not (pos.is_finite() and _foco.is_finite()):
+		return true
+	global_position = pos
+	look_at(_foco + _loop_t * 2.0, _loop_n)
+	return true
 
 
 func _distancia_desejada(v: Veiculo) -> float:

@@ -5,7 +5,7 @@ extends Node3D
 ## carbono com o display digital no centro (marcha, velocidade, barra de giro com a faixa ideal,
 ## dados do motor) sob uma pala, conta-giros analógico preso na coluna com shift light, painel de
 ## chaves com capas vermelhas e LEDs, manômetros à direita (combustível e óleo em cima, câmbio
-## embaixo), alavanca de câmbio de catraca, chicotes e conexões sob o painel e as luvas do piloto no
+## embaixo), alavanca de câmbio de catraca, chicotes e conexões sob o painel e o
 ## volante de camurça (faixa da cor da equipe no alto, três raios, emblema no raio de baixo).
 ##
 ## Nada disso aparece de fora: as peças ficam numa camada própria (CAMADA_INTERIOR) que só a câmera
@@ -13,7 +13,7 @@ extends Node3D
 ## jogador fica invisível só para esta câmera (CAMADA_CARRO), sem perder a camada da faixa da
 ## equipe, e continua projetando sombra na pista: vista de fora o carro é o original.
 ## O interior não recebe o sol (o teto faz sombra): uma sonda de reflexo escura, só dele, tira o
-## brilho do céu, e duas luzes fracas próprias dão o reflexo dos tubos e das luvas.
+## brilho do céu, e duas luzes fracas próprias dão o reflexo dos tubos.
 ## A câmera treme com a aceleração e com o giro alto.
 
 const CAMADA_CARRO := 1 << 19
@@ -26,6 +26,7 @@ const INCL_PAINEL := deg_to_rad(-8.0)
 
 var camera: Camera3D
 var conta_giros: ContaGiros
+var velocimetro: VelocimetroDrag
 var painel_digital: PainelDigital
 var volante: Node3D
 var _manometros: Array[Manometro] = []
@@ -38,13 +39,13 @@ var _c: Dictionary
 var _esq := -0.4     # parede esquerda (lado do piloto) e direita, a partir do olho
 var _dir := 1.2
 var _teto := 0.36
-var _raio_aro := 0.2  # raio do aro do volante (centro do tubo), onde as luvas seguram
-var _pivos_mao := {}                  # lado (-1, 1) -> pivô da mão no aro
+var _raio_aro := 0.2  # raio do aro do volante (centro do tubo)
 var _cambio := Vector3(0.4, -0.31, -0.46)   # manopla do câmbio (espaço do cockpit)
 var _marcha_ant := 0
 var _t_troca := -1.0
 var _lado_troca := 1.0
 var _borboletas := {}                 # lado (-1 esquerda, 1 direita) -> pivô da borboleta
+var _telas_espelho: Array[SubViewport] = []
 
 
 ## Manômetro pequeno do painel (fundo preto, escala branca, zona vermelha, ponteiro laranja).
@@ -120,7 +121,7 @@ func montar(v: Veiculo) -> void:
 
 ## Interior de um carro de verdade (painel, volante, bancos, portas) com o olho do piloto do modelo
 ## na posição do olho do cockpit. Por cima, os instrumentos de arrancada (conta-giros com shift
-## light na coluna e display digital no painel) e as luvas no aro do volante do modelo.
+## light na coluna e display digital no painel).
 func _montar_interior(cena: PackedScene, info: Dictionary, cor: Color) -> void:
 	var s := float(info.get("escala", 1.0))
 	var o := _vetor(info.olho)
@@ -137,6 +138,10 @@ func _montar_interior(cena: PackedScene, info: Dictionary, cor: Color) -> void:
 				var m := mi.mesh.surface_get_material(k) as BaseMaterial3D
 				if m:
 					m.disable_fog = true   # a névoa de altura da pista não entra no carro
+	for nome: String in info.get("ocultar", []):   # peças cortadas pelo recorte ou trocadas aqui
+		var peca := no.find_child(nome, true, false) as Node3D
+		if peca:
+			peca.visible = false
 	var vol: Dictionary = info.get("volante", {})
 	var centro := (_vetor(vol.get("centro", [o.x, o.y - 0.25, o.z - 0.45])) - o) * s
 	var cb: Array = info.get("cambio", [])   # manopla do câmbio; sem ela, à direita e abaixo do volante
@@ -147,7 +152,16 @@ func _montar_interior(cena: PackedScene, info: Dictionary, cor: Color) -> void:
 	# Conta-giros na coluna (acima e à esquerda do volante) e display digital no alto do painel
 	var cg: Array = info.get("conta_giros", [])
 	var pos_cg := (_vetor(cg) - o) * s if not cg.is_empty() else centro + Vector3(-0.14, 0.2, -0.22)
-	_montar_conta_giros(pos_cg, pos_cg + Vector3(0.03, -0.12, -0.06))
+	_montar_conta_giros(pos_cg, pos_cg + Vector3(0.03, -0.12, -0.06), float(info.get("conta_giros_escala", _c.get("conta_giros_escala", 1.25))))
+	# Velocímetro no meio do painel, com a haste descendo até ele
+	var vm: Array = info.get("velocimetro", [])
+	if not vm.is_empty():
+		var pos_v := (_vetor(vm) - o) * s
+		velocimetro = VelocimetroDrag.new()
+		_copo_mostrador(velocimetro, pos_v, pos_v + Vector3(0.0, -0.1, -0.05), float(_c.get("velocimetro_escala", 1.0)))
+	# Retrovisores com a imagem de trás (câmeras próprias)
+	for e: Dictionary in info.get("espelhos", []):
+		_espelho(e, no)
 	var dp: Array = info.get("display", [])
 	var pos_d := (_vetor(dp) - o) * s if not dp.is_empty() else centro + Vector3(0.33, 0.12, -0.34)
 	if bool(info.get("display_tela", false)):   # na tela do próprio painel do carro, sem moldura
@@ -272,14 +286,6 @@ func _capsula(a: Vector3, b: Vector3, raio: float, mat: Material, pai: Node3D = 
 	return mi
 
 
-## Elipsoide com os semi-eixos nas direções dadas (costas da mão).
-func _elipsoide(centro: Vector3, ex: Vector3, ey: Vector3, raios: Vector3, mat: Material, pai: Node3D) -> MeshInstance3D:
-	var mi := _esfera(1.0, centro, mat, pai)
-	var ez := ex.cross(ey).normalized()
-	mi.basis = Basis(ex.normalized() * raios.x, ey.normalized() * raios.y, ez * raios.z)
-	return mi
-
-
 func _rotulo(texto: String, pos: Vector3, tam: int, cor: Color, pai: Node3D = null, pixel := 0.0007) -> Label3D:
 	var r := Label3D.new()
 	r.text = texto
@@ -392,26 +398,15 @@ func _montar_display(pos: Vector3, giro_x: float, escala := 1.0) -> void:
 
 
 ## Conta-giros analógico preso por uma haste na coluna esquerda, com copo e shift light em cima.
-func _montar_conta_giros(pos_cg := Vector3.INF, fim := Vector3.INF) -> void:
+func _montar_conta_giros(pos_cg := Vector3.INF, fim := Vector3.INF, escala := -1.0) -> void:
 	var cromo := _mat(Color(0.75, 0.77, 0.8), 0.15, 1.0)
 	conta_giros = ContaGiros.new()
 	if pos_cg == Vector3.INF:
 		pos_cg = Vector3(maxf(-0.3, _esq + 0.13), -0.05, -0.76)
-	# Mostrador, copo e shift light num conjunto só (escala em drag.conta_giros_escala)
-	var g := Node3D.new()
-	g.position = pos_cg
-	g.scale = Vector3.ONE * float(_c.get("conta_giros_escala", 1.25))
-	add_child(g)
-	var copo := CylinderMesh.new()
-	copo.top_radius = 0.066
-	copo.bottom_radius = 0.058
-	copo.height = 0.06
-	copo.radial_segments = 32
-	var c := _peca(copo, Vector3(0, 0, -0.032), cromo, g)
-	c.rotation.x = PI * 0.5 - deg_to_rad(4)
-	var fundo := _esfera(0.052, Vector3(0, 0, -0.06), _mat(Color(0.03, 0.03, 0.035), 0.5, 0.6), g)
-	fundo.scale = Vector3(1, 1, 0.6)
-	_tela(conta_giros, Vector2i(640, 640), Vector2(0.125, 0.125), Vector3(0, 0, 0.001), deg_to_rad(-4), 1.0, g)
+	if fim == Vector3.INF:
+		fim = Vector3(_esq + 0.03, -0.04, -0.86)
+	# Mostrador, copo e shift light num conjunto só (escala em drag.conta_giros_escala ou no interior)
+	var g := _copo_mostrador(conta_giros, pos_cg, fim, escala if escala > 0.0 else float(_c.get("conta_giros_escala", 1.25)))
 	# Shift light: copo cromado apontado para o piloto, acima e à esquerda do conta-giros
 	var pos_sl := Vector3(-0.055, 0.075, -0.02)
 	var sl := CylinderMesh.new()
@@ -426,11 +421,118 @@ func _montar_conta_giros(pos_cg := Vector3.INF, fim := Vector3.INF) -> void:
 	lente.height = 0.004
 	_peca(lente, pos_sl + Vector3(0, 0, 0.036), _shift_light, g).rotation.x = PI * 0.5
 	_tubo(pos_sl + Vector3(0.01, -0.015, -0.02), Vector3(-0.02, 0.05, -0.05), 0.006, cromo, g)
-	# Haste até a coluna A da gaiola (ou até a coluna de direção), com braçadeira
-	if fim == Vector3.INF:
-		fim = Vector3(_esq + 0.03, -0.04, -0.86)
-	_tubo(pos_cg + Vector3(-0.02, -0.02, -0.07) * g.scale, fim, 0.009, cromo)
+
+
+## Retrovisor com a imagem de trás: o vidro do próprio modelo (`malha`, aceita "*") vira a tela de
+## uma câmera no espelho, desenhada numa SubViewport e projetada no vidro, espelhada, pelo plano
+## dele (o contorno é o da carcaça do modelo). A câmera olha para o reflexo do olhar do piloto no
+## vidro, ou para `olhar` quando dado; fov vertical em graus.
+func _espelho(e: Dictionary, modelo: Node3D) -> void:
+	var mi := modelo.find_child(str(e.malha), true, false) as MeshInstance3D
+	if mi == null:
+		return
+	var t := Transform3D.IDENTITY   # espaço da malha -> espaço do cockpit
+	var n: Node = mi
+	while n != self:
+		t = (n as Node3D).transform * t
+		n = n.get_parent()
+	# Normal média do vidro, virada para o piloto (na origem)
+	var normal := Vector3.ZERO
+	for k in mi.mesh.get_surface_count():
+		for v: Vector3 in mi.mesh.surface_get_arrays(k)[Mesh.ARRAY_NORMAL]:
+			normal += v
+	var ab := mi.get_aabb()
+	var centro := t * ab.get_center()
+	normal = (t.basis * normal).normalized()
+	if normal.dot(-centro) < 0.0:
+		normal = -normal
+	var lado := Vector3.UP.cross(normal).normalized()
+	var cima := normal.cross(lado)
+	# Tamanho do vidro no plano dele (lado, cima)
+	var u0 := INF
+	var u1 := -INF
+	var v0 := INF
+	var v1 := -INF
+	for i in 8:
+		var p := t * ab.get_endpoint(i)
+		u0 = minf(u0, p.dot(lado))
+		u1 = maxf(u1, p.dot(lado))
+		v0 = minf(v0, p.dot(cima))
+		v1 = maxf(v1, p.dot(cima))
+	var w := u1 - u0
+	var h := v1 - v0
+	# Espaço da malha -> UV da tela (u da esquerda para a direita do piloto, v de cima para baixo)
+	var para_uv := Transform3D(Basis(lado / w, -cima / h, normal).transposed(), Vector3(-u0 / w, v1 / h, 0.0)) * t
+	var alt := int(e.get("px", 200))
+	var sv := SubViewport.new()
+	sv.size = Vector2i(roundi(alt * w / h), alt)
+	sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(sv)
+	_telas_espelho.append(sv)
+	var cam := Camera3D.new()
+	cam.fov = float(e.get("fov", 15.0))
+	cam.near = 0.2
+	cam.far = 1500.0
+	cam.cull_mask = camera.cull_mask & ~CAMADA_INTERIOR
+	var env := get_world_3d().environment if get_world_3d() else null
+	if env:   # sem os efeitos caros de tela na imagem pequena
+		env = env.duplicate()
+		env.ssr_enabled = false
+		env.ssao_enabled = false
+		env.ssil_enabled = false
+		env.sdfgi_enabled = false
+		env.volumetric_fog_enabled = false
+		cam.environment = env
+	sv.add_child(cam)
+	cam.current = true
+	# A câmera fica fora da árvore 3D do carro (dentro da SubViewport): segue o espelho por aqui
+	var d := centro.normalized()
+	var olhar := _vetor(e.olhar).normalized() if e.has("olhar") else d - 2.0 * d.dot(normal) * normal
+	var guia := RemoteTransform3D.new()
+	guia.position = centro
+	guia.basis = Basis.looking_at(olhar)
+	guia.update_scale = false
+	add_child(guia)
+	guia.remote_path = guia.get_path_to(cam)
+	var vidro := ShaderMaterial.new()
+	vidro.shader = Shader.new()
+	vidro.shader.code = """shader_type spatial;
+render_mode unshaded, fog_disabled;
+uniform sampler2D tela : source_color, filter_linear;
+uniform mat4 para_uv;
+varying vec2 uv_tela;
+void vertex() {
+	uv_tela = (para_uv * vec4(VERTEX, 1.0)).xy;
+}
+void fragment() {
+	ALBEDO = texture(tela, vec2(1.0 - uv_tela.x, uv_tela.y)).rgb * 0.8 + vec3(0.015);
+}"""
+	vidro.set_shader_parameter("tela", sv.get_texture())
+	vidro.set_shader_parameter("para_uv", para_uv)
+	mi.material_override = vidro
+
+
+## Mostrador redondo (desenhado em `no`) num copo cromado virado para o olho do piloto, com haste
+## e braçadeira até `fim` (coluna A, coluna de direção ou o painel). Devolve o conjunto.
+func _copo_mostrador(no: Control, pos: Vector3, fim: Vector3, escala: float) -> Node3D:
+	var cromo := _mat(Color(0.75, 0.77, 0.8), 0.15, 1.0)
+	var g := Node3D.new()
+	g.position = pos
+	g.basis = Basis.looking_at(pos).scaled(Vector3.ONE * escala)   # frente (+Z) para o olho, na origem
+	add_child(g)
+	var copo := CylinderMesh.new()
+	copo.top_radius = 0.066
+	copo.bottom_radius = 0.058
+	copo.height = 0.06
+	copo.radial_segments = 32
+	var c := _peca(copo, Vector3(0, 0, -0.032), cromo, g)
+	c.rotation.x = PI * 0.5 - deg_to_rad(4)
+	var fundo := _esfera(0.052, Vector3(0, 0, -0.06), _mat(Color(0.03, 0.03, 0.035), 0.5, 0.6), g)
+	fundo.scale = Vector3(1, 1, 0.6)
+	_tela(no, Vector2i(640, 640), Vector2(0.125, 0.125), Vector3(0, 0, 0.001), deg_to_rad(-4), 1.0, g)
+	_tubo(g.transform * Vector3(-0.02, -0.02, -0.07), fim, 0.009, cromo)
 	_tubo(fim + Vector3(0, -0.02, 0), fim + Vector3(0, 0.02, 0), 0.03, _mat(Color(0.05, 0.05, 0.06), 0.4, 0.8))
+	return g
 
 
 ## Painel de chaves: placa de alumínio escuro, cinco chaves alavanca com capas vermelhas levantadas,
@@ -557,16 +659,15 @@ void fragment() {
 		_tubo(Vector3(esq + 0.035, 0.28, z), Vector3(esq + 0.03, teto, z), 0.006, _mat(Color(0.02, 0.02, 0.02), 0.9))
 
 
-# ------------------------------------------------------------------ volante e luvas
+# ------------------------------------------------------------------ volante
 
-func _montar_volante(cor: Color, pos := Vector3(0.0, -0.29, -0.42), incl := 18.0, raio := 0.2, so_luvas := false) -> void:
+func _montar_volante(cor: Color, pos := Vector3(0.0, -0.29, -0.42), incl := 18.0, raio := 0.2, do_interior := false) -> void:
 	volante = Node3D.new()
 	volante.position = pos
 	volante.rotation.x = deg_to_rad(-incl)   # coluna subindo para o piloto: o alto do aro fica mais à frente
 	add_child(volante)
 	_raio_aro = raio
-	if so_luvas:   # volante do próprio interior: só as mãos do piloto nele
-		_maos(pos, incl, raio)
+	if do_interior:   # o volante é o do próprio interior
 		return
 	var camurca := _mat(Color(0.022, 0.022, 0.024), 1.0)
 	camurca.rim_enabled = true
@@ -610,90 +711,6 @@ func _montar_volante(cor: Color, pos := Vector3(0.0, -0.29, -0.42), incl := 18.0
 	anel.outer_radius = 0.036
 	_peca(anel, Vector3(0, 0, 0.03), cromo, volante).rotation.x = PI * 0.5
 	_tubo(Vector3(0, 0, -0.02), Vector3(0, 0, -0.34), 0.03, _mat(Color(0.06, 0.06, 0.065), 0.4, 0.8), volante)
-	# Mãos do piloto nas posições 9h15
-	_maos(pos, incl, raio)
-
-
-## Mãos do piloto no volante: antebraços e mãos do avatar escolhido, já fechadas no aro (feitas no
-## Blender por tools/luvas/maos_volante.py; luva de corrida nas pilotos). Presas ao nó do volante,
-## giram com ele. Sem o arquivo, as luvas genéricas.
-const ALTO_PEGADA := deg_to_rad(14.0)   # o mesmo "alto" do script: pegada um pouco acima das 9h/3h
-
-func _maos(_centro: Vector3, _incl: float, raio: float) -> void:
-	var d := Config.avatar(Sessao.avatar_id)
-	var arq := str(d.get("modelo", "")).get_base_dir() + "/maos_volante.glb"
-	if d.is_empty() or not ResourceLoader.exists(arq):
-		for lado: float in [-1.0, 1.0]:
-			_luva(lado)
-		return
-	var cena: Node = (load(arq) as PackedScene).instantiate()
-	for lado: float in [-1.0, 1.0]:
-		var no := cena.find_child("MaoEsq" if lado < 0.0 else "MaoDir", true, false) as Node3D
-		if no == null:
-			continue
-		var pivo := Node3D.new()   # pivô na pegada: a mão gira nele ao puxar a borboleta
-		pivo.position = Vector3(lado * raio * cos(ALTO_PEGADA), raio * sin(ALTO_PEGADA), 0.0)
-		volante.add_child(pivo)
-		no.get_parent().remove_child(no)
-		no.transform = Transform3D.IDENTITY
-		pivo.add_child(no)
-		_pivos_mao[lado] = pivo
-		for gi: GeometryInstance3D in pivo.find_children("*", "GeometryInstance3D", true, false):
-			gi.layers = CAMADA_INTERIOR
-			gi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			var mi := gi as MeshInstance3D
-			if mi and mi.mesh:
-				for k in mi.mesh.get_surface_count():
-					var m := mi.mesh.surface_get_material(k) as BaseMaterial3D
-					if m:
-						m.disable_fog = true
-	cena.free()
-
-
-## Luva de corrida segurando o aro: costas da mão estofadas com o logo branco, dedos dando a volta no
-## aro, polegar sobre o raio, punho largo; e a manga do macacão vindo de baixo, de perto do corpo.
-func _luva(lado: float) -> void:
-	var preto := _mat(Color(0.03, 0.03, 0.033), 0.85)
-	preto.rim_enabled = true
-	preto.rim = 0.3
-	var reforco := _mat(Color(0.12, 0.12, 0.13), 0.6)
-	var branco := _mat(Color(0.9, 0.9, 0.9), 0.6)
-	var macacao := _mat(Color(0.025, 0.028, 0.04), 0.9)
-	var ang := PI - 0.22 if lado < 0.0 else 0.22
-	var fora := Vector3(cos(ang), sin(ang), 0.0)        # para fora do aro
-	var cima := Vector3(-sin(ang), cos(ang), 0.0) * (-1.0 if lado < 0.0 else 1.0)   # ao longo do aro, para cima
-	if cima.y < 0.0:
-		cima = -cima
-	var perto := Vector3(0, 0, 1)                        # para o piloto
-	var p := fora * _raio_aro                            # centro do tubo do aro
-	# Dedos: dão a volta por fora e pela frente do aro, pontas aparecendo por dentro
-	for k in 4:
-		var u := cima * (0.036 - k * 0.022)
-		var raio := 0.0115 if k < 3 else 0.01
-		var a := p + fora * 0.03 + perto * 0.012 + u
-		var b := p + fora * 0.004 - perto * 0.03 + u
-		var c := p - fora * 0.028 - perto * 0.008 + u
-		_capsula(a, b, raio, preto, volante)
-		_capsula(b, c, raio * 0.95, preto, volante)
-	# Costas da mão (estofada), reforço dos nós e logo
-	var costas := p + fora * 0.03 + perto * 0.035 - cima * 0.002
-	_elipsoide(costas, fora + perto * 0.6, cima, Vector3(0.036, 0.056, 0.026), preto, volante)
-	_elipsoide(p + fora * 0.018 + perto * 0.03 + cima * 0.0, fora * 0.4 + perto, cima, Vector3(0.012, 0.045, 0.028), reforco, volante)
-	var logo := _rotulo("TSC", costas + perto * 0.034 + fora * 0.012, 40, Color(0.92, 0.92, 0.92), volante, 0.0003)
-	logo.basis = Basis(cima.cross(perto), cima, perto)
-	logo.font = load("res://assets/fontes/RacingSansOne-Regular.ttf")
-	# Polegar por cima do aro, apoiado no raio
-	_capsula(p + fora * 0.012 + perto * 0.03 - cima * 0.035, p - fora * 0.035 + perto * 0.015 - cima * 0.02, 0.012, preto, volante)
-	# Punho largo (cano da luva) com a faixa branca
-	var pulso := p + fora * 0.06 + perto * 0.06 - cima * 0.045
-	var fim_punho := pulso + (fora * 0.035 + perto * 0.06 - cima * 0.05)
-	_tubo(pulso, fim_punho, 0.032, preto, volante, 0.04)
-	_tubo(fim_punho - (fim_punho - pulso) * 0.18, fim_punho, 0.041, branco, volante, 0.041)
-	# Manga do macacão até fora do quadro, presa ao cockpit (não gira com o volante)
-	var ini := volante.transform * fim_punho
-	var ombro := Vector3(lado * 0.3, -0.72, 0.18)
-	_capsula(ini, ombro, 0.05, macacao)
-	_capsula(ini + Vector3(0, 0.035, 0.02), ombro + Vector3(0, 0.045, 0.0), 0.012, branco)   # faixa da manga
 
 
 ## Alavanca de câmbio de catraca à direita do piloto: base de alumínio, trilho, haste cromada e
@@ -719,6 +736,8 @@ func _montar_cambio() -> void:
 ## Instrumentos do painel a partir da simulação.
 func instrumentos(m: DragMotor, delta: float) -> void:
 	conta_giros.atualizar(m.rpm, m.marcha, m.velocidade_kmh(), m.no_limitador)
+	if velocimetro:
+		velocimetro.atualizar(m.velocidade_kmh())
 	painel_digital.atualizar(m, delta)
 	var faixa: Array = _c.get("faixa_ideal", [6900, 7600])
 	# Shift light: acende na faixa ideal, pisca no limitador (só visual, sem sinal sonoro)
@@ -734,12 +753,12 @@ func instrumentos(m: DragMotor, delta: float) -> void:
 	_troca_de_marcha(m.marcha, delta)
 
 
-## Troca nas borboletas atrás do volante: a mão continua no aro e os dedos puxam a borboleta
+## Troca nas borboletas atrás do volante: a borboleta é puxada e volta
 ## (direita sobe, esquerda reduz). Um toque curto: puxa, segura e solta.
 const PUXAO_S := 0.22
 
 func _troca_de_marcha(marcha: int, delta: float) -> void:
-	if _pivos_mao.is_empty():
+	if _borboletas.is_empty():
 		return
 	if marcha != _marcha_ant:
 		_lado_troca = 1.0 if marcha > _marcha_ant else -1.0
@@ -750,12 +769,10 @@ func _troca_de_marcha(marcha: int, delta: float) -> void:
 	_t_troca += delta
 	var f := clampf(_t_troca / PUXAO_S, 0.0, 1.0)
 	var forca := sin(f * PI)   # sobe e volta
-	_puxar(_lado_troca, forca)
 	if _borboletas.has(_lado_troca):
 		(_borboletas[_lado_troca] as Node3D).rotation.x = -deg_to_rad(10.0) * forca
 	if f >= 1.0:
 		_t_troca = -1.0
-		_puxar(_lado_troca, 0.0)
 
 
 ## Tremor e balanço da cabeça: aceleração (m/s²), giro (0..1) e velocidade (m/s).
@@ -769,6 +786,10 @@ func atualizar(delta: float, acel: float, giro: float, vel: float, direcao := 0.
 	var amp := 0.0025 * _tremor
 	t.origin += Vector3(_rng.randf_range(-amp, amp), _rng.randf_range(-amp, amp), 0)
 	camera.transform = t
+	# Espelhos só renderizam com a visão interna na tela
+	var modo := SubViewport.UPDATE_ALWAYS if camera.current else SubViewport.UPDATE_DISABLED
+	for sv in _telas_espelho:
+		sv.render_target_update_mode = modo
 	if volante:
 		volante.rotation.z = lerpf(volante.rotation.z, -direcao * 0.3, 1.0 - exp(-delta * 6.0))
 
@@ -785,9 +806,3 @@ func _montar_borboletas(raio: float) -> void:
 		p.rotation.z = lado * deg_to_rad(-8.0)
 		_rotulo("+" if lado > 0.0 else "−", Vector3(lado * raio * 0.34, 0.0, 0.004), 40, Color(1, 1, 1), pivo, 0.0006)
 		_borboletas[lado] = pivo
-
-
-## Dedos puxando a borboleta: a mão gira um pouco em torno do aro, para o piloto.
-func _puxar(lado: float, forca: float) -> void:
-	if _pivos_mao.has(lado):
-		(_pivos_mao[lado] as Node3D).rotation = Vector3(deg_to_rad(9.0) * forca, 0.0, 0.0)

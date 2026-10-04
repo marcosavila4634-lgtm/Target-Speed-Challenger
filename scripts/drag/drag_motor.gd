@@ -325,7 +325,7 @@ func passo(dt: float) -> void:
 			antecipacao = t_verde - t_movimento
 			largada = "queimada"
 		largou.emit(largada)
-	var fim := float(_c.get("distancia_m", 201.168))
+	var fim := Sessao.drag_distancia()
 	if distancia >= fim and antes < fim:
 		# Instante exato em que cruzou a linha (entre dois passos)
 		t_chegada = tempo - dt * (distancia - fim) / maxf(distancia - antes, 0.0001)

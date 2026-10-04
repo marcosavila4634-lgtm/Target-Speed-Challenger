@@ -11,6 +11,11 @@ uniform float largura_faixa = 5.2;
 uniform float distancia = 201.168;
 uniform float concreto_ate = 100.0;
 uniform float brilho = 1.0;          // quanto a borracha espelha (0..1)
+// Textura fotográfica do asfalto (assets/drag/asfalto*.png, de tools/ambiente/texturas_drag.gd):
+// duas amostras em escalas e ângulos diferentes misturadas pelo ruído, para não repetir à vista.
+uniform sampler2D asfalto : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D asfalto_normal : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform float metros_textura = 3.0;  // tamanho de uma repetição da textura
 
 varying vec3 p;
 
@@ -29,11 +34,22 @@ void fragment() {
 	float riscos = texture(ruido, vec2(x * 3.1, d * 0.012)).r;
 	float riscos_finos = texture(ruido, vec2(x * 11.0, d * 0.03)).r;
 
+	// Textura do asfalto (grão, agregado e rachaduras) e o relevo dela
+	vec2 uv1 = p.xz / metros_textura;
+	vec2 uv2 = vec2(p.x + p.z, p.x - p.z) * 0.7071 / (metros_textura * 2.7);
+	float mistura = smoothstep(0.3, 0.7, n2);
+	vec3 tex = mix(texture(asfalto, uv1).rgb, texture(asfalto, uv2).rgb, mistura);
+	vec3 relevo = mix(texture(asfalto_normal, uv1).rgb, texture(asfalto_normal, uv2).rgb, mistura);
+	float lum = dot(tex, vec3(0.3333));
+	tex = mix(vec3(lum), tex, 0.45);   // tira o esverdeado da foto
+
 	// Base: asfalto com agregado claro; concreto na largada
-	vec3 cor = vec3(0.16, 0.16, 0.165) * (0.8 + 0.35 * n) + (nf - 0.5) * 0.05;
-	float rug = 0.78;
+	vec3 cor = tex * 0.4 * (0.82 + 0.3 * n) + (nf - 0.5) * 0.03;
+	float rug = 0.78 + (0.45 - lum) * 0.3;
+	float fundo = 1.0;   // força do relevo
 	if (d > -40.0 && d < concreto_ate) {
-		cor = vec3(0.47, 0.46, 0.44) * (0.82 + 0.28 * n2) + (nf - 0.5) * 0.05;
+		cor = vec3(0.47, 0.46, 0.44) * (0.82 + 0.28 * n2) * (0.7 + 0.65 * lum) + (nf - 0.5) * 0.04;
+		fundo = 0.3;
 		float junta = step(0.985, fract(d / 6.0)) + step(0.99, fract((x + 50.0) / (lw * 0.5)));
 		cor *= 1.0 - 0.4 * clamp(junta, 0.0, 1.0);
 		rug = 0.85;
@@ -74,6 +90,8 @@ void fragment() {
 		rug = 0.6;
 	}
 	ALBEDO = cor;
+	NORMAL_MAP = relevo;
+	NORMAL_MAP_DEPTH = fundo * mix(1.0, 0.2, borracha) * (1.0 - poca) * (1.0 - clamp(linha, 0.0, 1.0) * 0.5);
 	ROUGHNESS = rug;
 	SPECULAR = mix(0.45, 0.7, borracha);
 }

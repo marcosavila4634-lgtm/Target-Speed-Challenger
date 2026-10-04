@@ -12,6 +12,9 @@ uniform float altura_chao = 0.0;
 uniform float altura_poeira = 5.0;
 uniform float sujeira = 0.5;
 
+// Onda de choque do impacto final (Extinction Day): tudo o que fica dentro do raio é arrasado
+uniform vec3 onda_centro = vec3(0.0);
+uniform float onda_raio = -1.0;
 varying vec3 pos_mundo;
 varying vec3 normal_mundo;
 
@@ -27,6 +30,9 @@ float tri(vec3 p, vec3 n, float escala) {
 }
 
 void fragment() {
+	if (onda_raio > 0.0 && distance(pos_mundo.xz, onda_centro.xz) < onda_raio - 30.0 - 90.0 * texture(ruido, pos_mundo.xz / 43.0).r) {
+		discard;   // os pilares somem na onda de choque
+	}
 	vec3 p = pos_mundo;
 	vec3 n = normal_mundo;
 	float grande = tri(p, n, 11.0);

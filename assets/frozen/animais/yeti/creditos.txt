@@ -1,0 +1,4 @@
+Modelo usado em scripts/mundo/yeti.gd (yeti_modelo.glb = "yeti (1).glb"):
+This work is based on "yeti" (https://sketchfab.com/3d-models/yeti-22a583684d0747dea9159b8c69f5c0a9) by sudo-self (https://sketchfab.com/sudo-self) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+NAO USAR: adorable_yeti_the_abominable_snowman* (extraido do jogo Monsters, Inc. de PS2).

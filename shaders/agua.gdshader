@@ -46,11 +46,15 @@ void fragment() {
 	float r = texture(ruido, p / 9.0 + correnteza * t * 2.0).r;
 	float espuma = smoothstep(largura_espuma, 0.0, prof_v) * smoothstep(0.35, 0.65, r + 0.25 * smoothstep(largura_espuma * 0.5, 0.0, prof_v));
 	espuma = max(espuma, smoothstep(0.2, 0.0, prof_v)) * 0.85;
+	// Longe (rio no horizonte do City Rush): a profundidade da tela perde precisão e a margem inteira
+	// virava espuma, e o sol rasante refletido estourava — faixas brancas na linha do horizonte.
+	float longe = smoothstep(1200.0, 3500.0, dist);
+	espuma *= 1.0 - longe;
 	cor = mix(cor, cor_espuma, espuma);
 
 	ALBEDO = cor;
 	ALPHA = clamp(mix(0.6, 1.0, smoothstep(0.0, 1.5, prof_v)) + espuma, 0.0, 1.0);
-	ROUGHNESS = mix(0.09, 0.6, espuma);
+	ROUGHNESS = mix(mix(0.09, 0.6, espuma), 0.45, longe);
 	METALLIC = 0.0;
 	SPECULAR = 0.35;
 }

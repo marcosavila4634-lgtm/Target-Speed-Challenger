@@ -54,7 +54,25 @@ var nitro_ativo := false
 var recarga_ejetor := 0.0
 var tempo_no_ar := 0.0
 var rodas_no_chao := 0
+var aderencia_piso := 1.0       # 1 = piso normal; menos = gelo sob as rodas (aviso do HUD, bots)
 var contato_corpo := false
+var _gosma_ate := 0.0          # coberto de gosma verde (cuspe de dinossauro): anda muito devagar até este instante
+var _gosma_fx: GPUParticles3D
+var _gosma_sujeira: Array = []   # película de gosma na lataria enquanto dura o efeito: [[MeshInstance3D (cópia da malha), ShaderMaterial]]
+var _gosma_ini := 0.0
+var _gosma_ativa := false
+var _invertido_ate := 0.0      # yeti pendurado no teto (Frozen Peak): direção invertida até este instante
+var _invertido_ini := 0.0
+var _gelado_ate := 0.0         # cuspe de gelo das focas (Frozen Peak): direção travada, sem freio nem motor, escorregando
+var _dir_gelada := 0.0
+var _gelo_pele: Array = []      # crosta de gelo na lataria: [[MeshInstance3D (cópia da malha), ShaderMaterial]]
+var _gelo_fx: GPUParticles3D
+var _gelo_ini := 0.0
+var _gelo_ativo := false
+var preso := false              # na boca do tiranossauro (ArmadilhasDino): parado até ser solto/devorado
+var sem_impulso_ate := 0.0     # bots: pularam os aceleradores da porta da plataforma (não são empurrados se caírem em cima)
+var girando := false           # lançado por uma mola ejetora: gira solto (sem controle aéreo) até pousar ou abrir o paraquedas
+var _girando_desde := 0.0
 var contato_veiculo: Veiculo = null  # outro carro encostado neste passo de física (som de batida)
 var no_alvo_agora := false
 var relogio := 0.0
@@ -69,8 +87,11 @@ var checkpoint := -1
 var _fantasma := false
 var _fantasma_ate := 0.0
 var _geo_fantasma: Array = []
-var _de_cabeca_t := 0.0          # tempo de cabeça para baixo parado (mapa com checkpoint: volta no último)
+var _de_cabeca_t := 0.0          # tempo de cabeça para baixo ou de lado, parado (mapa com checkpoint: volta no último)
 const DE_CABECA_S := 4.0
+const TOMBADO_Y := 0.35          # cima.y abaixo disto = tombado (de lado é ~0; a descida mais íngreme dá 0,7)
+## Extinction Day: a cerca elétrica corta o motor (e o nitro) até este instante do relógio do carro.
+var motor_cortado_ate := -1.0
 var _bateu_mortal := false       # encostou em peça do grupo "mortal" (túnel-atalho): explode
 
 # Telemetria (resultado e teste automático)
@@ -93,6 +114,8 @@ var freio := 9.0
 ## de aderência, carga e giro pedido pelo volante. Só é preenchido nesse teste.
 var diag := {}
 static var _com_diag := OS.get_environment("TSC_TESTE_CURVA") != ""
+## Vento no voo de paraquedas (m/s; Pharaoh's Climb, tempestade de areia): o velame é levado junto.
+static var vento := Vector3.ZERO
 var freando := false        # S segurado com freio instalado (o som não trata como ré)
 var forca_re := 0.6          # fração da aceleração normal (a ré também é o "freio")
 var vel_re := 8.0            # m/s
@@ -127,6 +150,9 @@ var _cfg := {}
 
 
 func _ready() -> void:
+	if OS.get_environment("TSC_GOSMA") != "":
+		gosma.call_deferred(600.0)   # conferência: todos os carros sujos de gosma
+	add_to_group("veiculo")
 	g = ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)
 	mass = float(dados.get("massa", 1000))
 	collision_layer = 2
@@ -289,6 +315,202 @@ func _montar_modelo() -> void:
 	Placa.aplicar(modelo)   # depois das camadas: a placa não recebe a faixa
 	Placa.aplicar_extras(modelo, dados.get("placas", []), float(dados.get("escala", 1.0)))
 	_medir_superficie()
+
+
+## Faróis (etapas à noite, Extinction Day): quem acende é o farol DE VERDADE do modelo (pedido do dono:
+## as lentes postas na frente da caixa do carro ficavam soltas no ar em quem tem para-choque saliente) —
+## as peças de farol e de lanterna do modelo, achadas pelo nome, ganham brilho próprio, e o facho sai do
+## meio delas. Modelo sem peça com nome de farol: lentes coladas na lataria (nos vértices das luzes dele
+## ou, sem isso, onde um raio vindo da frente bate no carro). Desligar devolve os materiais.
+var _farois: Node3D
+var _farois_pecas: Array = []   # [[MeshInstance3D, superfície, material de antes, material aceso]]
+
+const _LUZ_FRENTE := ["headlight", "head_light", "front_l_lamp", "front_r_lamp", "farol"]
+const _LUZ_TRAS := ["brakelight", "brake_light", "stoplight", "stop_light", "backlight", "taillight", "tail_light", "lanterna"]
+const _LUZ_NAO := ["blinker", "reverse", "panel", "inner", "pedal", "lightbar", "coplight"]
+
+func farois(ligar: bool) -> void:
+	if _farois == null:
+		if not ligar:
+			return
+		_montar_farois()
+	_farois.visible = ligar
+	for p: Array in _farois_pecas:
+		if is_instance_valid(p[0]):
+			(p[0] as MeshInstance3D).set_surface_override_material(int(p[1]), p[3] if ligar else p[2])
+
+
+## Peças do modelo que são o farol (na_frente) ou a lanterna: {pecas: [[malha, superfície]], caixa: AABB
+## de todas (espaço do carro), soltos: vértices de peças que juntam as luzes do carro inteiro numa só}.
+func _pecas_luz(na_frente: bool) -> Dictionary:
+	var inv := global_transform.affine_inverse()
+	var meio_z := caixa_corpo.get_center().z
+	var comp := caixa_corpo.size.z
+	var chaves: Array = _LUZ_FRENTE if na_frente else _LUZ_TRAS
+	var outras: Array = _LUZ_TRAS if na_frente else _LUZ_FRENTE
+	var boas := []     # [malha, superfície, caixa]
+	var vidros := []   # só a lente de vidro por cima do farol: vale se não houver a peça de dentro
+	var soltos := PackedVector3Array()
+	for n in modelo.find_children("*", "MeshInstance3D", true, false):
+		var mi := n as MeshInstance3D
+		if mi.mesh == null:
+			continue
+		var xf := inv * mi.global_transform
+		for s in mi.mesh.get_surface_count():
+			var m := mi.get_active_material(s)
+			var nome_m := m.resource_name.to_lower() if m else ""
+			# O nome do nó importado termina com o do material ("..._UCB_Lights_and_Glass_0"): tira, senão
+			# todo farol "tem vidro" e toda lanterna de material "headlights" passa por farol
+			var nome := (String(mi.name) + "/" + String(mi.get_parent().name)).to_lower()
+			if nome_m != "":
+				nome = nome.replace(nome_m, "")
+			var bate := false
+			var pelo_material := false
+			if "light" in nome or "lamp" in nome or "farol" in nome or "lantern" in nome:
+				for k: String in chaves:
+					if k in nome:
+						bate = true
+			elif "light" in nome_m or "lihgt" in nome or "lamp" in nome_m:
+				# Nó sem nome que diga algo ("Object_69"): vale o material ("lights", "brake_lights")
+				nome = nome + "/" + nome_m   # (o nome do nó continua valendo para descartar: "Blinkers", "Reverse")
+				bate = true
+				pelo_material = true
+			if not bate:
+				continue
+			var fora := false
+			for k: String in _LUZ_NAO + outras:
+				if k in nome:
+					fora = true
+			if fora:
+				continue
+			var verts: PackedVector3Array = mi.mesh.surface_get_arrays(s)[Mesh.ARRAY_VERTEX]
+			if verts.is_empty():
+				continue
+			var cx := AABB(xf * verts[0], Vector3.ZERO)
+			for p in verts:
+				cx = cx.expand(xf * p)
+			if cx.size.z > comp * 0.5:
+				# Uma peça só com as luzes do carro todo: não dá para acender só a ponta dela — viram lentes
+				for p in verts:
+					var q := xf * p
+					if (q.z < meio_z) == na_frente:
+						soltos.append(q)
+				continue
+			if pelo_material and ("brake" in nome_m) == na_frente:
+				continue
+			var c := cx.get_center().z
+			if (c < meio_z - comp * 0.15) if na_frente else (c > meio_z + comp * 0.15):
+				(vidros if "glass" in nome or "transp" in nome_m else boas).append([mi, s, cx])
+	var lista: Array = boas if not boas.is_empty() else vidros
+	var r := {"pecas": [], "caixa": AABB(), "soltos": soltos}
+	for k in lista.size():
+		r.pecas.append([lista[k][0], lista[k][1]])
+		r.caixa = (lista[k][2] as AABB) if k == 0 else (r.caixa as AABB).merge(lista[k][2])
+	return r
+
+
+## Primeiro ponto da lataria que um raio acerta (espaço do carro), ou null.
+func _raio_lataria(origem: Vector3, dir: Vector3) -> Variant:
+	superficie_abaixo(0.0, 0.0, 0.0)   # monta as malhas de triângulos do modelo, se ainda não montou
+	var melhor: Variant = null
+	var perto := INF
+	for m: Array in _malhas_teto:
+		var para_malha: Transform3D = m[1]
+		var r: Dictionary = (m[0] as TriangleMesh).intersect_ray(para_malha * origem, (para_malha.basis * dir).normalized())
+		if r.is_empty():
+			continue
+		var p: Vector3 = (m[2] as Transform3D) * (r.position as Vector3)
+		if p.distance_to(origem) < perto:
+			perto = p.distance_to(origem)
+			melhor = p
+	return melhor
+
+
+func _montar_farois() -> void:
+	_farois = Node3D.new()
+	_farois.name = "Farois"
+	add_child(_farois)
+	var c := caixa_corpo
+	var lente := SphereMesh.new()
+	lente.radius = 0.16
+	lente.height = 0.2
+	lente.radial_segments = 10
+	lente.rings = 5
+	var y_facho := c.position.y + c.size.y * 0.42
+	var z_facho := c.position.z - 0.05
+	for traseira: bool in [false, true]:
+		var cor := Color(1.0, 0.06, 0.03) if traseira else Color(1.0, 0.95, 0.85)
+		var energia := 3.5 if traseira else 5.0
+		var luz := _pecas_luz(not traseira)
+		for par: Array in luz.pecas:
+			var mi: MeshInstance3D = par[0]
+			var base := mi.get_active_material(int(par[1]))
+			var aceso: Material = ComplexoLancamento._material_luz(cor, energia)
+			if base is BaseMaterial3D:
+				var copia := base.duplicate() as BaseMaterial3D
+				copia.emission_enabled = true
+				copia.emission = cor
+				copia.emission_energy_multiplier = energia
+				copia.emission_texture = null
+				aceso = copia
+			_farois_pecas.append([mi, int(par[1]), mi.get_surface_override_material(int(par[1])), aceso])
+		if not (luz.pecas as Array).is_empty():
+			if not traseira:
+				var cx: AABB = luz.caixa
+				y_facho = cx.get_center().y
+				z_facho = cx.position.z - 0.03
+			continue
+		# Sem peça de farol com nome: lentes coladas no carro, uma de cada lado
+		var m_lente := ComplexoLancamento._material_luz(cor, 6.0 if not traseira else 4.0)
+		var sinal := 1.0 if traseira else -1.0   # para onde aponta a ponta do carro (frente = -Z)
+		for s: float in [-1.0, 1.0]:
+			var pos: Variant = null
+			# 1) nos vértices das luzes do próprio modelo: os mais da ponta, deste lado
+			var ponta := -INF
+			for q: Vector3 in luz.soltos:
+				if q.x * s > c.size.x * 0.12:
+					ponta = maxf(ponta, q.z * sinal)
+			if ponta > -INF:
+				var cxl := AABB()
+				var primeiro := true
+				for q: Vector3 in luz.soltos:
+					if q.x * s > c.size.x * 0.12 and q.z * sinal > ponta - 0.12:
+						cxl = AABB(q, Vector3.ZERO) if primeiro else cxl.expand(q)
+						primeiro = false
+				pos = cxl.get_center() + Vector3(0.0, 0.0, sinal * (cxl.size.z * 0.5 + 0.02))
+			# 2) onde um raio vindo da ponta bate na lataria
+			if pos == null:
+				for fy: float in [0.42, 0.5, 0.34, 0.58]:
+					for fx: float in [0.34, 0.28, 0.4]:
+						if pos == null:
+							var bate: Variant = _raio_lataria(Vector3(c.get_center().x + s * c.size.x * fx, c.position.y + c.size.y * fy, c.get_center().z + sinal * (c.size.z * 0.5 + 1.0)), Vector3(0.0, 0.0, -sinal))
+							if bate != null:
+								pos = (bate as Vector3) + Vector3(0.0, 0.0, sinal * 0.02)
+			if pos == null:
+				pos = Vector3(c.get_center().x + s * c.size.x * 0.34, c.position.y + c.size.y * 0.42, c.get_center().z + sinal * c.size.z * 0.5)
+			var mi_l := MeshInstance3D.new()
+			mi_l.mesh = lente
+			mi_l.material_override = m_lente
+			mi_l.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			mi_l.position = pos
+			mi_l.scale = Vector3(1.0, 0.6, 0.3)
+			_farois.add_child(mi_l)
+			if not traseira:
+				y_facho = (pos as Vector3).y
+				z_facho = (pos as Vector3).z - 0.05
+	var facho := SpotLight3D.new()
+	facho.light_color = Color(1.0, 0.93, 0.8)
+	facho.light_energy = 9.0
+	facho.spot_range = 75.0
+	facho.spot_angle = 30.0
+	facho.spot_attenuation = 0.8
+	facho.shadow_enabled = false
+	facho.distance_fade_enabled = true
+	facho.distance_fade_begin = 180.0
+	facho.distance_fade_length = 60.0
+	facho.position = Vector3(c.get_center().x, y_facho, z_facho)
+	facho.rotation = Vector3(deg_to_rad(-6.0), 0.0, 0.0)
+	_farois.add_child(facho)
 
 
 ## Vidro, luzes e interior não recebem a faixa (pelo nome do nó/pais ou do material, ou material transparente).
@@ -618,6 +840,8 @@ func eliminar(motivo := "") -> void:
 	if motivo != "tempo" and complexo:
 		var t = complexo.ressurgimento(self)
 		if t is Transform3D:
+			if OS.get_environment("TSC_QUEDAS") != "":
+				print("[QUEDA] %s %s em %s v=%.1f" % [nome_piloto, motivo, str(global_position.snapped(Vector3.ONE)), linear_velocity.length()])
 			var estouro := Explosao.new()
 			get_parent().add_child(estouro)
 			estouro.global_position = global_position + Vector3.UP * 0.8
@@ -655,6 +879,8 @@ func ressurgir(t: Transform3D, duracao: float) -> void:
 	nitro_ativo = false
 	borrachao = false
 	no_alvo_agora = false
+	_gelado_ate = 0.0
+	_invertido_ate = 0.0
 	_impulso_espera = relogio + 1.0
 	for r in rodas:
 		r.compressao = 0.0
@@ -672,6 +898,212 @@ func ressurgir(t: Transform3D, duracao: float) -> void:
 
 func fantasma() -> bool:
 	return _fantasma
+
+
+## Tiranossauro: pega o carro na boca (ele fica parado, sem colisão, levado pela armadilha).
+func agarrar() -> void:
+	preso = true
+	nitro_ativo = false
+	fechar_paraquedas()
+	collision_layer = 0
+	collision_mask = 0
+	_zerar_movimento()
+	set_deferred("freeze", true)
+
+
+## Fim da mordida: explode e volta ao último checkpoint (como qualquer queda).
+func devorar() -> void:
+	if not preso:
+		return
+	preso = false
+	collision_layer = 2
+	collision_mask = 1 | 2
+	freeze = false
+	eliminar("mordida")
+
+
+## Gosma verde (dinossauro cuspidor do Extinction Day): o carro anda muito devagar por `segundos`.
+func gosma(segundos: float) -> void:
+	_gosma_ate = maxf(_gosma_ate, relogio + segundos)
+	if _gosma_fx == null:
+		_gosma_fx = GPUParticles3D.new()
+		_gosma_fx.amount = 26
+		_gosma_fx.lifetime = 0.8
+		_gosma_fx.local_coords = false
+		var pm := ParticleProcessMaterial.new()
+		pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+		pm.emission_box_extents = Vector3(caixa_corpo.size.x * 0.5, 0.1, caixa_corpo.size.z * 0.45)
+		pm.direction = Vector3.DOWN
+		pm.spread = 4.0
+		pm.initial_velocity_min = 0.2
+		pm.initial_velocity_max = 0.8
+		pm.scale_min = 0.6
+		pm.scale_max = 1.3
+		_gosma_fx.process_material = pm
+		var gota := SphereMesh.new()
+		gota.radius = 0.035   # pingo fino e comprido (as esferas grandes pareciam bolas)
+		gota.height = 0.3
+		gota.radial_segments = 10
+		gota.rings = 5
+		var mg := ShaderMaterial.new()
+		mg.shader = load("res://shaders/gosma.gdshader")
+		gota.material = mg
+		_gosma_fx.draw_pass_1 = gota
+		_gosma_fx.position = Vector3(caixa_corpo.get_center().x, caixa_corpo.position.y + caixa_corpo.size.y * 0.35, caixa_corpo.get_center().z)
+		add_child(_gosma_fx)
+		# O carro fica sujo: película de gosma por cima da própria lataria (as placas soltas pareciam bolas —
+		# pedido do dono), com poças em cima e fios escorrendo pelas laterais (shaders/gosma_carro.gdshader)
+		var sh_g: Shader = load("res://shaders/gosma_carro.gdshader")
+		var inv := global_transform.affine_inverse()
+		for no_m in modelo.find_children("*", "MeshInstance3D", true, false):
+			var mi := no_m as MeshInstance3D
+			var mat_s := ShaderMaterial.new()
+			mat_s.shader = sh_g
+			mat_s.set_shader_parameter("para_carro", inv * mi.global_transform)
+			mat_s.set_shader_parameter("caixa_centro", caixa_corpo.get_center())
+			mat_s.set_shader_parameter("caixa_meia", caixa_corpo.size * 0.5)
+			# Numa cópia da malha, fora da camada 2: na própria malha a faixa da equipe era pintada por cima da gosma
+			var pele := MeshInstance3D.new()
+			pele.mesh = mi.mesh
+			pele.layers = 1
+			pele.material_override = mat_s
+			pele.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			pele.visible = false
+			mi.add_child(pele)
+			_gosma_sujeira.append([pele, mat_s])
+	if not _gosma_ativa:   # (não dá para ver por _gosma_fx.emitting: a partícula nova já nasce emitindo)
+		_gosma_ativa = true
+		_gosma_ini = relogio
+		for par: Array in _gosma_sujeira:
+			if is_instance_valid(par[0]):
+				(par[0] as MeshInstance3D).visible = true
+	_gosma_fx.emitting = true
+	_atualizar_gosma()
+
+
+## Gosma na lataria: escorre nos primeiros instantes, afina no fim do efeito e sai.
+func _atualizar_gosma() -> void:
+	if not _gosma_ativa:
+		return
+	var acabou := relogio >= _gosma_ate
+	var avanco := clampf((relogio - _gosma_ini) / 1.4, 0.0, 1.0)
+	var some := 1.0 - clampf((_gosma_ate - relogio) / 0.8, 0.0, 1.0)
+	for par: Array in _gosma_sujeira:
+		if not is_instance_valid(par[0]):
+			continue
+		if acabou:
+			(par[0] as MeshInstance3D).visible = false
+		else:
+			(par[1] as ShaderMaterial).set_shader_parameter("avanco", avanco)
+			(par[1] as ShaderMaterial).set_shader_parameter("some", some)
+	if acabou:
+		_gosma_ativa = false
+		_gosma_fx.emitting = false
+
+
+## Cuspe de gelo (focas do Frozen Peak): por `segundos` a direção fica travada onde estava, sem freio,
+## sem ré e sem motor, e os pneus quase não seguram — o carro escorrega. A lataria fica coberta de gelo.
+func gelo_cuspe(segundos: float) -> void:
+	if relogio >= _gelado_ate:
+		_dir_gelada = _direcao_suave
+		_gelo_ini = relogio
+	_gelado_ate = maxf(_gelado_ate, relogio + segundos)
+	if _gelo_fx == null:
+		_gelo_fx = GPUParticles3D.new()
+		_gelo_fx.amount = 30
+		_gelo_fx.lifetime = 0.9
+		_gelo_fx.local_coords = false
+		var pm := ParticleProcessMaterial.new()
+		pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+		pm.emission_box_extents = caixa_corpo.size * 0.5
+		pm.direction = Vector3.UP
+		pm.spread = 60.0
+		pm.initial_velocity_min = 0.3
+		pm.initial_velocity_max = 1.2
+		pm.gravity = Vector3(0.0, -1.0, 0.0)
+		pm.scale_min = 0.5
+		pm.scale_max = 1.2
+		_gelo_fx.process_material = pm
+		var q := QuadMesh.new()
+		q.size = Vector2(0.18, 0.18)
+		var mq := StandardMaterial3D.new()
+		mq.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mq.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mq.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+		mq.albedo_texture = Gelo._textura_floco()
+		mq.albedo_color = Color(0.85, 0.95, 1.0, 0.9)
+		q.material = mq
+		_gelo_fx.draw_pass_1 = q
+		_gelo_fx.position = caixa_corpo.get_center()
+		add_child(_gelo_fx)
+		var sh: Shader = load("res://shaders/gelo_carro.gdshader")
+		var inv := global_transform.affine_inverse()
+		var ruido := Terreno._textura_ruido(0.05, 4, 311)
+		for no_m in modelo.find_children("*", "MeshInstance3D", true, false):
+			var mi := no_m as MeshInstance3D
+			var mat_s := ShaderMaterial.new()
+			mat_s.shader = sh
+			mat_s.set_shader_parameter("para_carro", inv * mi.global_transform)
+			mat_s.set_shader_parameter("ruido", ruido)
+			var pele := MeshInstance3D.new()
+			pele.mesh = mi.mesh
+			pele.layers = 1
+			pele.material_override = mat_s
+			pele.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			pele.visible = false
+			mi.add_child(pele)
+			_gelo_pele.append([pele, mat_s])
+	_gelo_ativo = true
+	_gelo_fx.emitting = true
+	for par: Array in _gelo_pele:
+		if is_instance_valid(par[0]):
+			(par[0] as MeshInstance3D).visible = true
+	_atualizar_gelo()
+
+
+## Crosta de gelo: cresce rápido quando atingido e derrete no fim do efeito.
+func _atualizar_gelo() -> void:
+	if not _gelo_ativo:
+		return
+	var acabou := relogio >= _gelado_ate
+	var quanto := clampf((relogio - _gelo_ini) / 0.35, 0.0, 1.0) * clampf((_gelado_ate - relogio) / 0.7, 0.0, 1.0)
+	for par: Array in _gelo_pele:
+		if not is_instance_valid(par[0]):
+			continue
+		if acabou:
+			(par[0] as MeshInstance3D).visible = false
+		else:
+			(par[1] as ShaderMaterial).set_shader_parameter("quanto", quanto)
+	if acabou:
+		_gelo_ativo = false
+		_gelo_fx.emitting = false
+
+
+## Yeti pendurado no carro (Frozen Peak): o carro anda normal, mas a direção fica invertida por `segundos`.
+func yeti(segundos: float) -> void:
+	if relogio >= _invertido_ate:
+		_invertido_ini = relogio
+	_invertido_ate = maxf(_invertido_ate, relogio + segundos)
+
+
+func direcao_invertida() -> bool:
+	return relogio < _invertido_ate
+
+
+func tempo_invertido() -> float:
+	return relogio - _invertido_ini if relogio < _invertido_ate else 0.0
+
+
+func soltar_yeti() -> void:
+	_invertido_ate = 0.0
+
+
+func gelado() -> bool:
+	return relogio < _gelado_ate
+
+
+func com_gosma() -> bool:
+	return relogio < _gosma_ate
 
 
 func _sair_fantasma() -> void:
@@ -727,23 +1159,31 @@ func _integrate_forces(s: PhysicsDirectBodyState3D) -> void:
 			alvo_tocado = true
 		elif obj is Node and (obj as Node).is_in_group("mortal"):
 			_bateu_mortal = true
+		elif obj is Node and (obj as Node).is_in_group("predio"):
+			# City Rush: fachada (normal na horizontal) explode; o telhado é chão
+			if absf(s.get_contact_local_normal(i).y) < 0.5:
+				_bateu_mortal = true
 		elif obj is Veiculo:
 			contato_veiculo = obj as Veiculo
 			if _cfg.colisao_extra > 0.0:
 				_empurrao_extra(s, obj as Veiculo)
 
-	_direcao_suave = move_toward(_direcao_suave, float(entrada.direcao), dt * _cfg.direcao_resposta)
+	var dir_pedida := float(entrada.direcao) * (-1.0 if relogio < _invertido_ate else 1.0)
+	_direcao_suave = move_toward(_direcao_suave, dir_pedida, dt * _cfg.direcao_resposta)
+	var gelado := relogio < _gelado_ate
+	if gelado:
+		_direcao_suave = _dir_gelada   # cuspe de gelo: o volante fica onde estava
 	var angulo_direcao := -_direcao_suave * direcao_max * lerpf(1.0, _cfg.direcao_minimo, clampf(v.length() / 45.0, 0.0, 1.0))
 	# Ré: mesma regra do motor (bloqueada depois de tocar o alvo), mais fraca e limitada a vel_re.
 	# Sem freio: com o carro andando para a frente, a ré é que segura o carro.
 	# Com freio (regras.freios_instalados, ex.: Climb to Death): andando para a frente S freia; quase
 	# parado ou já de ré, S volta a ser ré. Tocar o alvo bloqueia os dois, como o motor.
-	freando = _cfg.freios and not travado and float(entrada.freiar) > 0.05 and v.dot(frente) > 1.5
+	freando = _cfg.freios and not travado and not gelado and float(entrada.freiar) > 0.05 and v.dot(frente) > 1.5
 	var v_re := maxf(-v.dot(frente), 0.0)
-	var re := 0.0 if travado or freando else float(entrada.re) * forca_re * clampf(1.0 - pow(v_re / vel_re, 2.0), 0.0, 1.0)
-	var motor := 0.0 if travado else float(entrada.acelerar)
+	var re := 0.0 if travado or freando or gelado else float(entrada.re) * forca_re * clampf(1.0 - pow(v_re / vel_re, 2.0), 0.0, 1.0)
+	var motor := 0.0 if travado or gelado or relogio < motor_cortado_ate else float(entrada.acelerar)
 	# Borrachão: W+S no chão — o motor gira as rodas de tração sem sair do lugar
-	borrachao = not travado and rodas_no_chao > 0 and motor > 0.5 and float(entrada.re) > 0.5
+	borrachao = not travado and not gelado and rodas_no_chao > 0 and motor > 0.5 and float(entrada.re) > 0.5
 	if borrachao:
 		motor = 0.0
 		re = 0.0
@@ -759,6 +1199,7 @@ func _integrate_forces(s: PhysicsDirectBodyState3D) -> void:
 	var vel_apoio := Vector3.ZERO   # velocidade do alvo sob as rodas (alvo móvel)
 
 	rodas_no_chao = 0
+	var ader_min := 1.0   # menor aderência do piso sob as rodas (gelo do Frozen Peak)
 	if _com_diag:
 		diag = {"sat_f": 0.0, "sat_t": 0.0, "carga_f": 0.0, "carga_t": 0.0, "w_pedido": v_frente * tan(angulo_direcao) / _entre_eixos}
 	for r in rodas:
@@ -777,6 +1218,8 @@ func _integrate_forces(s: PhysicsDirectBodyState3D) -> void:
 			alvo_tocado = true
 		elif col is Node and (col as Node).is_in_group("mortal"):
 			_bateu_mortal = true   # caiu da estrada do túnel no piso dele
+		elif col is Node and ((col as Node).is_in_group("predio") or (col as Node).is_in_group("predio_det")):
+			paraquedas_ja_aberto = false   # pousou num telhado: ejetor (pulo) e paraquedas de novo
 		var comp := alcance - origem.distance_to(hit.position)
 		var vel_comp := (comp - r.compressao) / dt
 		r.compressao = comp
@@ -795,8 +1238,8 @@ func _integrate_forces(s: PhysicsDirectBodyState3D) -> void:
 		var ponto_forca := xf * (r.ancora - Vector3.UP * (curso * 0.65 - 0.1)) - xf.origin
 		var vp := s.get_velocity_at_local_position(ponto_forca)
 		if col is Alvo:
-			vp -= (col as Alvo).velocidade_atual  # pneus agarram na plataforma móvel
-			vel_apoio = (col as Alvo).velocidade_atual
+			vel_apoio = (col as Alvo).velocidade_em(hit.position)   # plataforma móvel ou girando
+			vp -= vel_apoio  # pneus agarram no alvo
 		var v_long := vp.dot(dir_roda)
 		var v_lat := vp.dot(lado)
 		var f_long := -v_long * massa_roda * 0.03
@@ -809,7 +1252,15 @@ func _integrate_forces(s: PhysicsDirectBodyState3D) -> void:
 			f_long = -v_long * massa_roda * 6.0   # segura no lugar
 			if r.tracionada:
 				f_lat *= 0.12                      # patinando: a tração perde a aderência de lado
-		var limite := f_susp * aderencia
+		# Piso escorregadio (meta "aderencia" no corpo: gelo vivo do Frozen Peak): o pneu segura menos
+		var ader_piso := 1.0
+		if col is Node and (col as Node).has_meta("aderencia"):
+			ader_piso = float((col as Node).get_meta("aderencia"))
+			ader_min = minf(ader_min, ader_piso)
+		if gelado:
+			ader_piso *= 0.12   # pneus congelados: o carro desliza
+			ader_min = minf(ader_min, ader_piso)
+		var limite := f_susp * aderencia * ader_piso
 		if _com_diag:
 			var eixo := "f" if r.dianteira else "t"
 			diag["sat_" + eixo] = maxf(diag["sat_" + eixo], absf(f_lat) / maxf(limite, 1.0))
@@ -835,11 +1286,17 @@ func _integrate_forces(s: PhysicsDirectBodyState3D) -> void:
 		# lateral máx. / velocidade). Sem esse teto, com o volante todo virado ela forçava um giro
 		# impossível e era ela que rodava o carro (a traseira escapava).
 		var w_pedido := v_frente * tan(angulo_direcao) / _entre_eixos
-		var w_max: float = aderencia * 9.8 * float(_cfg.giro_max_fator) / maxf(absf(v_frente), 1.0)
+		var w_max: float = aderencia * ader_min * 9.8 * float(_cfg.giro_max_fator) / maxf(absf(v_frente), 1.0)
 		var w_alvo := clampf(w_pedido, -w_max, w_max)
 		var w_y := s.angular_velocity.dot(cima)
-		s.apply_torque(cima * clampf(w_alvo - w_y, -2.0, 2.0) * mass * 8.0 * _cfg.estabilidade)
+		# No gelo a estabilidade ajuda menos: o carro escorrega de verdade
+		s.apply_torque(cima * clampf(w_alvo - w_y, -2.0, 2.0) * mass * 8.0 * _cfg.estabilidade * ader_min)
 	s.apply_central_force(-v * v.length() * arrasto * mass)
+	# Gosma verde: o carro se arrasta (teto de ~18 km/h) até ela escorrer
+	if relogio < _gosma_ate:
+		var vh_g := Vector3(v.x, 0.0, v.z)
+		if vh_g.length() > float(_cfg.get("gosma_vel", 5.0)):
+			s.apply_central_force(-vh_g.normalized() * mass * minf((vh_g.length() - float(_cfg.get("gosma_vel", 5.0))) * 6.0, 22.0))
 	# Limitador: com rodas no chão o carro não passa da velocidade limite dele (a gravidade na
 	# descida levava todos a ~253 km/h). O nitro libera uma margem acima do limite.
 	if rodas_no_chao > 0 and not travado:
@@ -848,6 +1305,7 @@ func _integrate_forces(s: PhysicsDirectBodyState3D) -> void:
 			s.apply_central_force(-frente * mass * minf((v_frente - limite) * float(_cfg.limite_rigidez), 12.0))
 	_zigue_zague(s, dt, v - vel_apoio)
 
+	aderencia_piso = ader_min if rodas_no_chao > 0 else 1.0
 	var no_chao := rodas_no_chao > 0 or contato_corpo
 	tempo_no_ar = 0.0 if no_chao else tempo_no_ar + dt
 	no_alvo_agora = alvo_tocado
@@ -889,16 +1347,28 @@ func _integrate_forces(s: PhysicsDirectBodyState3D) -> void:
 			paraquedas.abrir()
 			paraquedas_mudou.emit(self, true)
 
-	nitro_ativo = bool(entrada.nitro) and _cfg.nitro and carga_nitro > 0.0 and not travado
+	nitro_ativo = bool(entrada.nitro) and _cfg.nitro and carga_nitro > 0.0 and not travado and relogio >= motor_cortado_ate
 	if nitro_ativo:
 		carga_nitro = maxf(carga_nitro - dt, 0.0)
+
+	# Looping: a pista "segura" o carro (força para o piso, como um trilho) e, se as rodas descolam um
+	# instante, não vale o controle aéreo — com W apertado ele abaixaria o bico e o carro capotava na fita
+	var sub_lp := complexo as ComplexoSubida
+	var lp: Looping = sub_lp.looping_em(xf.origin, true) if sub_lp and not paraquedas_aberto and not travado else null
+	var j_lp := lp.amostra_em(xf.origin, true) if lp else -1
+	if lp:
+		s.apply_central_force(-lp.nrm[j_lp] * mass * float(_cfg.get("looping_aperto", 9.0)))
+		if rodas_no_chao == 0:
+			# No ar dentro do laço: acompanha a inclinação da fita em vez de girar solto
+			_torque_orientacao(s, Basis(lp.lado[j_lp], lp.nrm[j_lp], -lp.tan[j_lp]), 6.0, 5.0)
 
 	if paraquedas_aberto:
 		estado = Estado.PLANEIO
 		_planeio(s, v)
 	elif tempo_no_ar > 0.12:
 		estado = Estado.BALISTICO
-		_controle_aereo(s, xf)
+		if lp == null and not girando:
+			_controle_aereo(s, xf)
 		if nitro_ativo:
 			s.apply_central_force(frente * mass * float(_cfg.nitro_acel))
 	else:
@@ -908,14 +1378,46 @@ func _integrate_forces(s: PhysicsDirectBodyState3D) -> void:
 
 	# Ponto de aceleração da arena: tranco violento para onde o CARRO aponta (não importa o
 	# desenho da placa). Quem é empurrado para cima dela virado para um buraco vai direto nele.
-	if complexo and rodas_no_chao > 0 and not travado and relogio >= _impulso_espera:
+	if complexo and rodas_no_chao > 0 and not travado and relogio >= _impulso_espera and relogio >= sem_impulso_ate:
 		var dir_imp := complexo.impulso_em(xf.origin)
-		if dir_imp != Vector3.ZERO:
+		var piso_imp: float = complexo.impulso_piso(xf.origin) if dir_imp != Vector3.ZERO and complexo.has_method("impulso_piso") else 0.0
+		if piso_imp > 0.0:
+			# Acelerador de looping: garante a velocidade mínima ao longo da pista, em qualquer inclinação
+			if lp:
+				dir_imp = lp.tan[j_lp]   # a direção da fita onde o carro está, não a do meio da placa
+			var ao_longo := v.dot(dir_imp)
+			if ao_longo < piso_imp:
+				s.linear_velocity = v + dir_imp * (piso_imp - ao_longo)
+			_impulso_espera = relogio + 0.25
+			impulso_usado.emit.call_deferred(self)
+		elif dir_imp != Vector3.ZERO:
 			var ref := frente if complexo.impulso_segue_carro(xf.origin) else dir_imp
 			dir_imp = Vector3(ref.x, 0.0, ref.z).normalized()
 			var ao_longo := v.dot(dir_imp)
 			s.linear_velocity = v + dir_imp * (maxf(ao_longo, 0.0) + complexo.velocidade_impulso(xf.origin) - ao_longo)
 			_impulso_espera = relogio + 1.0
+			impulso_usado.emit.call_deferred(self)
+	# Mola ejetora: lança o carro para cima girando nos três eixos, sem controle
+	if girando and (paraquedas_aberto or (relogio > _girando_desde + 0.6 and (rodas_no_chao > 0 or contato_corpo))):
+		girando = false
+	if sub_lp and not travado and relogio >= _impulso_espera and (rodas_no_chao > 0 or contato_corpo):
+		var vy_mola := sub_lp.ejetor_em(xf.origin)
+		if vy_mola > 0.0:
+			s.linear_velocity = Vector3(v.x * 0.6, vy_mola, v.z * 0.6)
+			var giro_mola := Vector3(randf_range(2.5, 5.0) * (1.0 if randf() < 0.5 else -1.0), randf_range(-3.0, 3.0), randf_range(2.0, 4.5) * (1.0 if randf() < 0.5 else -1.0))
+			# Os bots sobem sem girar e pousam nivelados mais adiante (girando, quase todos caíam de teto)
+			s.angular_velocity = xf.basis * giro_mola if eh_jogador else Vector3.ZERO
+			girando = eh_jogador
+			_girando_desde = relogio
+			_impulso_espera = relogio + 2.0
+			impulso_usado.emit.call_deferred(self)
+	# Gêiser-catapulta (Extinction Day): lança o carro para cima, nivelado
+	if complexo and not travado and relogio >= _impulso_espera and (rodas_no_chao > 0 or contato_corpo):
+		var v_cat := complexo.catapulta_em(xf.origin)
+		if v_cat != Vector3.ZERO:
+			s.linear_velocity = v_cat
+			s.angular_velocity = Vector3.ZERO
+			_impulso_espera = relogio + 2.0
 			impulso_usado.emit.call_deferred(self)
 
 
@@ -952,7 +1454,7 @@ func _planeio(s: PhysicsDirectBodyState3D, v: Vector3) -> void:
 	var vh := Vector3(v.x, 0.0, v.z)
 	# Curva inclinada perde um pouco de altura (como um parapente).
 	alvo_af += absf(_taxa_giro) * vh.length() * 0.06
-	var acc_h := ((fwd_h * alvo_v - vh) * float(pq.get("resposta_horizontal", 0.8))).limit_length(14.0)
+	var acc_h := ((fwd_h * alvo_v + (vento if rodas_no_chao == 0 and not travado else Vector3.ZERO) - vh) * float(pq.get("resposta_horizontal", 0.8))).limit_length(14.0)
 	var acc_y := clampf((-alvo_af - v.y) * float(pq.get("resposta_vertical", 1.5)) + g, 0.0, g * 2.5)
 	s.apply_central_force(Vector3(acc_h.x, acc_y, acc_h.z) * mass)
 	# Pêndulo: o carro pendurado inclina para dentro da curva e balança ao acelerar/frear.
@@ -990,6 +1492,8 @@ func _physics_process(delta: float) -> void:
 				if is_instance_valid(gi):
 					gi.transparency = a
 	recarga_ejetor = maxf(recarga_ejetor - delta, 0.0)
+	_atualizar_gosma()
+	_atualizar_gelo()
 	_atualizar_rodas(delta)
 	if freeze:
 		return
@@ -1004,15 +1508,21 @@ func _physics_process(delta: float) -> void:
 	# Terreno e água são mortais; limites de segurança do mapa.
 	if saiu_da_rampa:
 		telemetria.apice = maxf(telemetria.get("apice", 0.0), p.y)
-	if p.y - 0.2 < terreno.altura_em(p.x, p.z):
+	# City Rush: o telhado é chão (colisão física); só explode se entrou no prédio (atravessou a fachada)
+	var margem := -1.5 if terreno.cidade and terreno.cidade.altura(p.x, p.z) > -INF else 0.2
+	if p.y - margem < terreno.altura_em(p.x, p.z):
 		eliminar("terreno")
 		return
 	if _bateu_mortal:
 		_bateu_mortal = false
 		eliminar("parede")
 		return
-	# Mapa com checkpoint: de cabeça para baixo e parado por 4 s, volta no último checkpoint
-	if global_transform.basis.y.y < 0.0 and linear_velocity.length() < 3.0 and not travado:
+	# Mapa com checkpoint: de cabeça para baixo ou tombado de lado (mais de ~70° de inclinação) e
+	# parado por 4 s, volta no último checkpoint. Também quando fica PRESO de pé — de bico ou de traseira no
+	# chão, encostado num muro, com menos de duas rodas apoiadas e parado (pedido do dono)
+	var tombado := global_transform.basis.y.y < TOMBADO_Y and linear_velocity.length() < 3.0
+	var preso_de_pe := rodas_no_chao < 2 and global_transform.basis.y.y < 0.8 and linear_velocity.length() < 1.2 and angular_velocity.length() < 1.0 and not paraquedas_aberto and not preso
+	if (tombado or preso_de_pe) and not travado:
 		_de_cabeca_t += delta
 		if _de_cabeca_t >= DE_CABECA_S:
 			_de_cabeca_t = 0.0
@@ -1130,6 +1640,7 @@ func _zigue_zague(s: PhysicsDirectBodyState3D, dt: float, v_rel: Vector3) -> voi
 	var rapidez := plano.length()
 	if rapidez < 0.05:
 		return
-	var desac := minf(_atividade_volante * zz_ganho, zz_max)
+	# No gelo (alvo de gelo do Frozen Peak) o pneu arrasta pouco: o zigue-zague segura bem menos
+	var desac := minf(_atividade_volante * zz_ganho, zz_max) * clampf(aderencia_piso, 0.05, 1.0)
 	desac = minf(desac, rapidez / dt)
 	s.apply_central_force(-plano / rapidez * desac * mass)

@@ -8,7 +8,7 @@ const CANAIS := ["Musica", "Efeitos", "Motor", "Ambiente", "Interface"]
 const ARQ_VOLUMES := "user://audio.cfg"
 const RAIZ := "res://assets/audio/"
 const TRANSICAO_S := 2.5
-## Playlists: todo arquivo de áudio em assets/audio/musica/<nome>/ (menu, partida) entra sozinho.
+## Playlists: todo arquivo de áudio em assets/audio/musica/<nome>/ (menu, partida, <mapa>, <mapa>/etapaN) entra sozinho.
 
 ## Volumes lineares (0–1) por canal; "Master" é o volume geral.
 var volumes := {}
@@ -143,6 +143,16 @@ func musica(nome: String) -> void:
 		_playlist.shuffle()
 	_indice = 0
 	_tocar_faixa()
+
+
+## Música da etapa: musica/<mapa>/etapaN/ → musica/<mapa>/ → musica/partida/ (a primeira que tiver faixa).
+## Etapas que caem na mesma pasta seguem a playlist sem reiniciar.
+func musica_etapa(mapa: String, etapa: int) -> void:
+	for nome: String in ["%s/etapa%d" % [mapa, etapa], mapa]:
+		if mapa != "" and not _faixas_da_pasta(nome).is_empty():
+			musica(nome)
+			return
+	musica("partida")
 
 
 func _faixas_da_pasta(nome: String) -> Array:

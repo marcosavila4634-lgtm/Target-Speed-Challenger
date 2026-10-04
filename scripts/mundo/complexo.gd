@@ -66,6 +66,11 @@ func impulso_em(_p: Vector3) -> Vector3:
 
 
 ## Ponto mortal fora do terreno (buracos da arena). No complexo comum não há.
+## Extinction Day: velocidade que um gêiser-catapulta dá ao carro neste ponto (ZERO = nenhum).
+func catapulta_em(_p: Vector3) -> Vector3:
+	return Vector3.ZERO
+
+
 func buraco_mortal(_p: Vector3) -> bool:
 	return false
 

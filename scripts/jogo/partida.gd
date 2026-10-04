@@ -16,6 +16,7 @@ var hud: Hud
 ## Cada participante: {nome, equipe, veiculo, controle, pontos: Array[int], zonas5, explosoes, jogador}
 var participantes: Array[Dictionary] = []
 var jogador: Dictionary = {}
+var gravador: Gravador          # grava as etapas jogadas (gravacoes/) para estudar a pilotagem
 
 var etapas_cfg: Array = []
 var total_etapas := 4
@@ -38,10 +39,17 @@ var _rng := RandomNumberGenerator.new()
 ## as vagas estão preenchidas a etapa acaba. _chegadas em ordem de chegada (vivos).
 var _corrida: Dictionary = {}
 var _chegadas: Array[Veiculo] = []
+## Extinction Day: tempo total da etapa (o meteoro chega conforme ele passa) e a cena do impacto final.
+var _tempo_total_etapa := 1.0
+var _impacto: ImpactoMeteoro
 
 
 func _ready() -> void:
 	_rng.randomize()
+	# (capturas de conferência com TSC_FOTOS não são partidas: não gravam)
+	if bool(Config.valor("partida.gravar", true)) and (not Sessao.teste_automatico or OS.get_environment("TSC_GRAVAR") != "") and OS.get_environment("TSC_FOTOS") == "":
+		gravador = Gravador.new()
+		add_child(gravador)
 	hud = Hud.new()
 	add_child(hud)
 	hud.pedido_continuar.connect(_despausar)
@@ -66,16 +74,19 @@ func _ready() -> void:
 	var som_ambiente := SomAmbiente.new()
 	add_child(som_ambiente)
 	som_ambiente.montar(complexos)
-	Audio.musica("partida")
 	await hud.esconder_carregando()
 	if Sessao.teste_automatico:
 		Engine.time_scale = float(OS.get_environment("TSC_VELOCIDADE")) if OS.get_environment("TSC_VELOCIDADE") != "" else 4.0
 	# TSC_ETAPA=N: começa direto na etapa N (conferência de etapas)
 	_iniciar_etapa(clampi(int(OS.get_environment("TSC_ETAPA")) - 1, 0, total_etapas - 1) if OS.get_environment("TSC_ETAPA") != "" else _primeira_etapa())
+	if OS.get_environment("TSC_MALHAS") != "":
+		_censo_malhas()
 	if OS.get_environment("TSC_FOTO_FINAL") != "":
 		_foto_final(OS.get_environment("TSC_FOTO_FINAL"))
 	elif OS.get_environment("TSC_MEDIR_SUPORTE") != "":
 		_medir_suportes()
+	elif OS.get_environment("TSC_MEDIR_CABECA") != "":
+		_medir_cabecas()
 	elif OS.get_environment("TSC_FOTO_PARAQUEDAS") != "":
 		_foto_paraquedas(OS.get_environment("TSC_FOTO_PARAQUEDAS"))
 
@@ -92,6 +103,25 @@ func _medir_suportes() -> void:
 		var z: float = v.paraquedas._fixacoes[0].z
 		print("MED %-14s rel=%+.2f y=%.2f topo=%.2f" % [d.id, (z - c.get_center().z) / c.size.z, v.paraquedas._fixacoes[0].y, c.end.y])
 		v.queue_free()
+	get_tree().quit()
+
+
+## Conferência: folga entre o topo da cabeça de cada piloto e o teto de cada carro (negativa = atravessa).
+func _medir_cabecas() -> void:
+	for d in Config.veiculos_ativos():
+		for a in Config.avatares_ativos():
+			var v := Veiculo.new()
+			v.dados = d
+			v.avatar_dados = a
+			v.sem_som = true
+			v.freeze = true
+			add_child(v)
+			await get_tree().process_frame
+			var folga: float = v.piloto.folga_teto()
+			if folga < 0.02:
+				print("CAB %-14s %-12s folga=%+.3f escala=%.2f" % [d.id, a.id, folga, v.piloto.escala_rel()])
+			v.queue_free()
+	print("CAB fim")
 	get_tree().quit()
 
 
@@ -142,6 +172,10 @@ func _construir_mundo() -> void:
 		# Climb to Death: largada conjunta num cercado no chão, estrada subindo até a rampa final
 		var sub := ComplexoSubida.new()
 		add_child(sub)
+		var e0 := _primeira_etapa()
+		if OS.get_environment("TSC_ETAPA") != "":
+			e0 = int(OS.get_environment("TSC_ETAPA")) - 1
+		ComplexoSubida.etapa_percurso = maxi(e0, 0)   # Serpent's Climb: cada etapa tem o seu percurso
 		sub.montar(0, perfil, terreno)
 		complexos.append(sub)
 		await _passo_carga(0.65)
@@ -275,9 +309,23 @@ func _cfg_etapa() -> Dictionary:
 func _iniciar_etapa(indice: int) -> void:
 	_evento("troca de etapa")
 	etapa_idx = indice
-	terreno.preparar_etapa(indice)   # Canyon Combat: esporões do vale mudam a cada etapa
+	Audio.musica_etapa(Config.mapa_id, indice + 1)
+	terreno.preparar_etapa(indice)  # Canyon Combat: esporões do vale mudam a cada etapa
 	if complexos[0].has_method("preparar_etapa"):
 		complexos[0].preparar_etapa(indice)   # Climb to Death: túnel-atalho da etapa
+	if terreno.egito:
+		terreno.egito.preparar_etapa(indice, _cfg_etapa())   # Pharaoh's Climb: obeliscos, portal, tempestade
+	if terreno.selva:
+		terreno.selva.preparar_etapa(indice, _cfg_etapa())   # Serpent's Climb: colunas da serpente e vento
+	if terreno.gelo:
+		terreno.gelo.preparar_etapa(indice, _cfg_etapa())   # Frozen Peak: agulhas, muralhas de gelo e nevasca
+	if terreno.dino:
+		terreno.dino.preparar_etapa(indice, _cfg_etapa())   # Extinction Day: céu da etapa, aurora, meteoro
+		# À noite os carros andam de farol aceso (pedido do dono)
+		var noite := float((_cfg_etapa().get("ceu", {}) as Dictionary).get("noite", 0.0)) >= 0.25   # E4 (céu do apocalipse) também
+		for pt in participantes:
+			if pt.veiculo:
+				pt.veiculo.farois(noite)
 	alvo.configurar(_cfg_etapa())
 	_semaforos(0)
 	# Arena e Climb to Death: vagas sorteadas a cada etapa entre todos, equipes misturadas
@@ -297,6 +345,14 @@ func _iniciar_etapa(indice: int) -> void:
 		for k in membros.size():
 			var v: Veiculo = membros[k].veiculo
 			v.preparar(vagas_arena[membros[k]] if arena else vagas[k])
+			# Teste: TSC_CP_INICIO=N larga todo mundo do checkpoint N (para conferir um trecho sem refazer o percurso)
+			var cp_ini := OS.get_environment("TSC_CP_INICIO")
+			if cp_ini != "" and complexos[0] is ComplexoSubida and int(cp_ini) < (complexos[0] as ComplexoSubida).checkpoints.size():
+				v.checkpoint = int(cp_ini)
+				var t_cp = complexos[0].ressurgimento(v)
+				if t_cp is Transform3D:
+					v.preparar((t_cp as Transform3D).translated(-(t_cp as Transform3D).basis.z * (-9.0 * participantes.find(membros[k]))))
+					v.checkpoint = int(cp_ini)
 			var ativo := e in equipes_ativas
 			v.visible = ativo
 			if not ativo:
@@ -305,7 +361,8 @@ func _iniciar_etapa(indice: int) -> void:
 				membros[k].controle.iniciar_etapa(alvo)
 			membros[k].controle.ativo = false
 	if tempo_modo == "etapa":
-		tempo_restante = tempo_etapa
+		tempo_restante = tempo_etapa * float(_cfg_etapa().get("tempo_mult", 1.0))   # etapa mais longa/difícil: mais tempo
+	_tempo_total_etapa = maxf(tempo_restante, 1.0)
 	_corrida = Config.valor("regras.corrida", {})
 	_chegadas.clear()
 	_zona_jogador = -1
@@ -330,7 +387,7 @@ func _planos_drone() -> Array:
 	var cx := complexos[0]
 	var sub := cx as ComplexoSubida
 	var a := alvo.centro_superior()
-	var r: Vector3 = sub.amostra(99999) if sub else cx.posicao_saida()
+	var r: Vector3 = sub.amostra(sub.total_amostras() - 1) if sub else cx.posicao_saida()
 	var dv := Vector3(a.x - r.x, 0.0, a.z - r.z).normalized()   # da rampa para o alvo
 	var ld := dv.cross(Vector3.UP)
 	var up := Vector3.UP
@@ -382,6 +439,8 @@ func _iniciar_contagem() -> void:
 
 func _comecar() -> void:
 	fase = Fase.ATIVA
+	if gravador:
+		gravador.comecar(self)
 	Audio.bipe(true)
 	hud.contagem("JÁ!")
 	_semaforos(3, true)
@@ -423,6 +482,7 @@ func _ativos() -> Array:
 var _fotos: Array = []
 var _bipe_contagem := -1
 var _t_ativa := 0.0
+var _aud_t := 0.0
 
 
 var _t_quadro := 0
@@ -431,6 +491,63 @@ var _t_resumo := 0.0
 var _n_resumo := 0
 var _fis_resumo := 0.0
 var _eventos: Array = []   # [tempo_ms, texto] dos últimos acontecimentos (monitor de travadas)
+
+
+## Diagnóstico (TSC_MALHAS=1): censo das malhas do mundo — triângulos por grupo (nó de 2º nível) e as
+## 30 malhas mais pesadas, com sombra e distância de sumiço. Para achar o que pesa na placa de vídeo.
+func _censo_malhas() -> void:
+	var grupos := {}
+	var itens := []
+	var pilha: Array[Node] = [self]
+	var cache := {}
+	while not pilha.is_empty():
+		var n: Node = pilha.pop_back()
+		pilha.append_array(n.get_children())
+		var malha: Mesh = null
+		var copias := 1
+		if n is MeshInstance3D:
+			malha = (n as MeshInstance3D).mesh
+		elif n is MultiMeshInstance3D and (n as MultiMeshInstance3D).multimesh:
+			malha = (n as MultiMeshInstance3D).multimesh.mesh
+			var mm := (n as MultiMeshInstance3D).multimesh
+			copias = mm.instance_count if mm.visible_instance_count < 0 else mm.visible_instance_count
+		if malha == null:
+			continue
+		if not cache.has(malha):
+			var t := 0
+			for s in malha.get_surface_count():
+				if malha is ArrayMesh:
+					var ni := (malha as ArrayMesh).surface_get_array_index_len(s)
+					t += (ni if ni > 0 else (malha as ArrayMesh).surface_get_array_len(s)) / 3
+				else:
+					t += (malha.surface_get_arrays(s)[Mesh.ARRAY_INDEX] as PackedInt32Array).size() / 3
+			cache[malha] = t
+		var tri: int = int(cache[malha]) * copias
+		var g := n as GeometryInstance3D
+		var caminho := str(get_path_to(n))
+		var partes := caminho.split("/")
+		var chave := "/".join(partes.slice(0, 2))
+		var d: Dictionary = grupos.get(chave, {"tri": 0, "nos": 0, "sombra": 0, "sem_lod": 0})
+		d.tri += tri
+		d.nos += 1
+		if g.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+			d.sombra += tri
+		if g.visibility_range_end <= 0.0:
+			d.sem_lod += tri
+		grupos[chave] = d
+		itens.append([tri, caminho, copias, int(cache[malha]), g.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, g.visibility_range_end, g.visible and g.is_visible_in_tree()])
+	var total := 0
+	for k in grupos:
+		total += int(grupos[k].tri)
+	print("[MALHAS] total no mundo: %.2f M triângulos em %d malhas" % [total / 1e6, itens.size()])
+	var chaves := grupos.keys()
+	chaves.sort_custom(func(a, b): return grupos[a].tri > grupos[b].tri)
+	for k in chaves.slice(0, 25):
+		var d: Dictionary = grupos[k]
+		print("[MALHAS] grupo %-44s %7.2f M  nós=%-5d com sombra=%.2f M  sem sumiço=%.2f M" % [k, d.tri / 1e6, d.nos, d.sombra / 1e6, d.sem_lod / 1e6])
+	itens.sort_custom(func(a, b): return a[0] > b[0])
+	for i in itens.slice(0, 30):
+		print("[MALHAS] item %8.3f M  %6d x %-7d sombra=%s sumiço=%.0f visível=%s  %s" % [i[0] / 1e6, i[2], i[3], i[4], i[5], i[6], str(i[1]).right(110)])
 
 
 ## Diagnóstico (TSC_TRAVADAS=1): imprime cada quadro lento, o que aconteceu logo antes e quantos
@@ -456,6 +573,14 @@ func _monitor_travadas() -> void:
 	if _t_resumo > 2000.0 and fase == Fase.ATIVA:
 		print("[RESUMO] %d fps  física pior=%.1f ms  processo=%.1f ms  objetos=%d" % [roundi(_n_resumo * 1000.0 / _t_resumo), _fis_resumo,
 			Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))])
+		# Placa de vídeo: tempo de GPU do quadro, chamadas de desenho, triângulos, objetos visíveis e memória de vídeo
+		var vp := get_viewport().get_viewport_rid()
+		RenderingServer.viewport_set_measure_render_time(vp, true)
+		print("[PLACA] gpu=%.1f ms  cpu render=%.1f ms  desenhos=%d  triângulos=%.2f M  visíveis=%d  vram=%d MB (texturas %d, buffers %d)" % [
+			RenderingServer.viewport_get_measured_render_time_gpu(vp), RenderingServer.viewport_get_measured_render_time_cpu(vp),
+			int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)), Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1e6,
+			int(Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)), int(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0),
+			int(Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED) / 1048576.0), int(Performance.get_monitor(Performance.RENDER_BUFFER_MEM_USED) / 1048576.0)])
 		_t_resumo = 0.0
 		_n_resumo = 0
 		_fis_resumo = 0.0
@@ -464,6 +589,21 @@ func _monitor_travadas() -> void:
 func _evento(texto: String) -> void:
 	if OS.get_environment("TSC_TRAVADAS") != "":
 		_eventos.append([Time.get_ticks_msec(), texto])
+
+
+## TSC_FLUTUANDO=1: varredura de peças sem apoio da etapa (scripts/jogo/auditoria.gd) e fecha.
+func _physics_process(delta: float) -> void:
+	if _aud_t < 0.0 or fase == Fase.CARREGANDO or OS.get_environment("TSC_FLUTUANDO") == "":
+		return
+	_aud_t += delta
+	if _aud_t > 2.0:
+		_aud_t = -1.0
+		if OS.get_environment("TSC_FLUTUANDO") == "dinos":
+			load("res://scripts/jogo/auditoria.gd").dinos(self, terreno, get_viewport().find_world_3d().direct_space_state, "%s etapa %d" % [Config.mapa_id, etapa_idx + 1])
+			get_tree().quit()
+			return
+		load("res://scripts/jogo/auditoria.gd").rodar(self, terreno, get_viewport().find_world_3d().direct_space_state, float(Config.valor("mapa.nivel_agua", -1000.0)), "%s etapa %d" % [Config.mapa_id, etapa_idx + 1])
+		get_tree().quit()
 
 
 func _process(delta: float) -> void:
@@ -494,6 +634,9 @@ func _process(delta: float) -> void:
 		Fase.ATIVA:
 			_contar_tempo(delta)
 			_checar_checkpoints()
+			_avisar_gelo()
+			if terreno.dino and terreno.dino.ceu:
+				terreno.dino.ceu.atualizar(1.0 - tempo_restante / _tempo_total_etapa)
 			if not _corrida.is_empty() and _chegadas.size() >= _vagas_corrida():
 				hud.mensagem("OS %d PRIMEIROS CHEGARAM!" % _vagas_corrida(), Color(1.0, 0.85, 0.4), 3.0)
 				_finalizar_etapa()
@@ -599,6 +742,10 @@ func _alguem_voando() -> bool:
 
 func _tempo_esgotado() -> void:
 	tempo_restante = 0.0
+	if terreno.dino and bool(_cfg_etapa().get("impacto", false)):
+		# Extinction Day, etapa 4: ninguém explode por tempo — o meteoro cai e explode tudo
+		_finalizar_etapa()
+		return
 	# Quem não alcançou o alvo explode.
 	for p in _ativos():
 		var v: Veiculo = p.veiculo
@@ -645,9 +792,13 @@ func _finalizar_etapa() -> void:
 		if pts > melhor_pts:
 			melhor_pts = pts
 			melhor = p.nome
+		if gravador:
+			gravador.resultado(p, texto, pts)
 		jogadores.append({"nome": p.nome, "cor": Config.EQUIPES[p.equipe].cor, "texto": texto, "pontos": pts})
 		if Sessao.teste_automatico:
 			_imprimir_telemetria(p, texto)
+	if gravador:
+		gravador.terminar()
 	var equipes := []
 	for e in equipes_ativas:
 		var soma := 0
@@ -660,7 +811,34 @@ func _finalizar_etapa() -> void:
 		var c: Dictionary = etapas_cfg[etapa_idx + 1]
 		proxima = "%s — %d m" % [c.nome, int(c.get("diametro", 30))]
 	var titulo := "MORTE SÚBITA — RESULTADO" if morte_subita else "RESULTADO — " + _texto_etapa()
-	hud.resultado_etapa({"titulo": titulo, "jogadores": jogadores, "equipes": equipes, "melhor": melhor, "proxima": proxima})
+	var resultado := {"titulo": titulo, "jogadores": jogadores, "equipes": equipes, "melhor": melhor, "proxima": proxima}
+	if terreno.dino and bool(_cfg_etapa().get("impacto", false)) and complexos[0] is ComplexoSubida:
+		# Extinction Day, etapa 4: o meteoro cai na pista e explode tudo antes do resultado
+		# (a pontuação já está feita acima: a explosão é só a cena)
+		_cena_impacto(resultado)
+		return
+	hud.resultado_etapa(resultado)
+
+
+func _cena_impacto(resultado: Dictionary) -> void:
+	tempo_fase = 9999.0
+	hud.visible = false
+	var sub := complexos[0] as ComplexoSubida
+	var i := maxi(sub.total_amostras() - 1 - int(_cfg_etapa().get("impacto_antes_rampa", 380)), 0)
+	var ponto := sub.amostra(i)
+	ponto.y = terreno.altura_em(ponto.x, ponto.z)
+	var met: Dictionary = _cfg_etapa().get("ceu", {}).get("meteoro", {})
+	var vinda := CeuDino.direcao(float(met.get("azimute", 0.0)), float(met.get("elevacao_final", met.get("elevacao", 40.0))))
+	_impacto = ImpactoMeteoro.new()
+	add_child(_impacto)
+	var vs: Array = []
+	for p in participantes:
+		vs.append(p.veiculo)
+	_impacto.iniciar(ponto, vinda, vs, camera, terreno, alvo)
+	_impacto.terminou.connect(func():
+		hud.visible = OS.get_environment("TSC_SEM_HUD") == ""
+		hud.resultado_etapa(resultado)
+		tempo_fase = float(Config.valor("partida.resultado_etapa_s", 6)))
 
 
 func _tempo_partida_acabou() -> bool:
@@ -784,7 +962,7 @@ func _mostrar_final(ordem: Array) -> void:
 	if venceu:
 		Audio.tocar("ambiente/publico_vibra_forte.mp3", null, 0.0, 1.0, 0.0, "Ambiente")
 	Audio.interface("confirmar" if venceu else "erro", -2.0)
-	if Sessao.teste_automatico:
+	if Sessao.teste_automatico and OS.get_environment("TSC_FOTO_FINAL") == "":   # (a foto da comemoração fecha o jogo depois de salvar)
 		print("[TESTE] Partida concluída. Vencedora: ", Config.EQUIPES[ordem[0]].nome)
 		get_tree().quit()
 
@@ -794,6 +972,7 @@ func _mostrar_final(ordem: Array) -> void:
 ## nome em cima (se ele não for da equipe vencedora, entra também, como destaque).
 func _montar_comemoracao(equipe_vencedora: int, mvp: Dictionary) -> void:
 	alvo.configurar(etapas_cfg[0])
+	alvo.parado = true   # alvo móvel (Frozen Peak): fica parado embaixo dos carros da comemoração
 	# Disco recém-montado: a posição global dele só atualiza no próximo quadro; o topo do disco
 	# plano é o próprio centro_base
 	var c := alvo.centro_base
@@ -823,7 +1002,7 @@ func _montar_comemoracao(equipe_vencedora: int, mvp: Dictionary) -> void:
 			continue
 		_posicionar_comemoracao(fila[i], c + lado * x - para_cam * 3.5, para_cam.rotated(Vector3.UP, -x * 0.03), 1.0)
 	# MVP na frente (na gravata, no meio)
-	var pos_mvp := c if alvo.gravata else c + para_cam * 3.5
+	var pos_mvp: Vector3 = alvo.tampo_em(c if alvo.gravata else c + para_cam * 3.5)[0]
 	var avatar_mvp := _posicionar_comemoracao(mvp, pos_mvp, para_cam, 1.6)
 	var holofote := SpotLight3D.new()
 	holofote.light_color = Color(1.0, 0.9, 0.7)
@@ -851,16 +1030,24 @@ func _montar_comemoracao(equipe_vencedora: int, mvp: Dictionary) -> void:
 	alvo.festejar(Config.EQUIPES[equipe_vencedora].cor, 3600.0)
 	# O grupo fica na metade direita da tela (a esquerda é do painel de resultado)
 	var pos_cam := c + para_cam * 17.0 + Vector3.UP * 4.2 - lado * 5.0
-	var foco := c + Vector3.UP * 1.3 + para_cam * 1.0
+	if alvo.bacia_raio > 0.0:
+		# Bacia do meteoro: câmera dentro dela, no alto da parede (de fora, a borda da rocha tapa o grupo lá embaixo)
+		pos_cam = alvo.tampo_em(c + para_cam * (alvo.bacia_raio - 2.0) - lado * 3.0)[0] + Vector3.UP * 3.2
+	var foco: Vector3 = alvo.tampo_em(c + para_cam * 1.0)[0] + Vector3.UP * 1.3   # na bacia do meteoro o grupo fica abaixo da borda
 	var direita_tela := (foco - pos_cam).normalized().cross(Vector3.UP).normalized()
 	camera.podio(foco - direita_tela * 5.0, pos_cam)
 
 
 func _posicionar_comemoracao(p: Dictionary, pos: Vector3, frente: Vector3, intensidade: float) -> Avatar:
 	var v: Veiculo = p.veiculo
+	# Assenta no tampo do alvo: plano no disco; na bacia do meteoro (Extinction Day) o carro acompanha a
+	# concavidade — na altura do centro_base ele ficava flutuando sobre o fundo
+	var tampo := alvo.tampo_em(pos)
+	pos = tampo[0]
+	var cima: Vector3 = tampo[1]
 	# O carro olha para `frente` (a frente do Veiculo é -Z)
-	var b := Basis.looking_at(frente, Vector3.UP)
-	v.preparar(Transform3D(b, pos + Vector3.UP * 0.15))
+	var b := Basis.looking_at(frente.slide(cima).normalized(), cima)
+	v.preparar(Transform3D(b, pos + cima * 0.15))
 	if v.piloto:
 		v.piloto.visible = false   # o piloto sai do carro e fica em pé ao lado
 	if v.avatar_dados.is_empty():
@@ -868,8 +1055,8 @@ func _posicionar_comemoracao(p: Dictionary, pos: Vector3, frente: Vector3, inten
 	var a := Avatar.criar(v.avatar_dados)
 	add_child(a)
 	# Ao lado da porta do motorista, virado para a câmera
-	var esquerda := -b.x
-	a.global_position = pos + esquerda * (v.caixa_corpo.size.x * 0.5 + 0.9) + frente * 0.6
+	var esquerda := frente.cross(Vector3.UP).normalized() * -1.0
+	a.global_position = alvo.tampo_em(pos + esquerda * (v.caixa_corpo.size.x * 0.5 + 0.9) + frente * 0.6)[0]
 	a.rotation.y = atan2(-frente.x, -frente.z)
 	a.festejar(intensidade)
 	return a
@@ -899,6 +1086,26 @@ func _pontos_chegada(lugar: int) -> int:
 
 func _vagas_corrida() -> int:
 	return maxi(1, ceili(float(_corrida.get("fracao_pontuam", 0.3)) * _ativos().size()))
+
+
+## Frozen Peak: avisa o jogador quando as rodas entram no gelo vivo (o carro passa a escorregar).
+var _no_gelo := false
+var _gelado := false   # atingido pelo cuspe de gelo das focas
+var _invertido := false   # yeti pendurado no teto
+func _avisar_gelo() -> void:
+	var v: Veiculo = jogador.veiculo
+	var agora := not v.eliminado and v.aderencia_piso < 0.9
+	if agora and not _no_gelo and not v.gelado():
+		hud.mensagem("GELO — O CARRO ESCORREGA", Color(0.55, 0.9, 1.0), 1.8)
+	_no_gelo = agora
+	var gelado := not v.eliminado and v.gelado()
+	if gelado and not _gelado:
+		hud.mensagem("CONGELADO — SEM DIREÇÃO E SEM FREIO!", Color(0.55, 0.9, 1.0), 2.5)
+	_gelado = gelado
+	var inv := not v.eliminado and v.direcao_invertida()
+	if inv and not _invertido:
+		hud.mensagem("YETI NO TETO — DIREÇÃO INVERTIDA!", Color(0.75, 0.9, 1.0), 2.5)
+	_invertido = inv
 
 
 ## Climb to Death: registra a passagem pelos pontos de checagem (blip e aviso para o jogador).
@@ -1066,6 +1273,143 @@ func _ir_menu() -> void:
 func _vista_debug(vista: String) -> void:
 	var cx := complexos[0]
 	var sub := cx as ComplexoSubida
+	if vista == "piloto":   # de perto, ao lado e um pouco acima do carro do jogador (cabeça x teto)
+		var v: Veiculo = jogador.veiculo
+		var b := v.global_transform.basis
+		camera.podio(v.global_position + b.y * 1.0, v.global_position + b.x * -3.2 + b.y * 1.9 + b.z * 0.6)
+		return
+	if sub and vista.begins_with("selva"):
+		# Serpent's Climb: conferência do cenário e das armadilhas (TSC_MAPA=serpents_climb)
+		camera.cam.far = 20000.0
+		var sv := {
+			"selva_mapa": [Vector3(-500, 0, -380), Vector3(-490, 3600, -330)],
+			"selva_sol": [Vector3(-1250, 50, -350), Vector3(-950, 150, 30)],
+			"selva_serpentes": [Vector3(700, 50, -350), Vector3(1000, 140, 0)],
+			"selva_cachoeira": [Vector3(-700, 90, -1720), Vector3(-640, 80, -1300)],
+			"selva_mata": [Vector3(-300, 20, 0), Vector3(-150, 60, 300)],
+			"selva_alvo": [alvo.centro_base, alvo.centro_base + Vector3(45, 18, -50)],
+			"selva_rampa": [sub.amostra(sub.total_amostras() - 1), sub.amostra(sub.total_amostras() - 1) - sub.frente * 60.0 + sub.lateral * 25.0 + Vector3.UP * 12.0],
+			"selva_largada": [sub.largada.pa(35.0, 0.0, sub.largada.piso_y), sub.largada.pa(-40.0, -60.0, sub.largada.piso_y + 45.0)],
+			"selva_plataforma": [sub.plataforma.pa(50.0, 0.0, sub.plataforma.piso_y), sub.plataforma.pa(130.0, -90.0, sub.plataforma.piso_y + 60.0)],
+			"selva_capa": [Vector3(-1250, 70, -350), Vector3(-820, 120, -80)],
+		}
+		if vista == "selva_aves" and terreno.selva and terreno.selva.has_node("Fauna"):
+			# Perto do primeiro bando de araras, acompanhando o voo
+			var fauna: Fauna = terreno.selva.get_node("Fauna")
+			var xf: Transform3D = (fauna._especies[0].mm as MultiMesh).get_instance_transform(0)
+			var c := xf.origin
+			camera.podio(c, c + xf.basis.z.normalized() * 9.0 + xf.basis.x.normalized() * 5.0 + Vector3.UP * 2.5)
+			return
+		if vista.begins_with("selva_armadilha"):
+			# TSC_CAM_VISTA=selva_armadilhaN: de lado, perto da N-ésima armadilha do percurso (1 = primeira)
+			var n := maxi(int(vista.trim_prefix("selva_armadilha")), 1) - 1
+			var alvos_a: Array = sub.armadilhas.posicoes() if sub.armadilhas else []
+			if n < alvos_a.size():
+				var g: Array = alvos_a[n]
+				camera.podio(g[0] + Vector3.UP * 3.0, g[0] + g[1] * 28.0 - g[2] * 22.0 + Vector3.UP * 9.0)
+			return
+		var par: Array = sv.get(vista, sv.selva_mapa)
+		camera.podio(par[0], par[1])
+		return
+	if sub and vista.begins_with("dino"):
+		_vista_dino(vista, sub)
+		return
+	if sub and vista.begins_with("gelo"):
+		# Frozen Peak: conferência do cenário, dos saltos e das armadilhas (TSC_MAPA=frozen_peak)
+		camera.cam.far = 20000.0
+		var fim_g := sub.amostra(sub.total_amostras() - 1)
+		var a_g := alvo.centro_base
+		var meio_g := (fim_g + a_g) * 0.5
+		var gv := {
+			"gelo_mapa": [Vector3(-480, 0, -380), Vector3(-470, 3900, -330)],
+			"gelo_alvo": [a_g, a_g + sub.lateral * 60.0 - sub.frente * 55.0 + Vector3.UP * 22.0],
+			"gelo_alvo_longe": [a_g, a_g - sub.frente * 330.0 + sub.lateral * 120.0 + Vector3.UP * 150.0],
+			"gelo_voo": [a_g + Vector3.UP * 60.0, fim_g - sub.frente * 30.0 + Vector3.UP * 28.0 + sub.lateral * 14.0],
+			"gelo_voo_lado": [meio_g + Vector3.UP * 60.0, meio_g + sub.lateral * 620.0 + Vector3.UP * 330.0],
+			"gelo_rampa": [fim_g, fim_g - sub.frente * 70.0 + sub.lateral * 26.0 + Vector3.UP * 14.0],
+			"gelo_largada": [sub.largada.pa(35.0, 0.0, sub.largada.piso_y), sub.largada.pa(-40.0, -60.0, sub.largada.piso_y + 45.0)],
+			# Portal de gelo (PortaoGelo): de dentro como o jogador vê, de perto, de fora e o da plataforma
+			"gelo_portao": [sub.largada.pa(sub.largada.comprimento, 0.0, sub.largada.piso_y + 15.0), sub.largada.pa(sub.largada.comprimento - 40.0, 0.0, sub.largada.piso_y + 9.0)],
+			"gelo_portao_perto": [sub.largada.pa(sub.largada.comprimento, 0.0, sub.largada.piso_y + 18.0), sub.largada.pa(sub.largada.comprimento - 13.0, 7.0, sub.largada.piso_y + 11.0)],
+			"gelo_portao_fora": [sub.largada.pa(sub.largada.comprimento, 0.0, sub.largada.piso_y + 15.0), sub.largada.pa(sub.largada.comprimento + 40.0, -12.0, sub.largada.piso_y + 6.0)],
+			"gelo_portao_plat": [sub.plataforma.pa(sub.plataforma.comprimento, 0.0, sub.plataforma.piso_y + 15.0), sub.plataforma.pa(sub.plataforma.comprimento - 45.0, 8.0, sub.plataforma.piso_y + 5.0)],
+			# Focas (armadilha "focas", E1 em A+285): da estrada, chegando, e de lado, perto de uma delas
+			"gelo_focas": [sub.amostra(sub.indice_trecho("A", 292.0)) + Vector3.UP * 2.5, sub.amostra(sub.indice_trecho("A", 255.0)) + Vector3.UP * 4.0],
+			"gelo_foca_perto": [sub.amostra(sub.indice_trecho("A", 285.0)) + sub.lateral_em(sub.indice_trecho("A", 285.0)) * 13.0 + Vector3.UP * 3.0, sub.amostra(sub.indice_trecho("A", 275.0)) + sub.lateral_em(sub.indice_trecho("A", 285.0)) * 3.0 + Vector3.UP * 5.0],
+			# Túnel de gelo (pingentes; E1 em A+937)
+			"gelo_tunel": [sub.amostra(sub.indice_trecho("A", 945.0)) + Vector3.UP * 6.0, sub.amostra(sub.indice_trecho("A", 905.0)) + Vector3.UP * 4.0],
+			"gelo_tunel_dentro": [sub.amostra(sub.indice_trecho("A", 950.0)) + Vector3.UP * 3.0, sub.amostra(sub.indice_trecho("A", 933.0)) + Vector3.UP * 2.5],
+			# Portal das bolas de neve (E2: topo da espiral em A+1098), visto de quem sobe
+			"gelo_bolas": [sub.amostra(sub.indice_trecho("A", 1098.0)) + Vector3.UP * 6.0, sub.amostra(sub.indice_trecho("A", 1050.0)) + Vector3.UP * 5.0],
+			"gelo_portao_plat_baixo": [sub.plataforma.pa(sub.plataforma.comprimento, 0.0, sub.plataforma.piso_y + 15.0), sub.plataforma.pa(sub.plataforma.comprimento - 16.0, -2.0, sub.plataforma.piso_y + 1.5)],
+			"gelo_foca_rosto": [sub.amostra(sub.indice_trecho("A", 285.0)) + sub.lateral_em(sub.indice_trecho("A", 285.0)) * 11.0 + Vector3.UP * 5.0, sub.amostra(sub.indice_trecho("A", 279.0)) + sub.lateral_em(sub.indice_trecho("A", 285.0)) * 5.0 + Vector3.UP * 6.0],
+			"gelo_yeti": [sub.amostra(sub.indice_trecho("A", 450.0)) + Vector3.UP * 2.0, sub.amostra(sub.indice_trecho("A", 432.0)) + sub.lateral_em(sub.indice_trecho("A", 450.0)) * 9.0 + Vector3.UP * 5.0],
+			"gelo_yeti_carro": [sub.amostra(sub.indice_trecho("A", 468.0)) + Vector3.UP * 1.5, sub.amostra(sub.indice_trecho("A", 490.0)) + sub.lateral_em(sub.indice_trecho("A", 468.0)) * 7.0 + Vector3.UP * 4.0],
+			"gelo_yeti_rosto": [sub.amostra(sub.indice_trecho("A", 450.0)) + sub.lateral_em(sub.indice_trecho("A", 450.0)) * 11.5 + Vector3.UP * 5.5, sub.amostra(sub.indice_trecho("A", 443.0)) + sub.lateral_em(sub.indice_trecho("A", 450.0)) * 4.0 + Vector3.UP * 5.0],
+			"gelo_plat_yetis": [sub.plataforma.pa(sub.plataforma.comprimento * 0.5, 0.0, sub.plataforma.piso_y), sub.plataforma.pa(-10.0, 0.0, sub.plataforma.piso_y + 22.0)],
+			"gelo_saida": [sub.amostra(60), sub.amostra(0) - sub.tangente_em(0) * 26.0 + Vector3.UP * 7.0],
+			"gelo_plataforma": [sub.plataforma.pa(50.0, 0.0, sub.plataforma.piso_y), sub.plataforma.pa(130.0, -90.0, sub.plataforma.piso_y + 60.0)],
+			"gelo_fortaleza": [sub.plataforma.pa(50.0, 0.0, sub.plataforma.piso_y - 30.0), sub.plataforma.pa(-150.0, 190.0, sub.plataforma.piso_y + 20.0)],
+			"gelo_capa": [sub.plataforma.pa(50.0, 0.0, sub.plataforma.piso_y - 10.0), sub.plataforma.pa(-230.0, 250.0, sub.plataforma.piso_y + 70.0)],
+			"gelo_lago": [Vector3(-700, 5, 420), Vector3(-380, 70, 720)],
+			"gelo_vila": [Vector3(-1100, 12, 620), Vector3(-960, 40, 740)],
+		}
+		if vista.begins_with("gelo_armadilha"):
+			# gelo_armadilhaN: de lado, perto da N-ésima armadilha do percurso (1 = primeira)
+			var n_a := maxi(int(vista.trim_prefix("gelo_armadilha")), 1) - 1
+			var lista_a: Array = sub.armadilhas.posicoes() if sub.armadilhas else []
+			if n_a < lista_a.size():
+				var g: Array = lista_a[n_a]
+				camera.podio(g[0] + Vector3.UP * 3.0, g[0] + g[1] * 26.0 - g[2] * 24.0 + Vector3.UP * 9.0)
+			return
+		if vista.begins_with("gelo_vao"):
+			# gelo_vaoN: o N-ésimo salto do percurso visto de lado, de quem chega
+			var n_v := maxi(int(vista.trim_prefix("gelo_vao")), 1) - 1
+			if n_v < sub.vaos().size():
+				var vv: Dictionary = sub.vaos()[n_v]
+				var p0 := sub.amostra(int(vv.i0))
+				camera.podio(p0 + sub.tangente_em(int(vv.i0)) * 5.0, p0 - sub.tangente_em(int(vv.i0)) * 34.0 + sub.lateral_em(int(vv.i0)) * 20.0 + Vector3.UP * 8.0)
+			return
+		if vista.begins_with("gelo_estrada"):
+			# gelo_estradaN: na estrada, a N x 100 m do começo, olhando para a frente (como o piloto vê)
+			var m_e := float(int(vista.trim_prefix("gelo_estrada"))) * 100.0
+			var i_e := 0
+			while i_e < sub.total_amostras() - 40 and sub.progresso_amostra(i_e) < m_e:
+				i_e += 1
+			var j_e := mini(i_e + 40, sub.total_amostras() - 1)
+			camera.podio(sub.amostra(j_e) + Vector3.UP * 1.0, sub.amostra(i_e) - sub.tangente_em(i_e) * 9.0 + Vector3.UP * 4.0)
+			return
+		if vista == "gelo_livre":   # TSC_CAM_POS="x,y,z" e TSC_CAM_ALVO="x,y,z"
+			var pos_g := OS.get_environment("TSC_CAM_POS").split_floats(",")
+			var mira_g := OS.get_environment("TSC_CAM_ALVO").split_floats(",")
+			camera.podio(Vector3(mira_g[0], mira_g[1], mira_g[2]), Vector3(pos_g[0], pos_g[1], pos_g[2]))
+			return
+		var par_g: Array = gv.get(vista, gv.gelo_mapa)
+		camera.podio(par_g[0], par_g[1])
+		return
+	if sub and vista.begins_with("egito"):
+		# Pharaoh's Climb: conferência do cenário (TSC_MAPA=pharaohs_climb)
+		camera.cam.far = 20000.0
+		var vistas := {
+			"egito_mapa": [Vector3(-650, 0, -380), Vector3(-640, 3300, -330)],
+			"egito_piramide": [Vector3(-1300, 45, -250), Vector3(-900, 150, 130)],
+			"egito_espiral": [Vector3(-1165, 45, -260), Vector3(-1040, 75, -140)],
+			"egito_templo": [Vector3(-1300, 100, -250), Vector3(-1150, 190, -390)],
+			"egito_largada": [Vector3(-1472, 10, -120), Vector3(-1440, 22, 40)],
+			"egito_salto": [Vector3(-765, 140, -765), Vector3(-690, 170, -650)],
+			"egito_pistao": [Vector3(-1035, 115, -490), Vector3(-1012, 124, -445)],
+			"egito_vale": [Vector3(0, 90, -380), Vector3(260, 470, -1000)],
+			"egito_portal": [Vector3(150, 140, -330), Vector3(40, 190, -620)],
+			"egito_nilo": [Vector3(-200, 10, 150), Vector3(-420, 60, 0)],
+			"egito_alvo": [alvo.centro_base, alvo.centro_base + Vector3(55, 20, -60)],
+			"egito_capa": [Vector3(-1290, 55, -255), Vector3(-720, 135, -40)],   # foto do menu
+		}
+		if vista == "egito_rampa":
+			var fim := sub.amostra(sub.total_amostras() - 1)
+			camera.podio(alvo.centro_base, fim + Vector3(20.0, 25.0, -50.0))
+		elif vistas.has(vista):
+			camera.podio(vistas[vista][0], vistas[vista][1])
+		return
 	if sub and vista.begins_with("subida"):
 		camera.cam.far = 20000.0
 		match vista:
@@ -1122,7 +1466,7 @@ func _vista_debug(vista: String) -> void:
 				var borda := sub.amostra(sub.fim_do_trecho(sub.indice_estrada(Vector3(-600.0, 150.0, -300.0))))
 				camera.podio(borda + Vector3(0.0, -10.0, -15.0), borda + Vector3(70.0, 10.0, 20.0))
 			_:   # "subida": da rampa final olhando o alvo
-				var fim := sub.amostra(99999)
+				var fim := sub.amostra(sub.total_amostras() - 1)
 				camera.podio(alvo.centro_base, fim + Vector3(25.0, 30.0, -60.0))
 		return
 	var y0: float = cx.perfil.pontos[0].y
@@ -1135,6 +1479,36 @@ func _vista_debug(vista: String) -> void:
 		var dist := 520.0 if vista.begins_with("geral") else 120.0
 		camera.podio(alvo_v, alvo_v + c2.lateral * dist + Vector3.UP * dist * 0.15)
 		camera.cam.far = 20000.0
+		return
+	if vista.begins_with("cidade"):
+		# City Rush: cidade_geral (do alto), cidade_torre (torre da plataforma vista da rua),
+		# cidade_rampa (do telhado olhando o alvo), cidade_rua (no chão, perto da praça)
+		camera.cam.far = 20000.0
+		var topo := cx.ponto(0.0, cx.perfil.pontos[0].y)
+		match vista:
+			"cidade_torre":
+				var b := cx.ponto(cx.perfil.pontos[cx.perfil.indice_borda].x, 0.0)
+				camera.podio(Vector3(b.x, 200.0, b.z), b + cx.frente * 330.0 + cx.lateral * 260.0 + Vector3.UP * 30.0)
+			"cidade_rampa":
+				camera.podio(alvo.centro_base, topo - cx.frente * 25.0 + cx.lateral * 30.0 + Vector3.UP * 25.0)
+			"cidade_voo":   # no meio do voo, olhando as chicanes e o alvo
+				var p := cx.frente * -820.0 + Vector3.UP * 230.0
+				camera.podio(Vector3(0.0, 40.0, 0.0), p)
+			"cidade_alvo":   # chegada ao alvo, como o jogador vê de paraquedas
+				var p := cx.frente * -150.0 + cx.lateral * 20.0 + Vector3.UP * 95.0
+				camera.podio(alvo.centro_base, p)
+			"cidade_perto":   # fachadas e telhados de perto (conferir detalhe dos prédios)
+				var p := cx.frente * -330.0 + cx.lateral * 60.0 + Vector3.UP * 75.0
+				camera.podio(cx.frente * -200.0 + cx.lateral * 120.0 + Vector3.UP * 50.0, p)
+			"cidade_rua":
+				var p := cx.frente * -520.0 + cx.lateral * 40.0
+				camera.podio(Vector3(0.0, 60.0, 0.0), Vector3(p.x, 9.0, p.z))
+			"cidade_livre":   # TSC_CAM_POS="x,y,z" e TSC_CAM_ALVO="x,y,z"
+				var pos := OS.get_environment("TSC_CAM_POS").split_floats(",")
+				var mira := OS.get_environment("TSC_CAM_ALVO").split_floats(",")
+				camera.podio(Vector3(mira[0], mira[1], mira[2]), Vector3(pos[0], pos[1], pos[2]))
+			_:
+				camera.podio(Vector3.ZERO, Vector3(900.0, 1300.0, 1500.0))
 		return
 	var arena := cx as ComplexoArena
 	if arena and vista.begins_with("arena"):
@@ -1192,6 +1566,111 @@ func _vista_debug(vista: String) -> void:
 			camera.podio(f, f + cx.lateral * 35.0 + Vector3.UP * 4.0 + cx.frente * 25.0)
 
 
+## Extinction Day: vistas de conferência (TSC_MAPA=extinction_day TSC_FOTOS="dino_...:seg,...").
+## dino_mapa, _vulcao, _cratera, _largada, _portao, _portico (pórtico da largada visto de dentro), _saida, _plataforma, _rampa, _voo, _voo_lado, _alvo,
+## _alvo_longe, _bocaN (boca do N-ésimo túnel; _bocafN = de frente), _dentroN (dentro do túnel da etapa, N/10 do caminho),
+## _armadilhaN, _estradaN (N x 100 m), _bichoN (N-ésimo dinossauro andando), _livre (TSC_CAM_POS/ALVO).
+func _vista_dino(vista: String, sub: ComplexoSubida) -> void:
+	camera.cam.far = 20000.0
+	var fim := sub.amostra(sub.total_amostras() - 1)
+	var a := alvo.centro_superior()
+	var meio := (fim + a) * 0.5
+	var dino := terreno.dino
+	var cv := Vector3(dino.centro_vulcao.x, 0.0, dino.centro_vulcao.y)
+	var dv := {
+		"dino_mapa": [Vector3(-450, 0, -400), Vector3(-440, 5400, -330)],
+		"dino_vulcao": [cv + Vector3.UP * 300.0, cv + Vector3(1300, 420, 1200)],
+		"dino_cratera": [cv + Vector3.UP * 440.0, cv + Vector3(260, 720, 240)],
+		"dino_alvo": [a, a + sub.lateral * 70.0 - sub.frente * 60.0 + Vector3.UP * 28.0],
+		"dino_alvo_longe": [a, a - sub.frente * 330.0 + sub.lateral * 120.0 + Vector3.UP * 150.0],
+		"dino_voo": [a + Vector3.UP * 20.0, fim - sub.frente * 30.0 + Vector3.UP * 28.0 + sub.lateral * 14.0],
+		"dino_voo_lado": [meio, meio + sub.lateral * 620.0 + Vector3.UP * 330.0],
+		"dino_rampa": [fim, fim - sub.frente * 70.0 + sub.lateral * 26.0 + Vector3.UP * 14.0],
+		"dino_largada": [sub.largada.pa(35.0, 0.0, sub.largada.piso_y), sub.largada.pa(-40.0, -60.0, sub.largada.piso_y + 45.0)],
+		"dino_portao": [sub.amostra(60) + Vector3.UP * 20.0, sub.amostra(0) - sub.tangente_em(0) * 60.0 + sub.lateral_em(0) * 25.0 + Vector3.UP * 14.0],
+		"dino_saida": [sub.amostra(60), sub.amostra(0) - sub.tangente_em(0) * 26.0 + Vector3.UP * 7.0],
+		"dino_ilhas": [sub.amostra(sub.indice_trecho("A", 360.0)) - Vector3.UP * 2.0, sub.amostra(sub.indice_trecho("A", 250.0)) + Vector3.UP * 16.0],
+		"dino_portao_arm2": [sub.amostra(sub.indice_trecho("A", 895.0)) + Vector3.UP * 6.0, sub.amostra(sub.indice_trecho("A", 866.0)) + Vector3.UP * 9.0 + sub.lateral_em(sub.indice_trecho("A", 866.0)) * 24.0],
+		"dino_portao_arm": [sub.amostra(sub.indice_trecho("A", 890.0)) + Vector3.UP * 6.0, sub.amostra(sub.indice_trecho("A", 862.0)) + Vector3.UP * 4.0 + sub.lateral_em(sub.indice_trecho("A", 862.0)) * 3.0],
+		"dino_portico_plat": [sub.plataforma.pa(sub.plataforma.comprimento, 0.0, sub.plataforma.piso_y + 7.0), sub.plataforma.pa(sub.plataforma.comprimento + 34.0, 5.0, sub.plataforma.piso_y + 6.0)],
+		"dino_portico": [sub.largada.pa(sub.largada.comprimento, 0.0, sub.largada.piso_y + 9.5), sub.largada.pa(sub.largada.comprimento - 30.0, 7.0, sub.largada.piso_y + 3.0)],
+		"dino_plataforma": [sub.plataforma.pa(50.0, 0.0, sub.plataforma.piso_y), sub.plataforma.pa(130.0, -90.0, sub.plataforma.piso_y + 60.0)],
+		# Cercado do tiranossauro (travessia da E4, C 435): de cima em 3/4, da estrada e de perto do portão
+		"dino_cercado": [sub.amostra(maxi(sub.indice_trecho("C", 435.0), 0)) + Vector3.UP * 3.0, sub.amostra(maxi(sub.indice_trecho("C", 435.0), 0)) - sub.tangente_em(maxi(sub.indice_trecho("C", 435.0), 0)) * 46.0 + sub.lateral_em(maxi(sub.indice_trecho("C", 435.0), 0)) * 44.0 + Vector3.UP * 30.0],
+		"dino_placa": [sub.amostra(maxi(sub.indice_trecho("C", 421.0), 0)) + Vector3.UP * 13.5, sub.amostra(maxi(sub.indice_trecho("C", 407.0), 0)) + Vector3.UP * 9.0 - sub.lateral_em(maxi(sub.indice_trecho("C", 407.0), 0)) * 2.0],
+		"dino_cercado_pista": [sub.amostra(maxi(sub.indice_trecho("C", 435.0), 0)) + Vector3.UP * 5.0, sub.amostra(maxi(sub.indice_trecho("C", 385.0), 0)) + Vector3.UP * 3.2],
+		"dino_cercado_perto": [sub.amostra(maxi(sub.indice_trecho("C", 421.0), 0)) + Vector3.UP * 6.0 + sub.lateral_em(maxi(sub.indice_trecho("C", 421.0), 0)) * 7.0, sub.amostra(maxi(sub.indice_trecho("C", 404.0), 0)) + Vector3.UP * 4.0 - sub.lateral_em(maxi(sub.indice_trecho("C", 404.0), 0)) * 3.0],
+	}
+	if vista.begins_with("dino_boca") and not dino.tuneis.is_empty():
+		var n_b := maxi(int(vista.trim_prefix("dino_bocaf").trim_prefix("dino_boca")), 1) - 1
+		var bocas: Array = []
+		for tun: TunelVulcao in dino.tuneis:
+			bocas.append_array(tun.bocas)
+		if n_b < bocas.size():
+			var bc: Array = bocas[n_b]
+			var c: Vector3 = bc[0]
+			var para_dentro: Vector3 = bc[2]
+			if vista.begins_with("dino_bocaf"):   # de frente, como quem chega pela estrada
+				camera.podio(c + Vector3.UP * 9.0, c - para_dentro * 46.0 + (bc[1] as Vector3) * 2.0 + Vector3.UP * 4.0)
+				return
+			camera.podio(c + Vector3.UP * 4.0, c - para_dentro * 70.0 + (bc[1] as Vector3) * 30.0 + Vector3.UP * 22.0)
+		return
+	if vista.begins_with("dino_dentro"):
+		var tuneis: Array = ComplexoSubida.cfg_sub("tuneis", [])
+		if not tuneis.is_empty():
+			var f := float(int(vista.trim_prefix("dino_dentro"))) / 10.0
+			var tu: Array = tuneis[0] if f < 0.5 or tuneis.size() < 2 else tuneis[1]
+			var m := lerpf(float(tu[1]), float(tu[2]), fposmod(f * 2.0, 1.0) if tuneis.size() > 1 else f)
+			var i := sub.indice_trecho(str(tu[0]), m)
+			var j := sub.indice_adiante(i, 45.0)
+			camera.podio(sub.amostra(j) + Vector3.UP * 1.5, sub.amostra(i) - sub.tangente_em(i) * 8.0 + Vector3.UP * 3.5)
+		return
+	if vista.begins_with("dino_armadilha"):
+		var n_a := maxi(int(vista.trim_prefix("dino_armadilha")), 1) - 1
+		var lista_a: Array = sub.armadilhas.posicoes() if sub.armadilhas else []
+		if n_a < lista_a.size():
+			var g: Array = lista_a[n_a]
+			camera.podio(g[0] + Vector3.UP * 3.0, g[0] + g[1] * 22.0 - g[2] * 24.0 + Vector3.UP * 8.0)
+		return
+	if vista.begins_with("dino_estrada"):
+		var m_e := float(int(vista.trim_prefix("dino_estrada"))) * 100.0
+		var i_e := 0
+		while i_e < sub.total_amostras() - 40 and sub.progresso_amostra(i_e) < m_e:
+			i_e += 1
+		var j_e := mini(i_e + 40, sub.total_amostras() - 1)
+		camera.podio(sub.amostra(j_e) + Vector3.UP * 1.0, sub.amostra(i_e) - sub.tangente_em(i_e) * 9.0 + Vector3.UP * 4.0)
+		return
+	if vista.begins_with("dino_bicho") and dino.parque:
+		var n_d := maxi(int(vista.trim_prefix("dino_bicho")), 1) - 1
+		if n_d < dino.parque._bichos.size():
+			var raiz: Node3D = dino.parque._bichos[n_d].d.raiz
+			var p := raiz.global_position
+			var fr := -raiz.global_transform.basis.z
+			var comp: float = dino.parque._bichos[n_d].d.comp
+			camera.podio(p + Vector3.UP * comp * 0.2, p + fr * comp * 1.1 + fr.cross(Vector3.UP) * comp * 0.9 + Vector3.UP * comp * 0.35)
+		return
+	if vista.begins_with("dino_carro"):
+		# Carro do jogador de perto: dino_carro_frente (faróis) e dino_carro_tras (lanternas)
+		for no_v in get_tree().get_nodes_in_group("veiculo"):
+			var vj := no_v as Veiculo
+			if vj and vj.eh_jogador:
+				var bj := vj.global_transform.basis
+				var lado_c := -1.0 if vista.ends_with("frente") else 1.0
+				camera.podio(vj.global_position + Vector3.UP * 0.9, vj.global_position + bj.z * lado_c * 6.0 + bj.x * 2.6 + Vector3.UP * 1.7)
+		return
+	if vista.begins_with("dino_livre"):
+		# TSC_CAM_POS / TSC_CAM_ALVO: "x,y,z" ou vários separados por ";" (dino_livre2 usa o segundo...)
+		var n_l := maxi(int(vista.trim_prefix("dino_livre")), 1) - 1
+		var l_pos := OS.get_environment("TSC_CAM_POS").split(";")
+		var l_mira := OS.get_environment("TSC_CAM_ALVO").split(";")
+		var pos := l_pos[mini(n_l, l_pos.size() - 1)].split_floats(",")
+		var mira := l_mira[mini(n_l, l_mira.size() - 1)].split_floats(",")
+		camera.podio(Vector3(mira[0], mira[1], mira[2]), Vector3(pos[0], pos[1], pos[2]))
+		return
+	var par: Array = dv.get(vista, dv.dino_mapa)
+	camera.podio(par[0], par[1])
+
+
 ## Capturas de tela automáticas para conferência visual: TSC_FOTOS="fase:segundos,...", TSC_FOTO_DIR e TSC_SEM_HUD (esconde o HUD).
 func _capturas(delta: float) -> void:
 	if _fotos.is_empty():
@@ -1200,7 +1679,11 @@ func _capturas(delta: float) -> void:
 			hud.visible = false
 		OS.set_environment("TSC_FOTOS", "")
 		_t_ativa = 0.0
-		_vista_debug(OS.get_environment("TSC_CAM_VISTA"))
+		# Fotos com nome de vista do Frozen Peak (gelo_...): cada foto usa a própria vista
+		var primeira := str(_fotos[0]).split(":")[0]
+		_vista_debug(primeira if primeira.begins_with("gelo") or primeira.begins_with("dino") else OS.get_environment("TSC_CAM_VISTA"))
+	if str(_fotos[0]).begins_with("gelo") or str(_fotos[0]).begins_with("dino"):
+		_vista_debug(str(_fotos[0]).split(":")[0])   # reaplica a cada quadro (a contagem troca a câmera)
 	_t_ativa += delta
 	var alvo_t := float(str(_fotos[0]).split(":")[1])
 	if _t_ativa >= alvo_t:
@@ -1217,6 +1700,8 @@ func _capturas(delta: float) -> void:
 				print("[MARCA] x=%.0f z=%.0f -> px %.1f %.1f" % [w.x, w.z, px.x, px.y])
 		if _fotos.is_empty():
 			get_tree().quit()
+		elif str(_fotos[0]).begins_with("gelo") or str(_fotos[0]).begins_with("dino"):
+			_vista_debug(str(_fotos[0]).split(":")[0])
 
 
 func _imprimir_telemetria(p: Dictionary, texto: String) -> void:

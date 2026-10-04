@@ -55,8 +55,8 @@ static func criar(d: Dictionary) -> Avatar:
 
 func _indexar() -> void:
 	for i in esqueleto.get_bone_count():
-		# "LeftArm_011" -> "LeftArm"; "_rootJoint" fica de fora
-		var nome := esqueleto.get_bone_name(i)
+		# "LeftArm_011" -> "LeftArm"; "_rootJoint" fica de fora; sem o prefixo "mixamorig_"/"mixamorig:"
+		var nome := esqueleto.get_bone_name(i).trim_prefix("mixamorig_").trim_prefix("mixamorig:")
 		var curto := nome.get_slice("_", 0) if not nome.begins_with("_") else nome
 		if not _ossos.has(curto):
 			_ossos[curto] = i
@@ -140,6 +140,33 @@ func _pose_festa(delta: float) -> void:
 func sentar_em(v: Veiculo) -> void:
 	veiculo = v
 	_achar_volante()
+	# O teto é conferido de novo com a cabeça já na pose (a nuca fica atrás do ponto testado e
+	# muitos tetos caem para trás): se ainda atravessar, afunda mais no banco e encolhe o piloto.
+	var inicial := [_vol_centro, modelo.position, modelo.scale, escala]
+	var desce_extra := 0.0
+	var fator := 1.0
+	for i in 6:
+		_encaixar(v, desce_extra, fator)
+		var folga := folga_teto()
+		if folga >= 0.025 or i == 5 or (fator <= 0.7 and desce_extra >= 0.07):
+			break
+		var falta := 0.025 - folga
+		var desce := minf(falta, 0.07 - desce_extra)
+		desce_extra += desce
+		fator *= clampf(1.0 - (falta - desce) / (0.86 * escala_rel()), 0.6, 1.0)
+		fator = maxf(fator, 0.7)
+		_vol_centro = inicial[0]
+		modelo.position = inicial[1]
+		modelo.scale = inicial[2]
+		escala = inicial[3]
+		_m_esq = _cadeia(esqueleto)
+
+
+func _encaixar(v: Veiculo, desce_extra: float, fator: float) -> void:
+	if fator < 1.0:
+		modelo.scale *= fator
+		escala *= fator
+		_m_esq = _cadeia(esqueleto)
 	# Quadril (ponto H) atrás e abaixo do volante
 	var h := _vol_centro + Vector3(0, -0.36, 0.40) * escala_rel()
 	# Quadril apoiado no banco/assoalho (carros baixos deixavam o quadril abaixo do fundo)
@@ -159,6 +186,7 @@ func sentar_em(v: Veiculo) -> void:
 			modelo.scale *= f
 			escala *= f
 			_m_esq = _cadeia(esqueleto)
+	h.y -= desce_extra
 	position = h
 	_vol_centro -= h
 	# Assoalho na região dos pés: os pés não descem abaixo dele
@@ -282,6 +310,20 @@ func _tirar_malha(raizes: Array) -> void:
 			nova.add_surface_from_arrays(mi.mesh.surface_get_primitive_type(s), arr, [], {}, fmt & Mesh.ARRAY_FLAG_USE_8_BONE_WEIGHTS)
 			nova.surface_set_material(nova.get_surface_count() - 1, mi.mesh.surface_get_material(s))
 		mi.mesh = nova
+
+
+## Folga (m) entre o crânio do piloto já sentado e o teto do carro, conferida no topo da cabeça e
+## em volta dele (testa, nuca, laterais). Negativa = a cabeça atravessa. INF em carro sem teto.
+func folga_teto() -> float:
+	var topo := position + _m_esq * esqueleto.get_bone_global_pose(_ossos["HeadTop"]).origin
+	var r := 0.09 * escala_rel()
+	var folga := INF
+	for o: Vector3 in [Vector3.ZERO, Vector3(r, -0.03, 0), Vector3(-r, -0.03, 0), Vector3(0, -0.03, r), Vector3(0, -0.03, -r), Vector3(0, -0.08, r * 1.3)]:
+		var p := topo + o * Vector3(1, escala_rel(), 1)
+		var teto: float = veiculo.altura_real(p.x, p.z)
+		if teto > position.y + 0.4 * escala_rel():   # sem teto o raio acha o banco/assoalho
+			folga = minf(folga, teto - p.y)
+	return folga
 
 
 func escala_rel() -> float:

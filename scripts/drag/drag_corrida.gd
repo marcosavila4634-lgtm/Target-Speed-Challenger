@@ -6,7 +6,8 @@ extends Node3D
 ## A física é a DragMotor (1D, passos fixos); os carros do Target Flight são só a parte visual.
 ##
 ## Testes: TSC_DRAG_SIM=1 (tabela de tempos de todos os carros), -- --teste (jogador pilotado por
-## bot PRO, imprime [DRAG]), TSC_FOTO_DRAG=<pasta> (capturas), TSC_CAM_VISTA=drag_fora (câmera externa).
+## bot PRO, imprime [DRAG]), TSC_FOTO_DRAG=<pasta> (capturas), TSC_CAM_VISTA=drag_fora (câmera externa),
+## TSC_FOTOS_CARGA=<pasta> (fotos da tela de carregamento, sem HUD; usar com TSC_PISTA).
 
 enum Fase { CARREGANDO, BORRACHAO, PREPARO, CORRIDA, FIM, RESULTADO }
 
@@ -43,8 +44,11 @@ var _torcida := 0.25          # agitação do público (sobe na verde e na chega
 const RECUO_BORRACHAO := 16.0
 const QUEIMA_S := 3.4
 const ENCOSTA_S := 2.8
+## Sobrevoo do drone antes do borrachão (s): sai alto depois da chegada e para ao lado dos carros.
+const VOO_S := 6.5
 var _t_pre := 0.0
 var _cam_tv: Camera3D
+var _voo_drone: Curve3D          # trajeto do drone no sobrevoo (distância constante por tempo)
 var pq_eu: DragParaquedas
 var pq_rival: DragParaquedas
 var _pq_bot_s := 0.7
@@ -144,13 +148,15 @@ func _ready() -> void:
 	await hud.esconder_carregando()
 	Audio.silenciar_efeitos(false)
 	Audio.tocar("motor/partida.wav", null, -4.0, 1.0, 0.0, "Motor")
-	# Borrachão na caixa molhada, visto pela câmera de TV (ESPAÇO/ENTER pula); sem ele vai direto ao preparo
+	# Drone sobrevoando a pista até o borrachão na caixa molhada (ESPAÇO/ENTER pula); sem ele vai direto ao preparo
 	if OS.get_environment("TSC_SEM_BORRACHAO") == "" and OS.get_environment("TSC_CAM_VISTA") != "drag_fora":
 		_iniciar_borrachao()
 	else:
 		_preparar()
 	if OS.get_environment("TSC_FOTO_DRAG") != "":
 		_fotos(OS.get_environment("TSC_FOTO_DRAG"))
+	if OS.get_environment("TSC_FOTOS_CARGA") != "":
+		_fotos_carga(OS.get_environment("TSC_FOTOS_CARGA"))
 
 
 func _criar_carro(dados: Dictionary, faixa: int, jogador: bool) -> Veiculo:
@@ -219,14 +225,15 @@ func _preparar() -> void:
 ## pneus cantando) e depois encostam devagar na linha. Câmera de TV baixa, entre as faixas.
 func _iniciar_borrachao() -> void:
 	fase = Fase.BORRACHAO
-	_t_pre = 0.0
+	_t_pre = -VOO_S   # antes do borrachão, o sobrevoo do drone (tempo negativo)
 	hud.mostrar(false)
 	_cam_tv = Camera3D.new()
 	_cam_tv.fov = 55.0
+	_cam_tv.far = 4000.0
 	DragCockpit.sem_interior(_cam_tv)
 	add_child(_cam_tv)
-	_cam_tv.global_position = Vector3(-5.9, 1.3, -3.0)
-	_cam_tv.look_at(Vector3(0.0, 0.8, RECUO_BORRACHAO))
+	_montar_voo_drone()
+	_cam_drone()
 	_cam_tv.current = true
 	pista.semaforo(0, false, [false, false], false)
 
@@ -247,10 +254,41 @@ func _passo_borrachao() -> void:
 		m.rpm = (6200.0 + sin(_t_pre * (9.0 + k)) * 500.0) if queimando else lerpf(m.rpm, 1500.0, 0.05)
 		m.acelerador = 1.0 if queimando else 0.2
 		m.patinando = queimando
-	# Câmera acompanha de leve os carros chegando
-	_cam_tv.look_at(Vector3(0.0, 0.8, _z0[0] + recuo * 0.8))
+	_cam_drone(recuo)
 	if _t_pre >= QUEIMA_S + ENCOSTA_S:
 		_fim_borrachao()
+
+
+## Trajeto do drone: Bézier pelos pontos (alças de Catmull-Rom), percorrido a distância constante.
+## Sai alto depois da chegada, desce sobre a pista e para ao lado da caixa de borrachão.
+func _montar_voo_drone() -> void:
+	var d := pista.distancia
+	var pts: Array[Vector3] = [Vector3(14.0, 46.0, -(d + 90.0)), Vector3(6.0, 26.0, -d * 0.55),
+		Vector3(-3.0, 11.0, -12.0), DRONE_CHEGADA]
+	_voo_drone = Curve3D.new()
+	for i in pts.size():
+		var alca := (pts[mini(i + 1, pts.size() - 1)] - pts[maxi(i - 1, 0)]) / 6.0
+		_voo_drone.add_point(pts[i], -alca, alca)
+
+
+## Câmera do drone, sempre olhando para os carros: no sobrevoo (_t_pre < 0) percorre o trajeto
+## freando até parar ao lado deles; no borrachão paira e recua devagar. Balanço leve do ar.
+const DRONE_CHEGADA := Vector3(-5.3, 2.4, 6.0)
+
+func _cam_drone(recuo := RECUO_BORRACHAO) -> void:
+	var pos: Vector3
+	if _t_pre < 0.0:
+		var u := clampf(1.0 + _t_pre / VOO_S, 0.0, 1.0)
+		var s := 1.0 - pow(1.0 - u, 3.0)   # chega freando
+		pos = _voo_drone.sample_baked(s * _voo_drone.get_baked_length(), true)
+		_cam_tv.fov = lerpf(62.0, 52.0, s)
+	else:
+		var f := clampf(_t_pre / (QUEIMA_S + ENCOSTA_S), 0.0, 1.0)
+		pos = DRONE_CHEGADA.lerp(Vector3(-5.0, 1.5, 1.5), f * f * (3.0 - 2.0 * f))
+	var t := _t_pre
+	_cam_tv.global_position = pos + Vector3(sin(t * 1.3), sin(t * 1.7 + 1.0), sin(t * 1.1 + 2.0)) * 0.05
+	_cam_tv.look_at(Vector3(0.0, 0.8, _z0[0] + recuo * 0.8))
+	_cam_tv.rotate_object_local(Vector3.BACK, deg_to_rad(sin(t * 0.9) * 1.2))
 
 
 func _fim_borrachao() -> void:
@@ -418,6 +456,8 @@ func _terminar() -> void:
 	pista.placar(1, tr, rival.velocidade_chegada * 3.6, not vitoria)
 	var recordes := _ler_recordes()
 	var id := str(carro_eu.dados.get("id", ""))
+	if absf(pista.distancia - float(Config.valor("drag.distancia_m", 201.168))) > 1.0:
+		id += "@%dm" % roundi(pista.distancia)   # pista de outra distância: recorde separado
 	var anterior := float(recordes.get(id, INF))
 	var recorde := te < INF and te < anterior
 	if recorde:
@@ -467,21 +507,62 @@ func _ir_menu() -> void:
 
 # ------------------------------------------------------------------ testes
 
-## Capturas: preparo, amarelas, arrancada, meio da pista, chegada e resultado.
+## Capturas: sobrevoo do drone, borrachão, preparo, amarelas, arrancada, meio da pista, chegada e resultado.
 func _fotos(pasta: String) -> void:
 	DirAccess.make_dir_recursive_absolute(pasta)
-	var marcos := [["0_borrachao", func(): return fase == Fase.BORRACHAO and _t_pre > 2.2], ["1_preparo", func(): return _relogio > 1.6], ["2_amarela", func(): return _relogio > _t_amarela + 1.05],
-		["3_verde", func(): return _relogio > eu.t_verde + 0.25], ["4_meio", func(): return eu.distancia > 90.0],
-		["5_chegada", func(): return eu.distancia > 195.0], ["6_paraquedas", func(): return eu.chegou and _relogio > eu.t_chegada + 2.2],
+	var marcos := [["0a_voo", func(): return fase == Fase.BORRACHAO and _t_pre > -5.2], ["0b_voo", func(): return fase == Fase.BORRACHAO and _t_pre > -3.2],
+		["0c_voo", func(): return fase == Fase.BORRACHAO and _t_pre > -1.0], ["0_borrachao", func(): return fase == Fase.BORRACHAO and _t_pre > 2.2], ["1_preparo", func(): return _relogio > 1.6], ["2_amarela", func(): return _relogio > _t_amarela + 1.05],
+		["3_verde", func(): return _relogio > eu.t_verde + 0.25], ["4_meio", func(): return eu.distancia > pista.distancia * 0.45],
+		["5_chegada", func(): return eu.distancia > pista.distancia - 6.0], ["6_paraquedas", func(): return eu.chegou and _relogio > eu.t_chegada + 2.2],
 		["7_resultado", func(): return fase == Fase.RESULTADO]]
 	for mc: Array in marcos:
-		if mc[0] == "0_borrachao" and fase != Fase.BORRACHAO:
+		if str(mc[0]).begins_with("0") and fase != Fase.BORRACHAO:
 			continue   # sem a cena de borrachão (TSC_SEM_BORRACHAO / vista de fora)
 		while not (mc[1] as Callable).call():
 			await get_tree().process_frame
 		if mc[0] == "7_resultado":
 			await get_tree().create_timer(0.8).timeout
 		get_viewport().get_texture().get_image().save_png("%s/drag_%s.png" % [pasta, mc[0]])
+	get_tree().quit()
+
+
+## Fotos da tela de carregamento (sem HUD), em assets/ui/drag_carga/<pista>_<tomada>.jpg:
+## borrachão (câmera de TV), carros alinhados vistos de trás, arrancada vista de lado e chegada.
+func _fotos_carga(pasta: String) -> void:
+	DirAccess.make_dir_recursive_absolute(pasta)
+	hud.visible = false
+	var id := str(Sessao.drag_pista().get("id", "drag"))
+	var xm := pista._x_muro()
+	var cam := Camera3D.new()
+	cam.fov = 50.0
+	cam.far = 4000.0
+	DragCockpit.sem_interior(cam)
+	add_child(cam)
+	var meio := func() -> Vector3: return (carro_eu.global_position + carro_rival.global_position) * 0.5 + Vector3(0, 0.7, 0)
+	# [nome, quando posicionar, quando fotografar, posição da câmera, para onde olha]
+	var tomadas := [
+		["borrachao", func(): return fase == Fase.BORRACHAO, func(): return _t_pre > 2.0, Vector3.INF, null],
+		["alinhados", func(): return fase == Fase.PREPARO, func(): return _relogio > _t_amarela + 0.8,
+			Vector3(0.0, 0.5, 8.0), func(): return Vector3(0.0, 1.1, -40.0)],
+		["arrancada", func(): return eu.distancia > 1.0, func(): return eu.distancia > 9.0,
+			Vector3(-(xm - 0.9), 1.1, -24.0), meio],
+		["chegada", func(): return eu.distancia > pista.distancia * 0.6, func(): return eu.distancia > pista.distancia - 6.0,
+			Vector3(xm - 0.9, 0.7, -(pista.distancia + 8.0)), meio],
+	]
+	for t: Array in tomadas:
+		if t[0] == "borrachao" and fase != Fase.BORRACHAO:
+			continue
+		while not (t[1] as Callable).call():
+			await get_tree().process_frame
+		if t[3] != Vector3.INF:
+			cam.global_position = t[3]
+			cam.current = true
+		while not (t[2] as Callable).call():
+			if t[4] != null:
+				cam.look_at((t[4] as Callable).call())
+			await get_tree().process_frame
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_jpg("%s/%s_%s.jpg" % [pasta, id, t[0]], 0.9)
 	get_tree().quit()
 
 
