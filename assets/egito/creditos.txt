@@ -1,0 +1,10 @@
+Pharaoh's Climb — modelos de terceiros (CC-BY 4.0, crédito obrigatório)
+
+templos/templos.glb
+Crédito: "Egyptian Temples" (https://sketchfab.com/3d-models/egyptian-temples-ab516f7795684d6683188680dcb100ee) by yanix (https://sketchfab.com/yanix) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+props/props.glb (usada só a estátua do chacal / Anúbis)
+Crédito: "Stylized Ancient Egypt props" (https://sketchfab.com/3d-models/stylized-ancient-egypt-props-769187f4ff5340308aebec9ddee3f63a) by AnnaBelle Fibonacci (https://sketchfab.com/annabellefibonacci) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+O resto do mapa (pirâmides, obeliscos, hieróglifos, pilones, portal, barca solar, feluccas, palmeiras,
+deserto e Nilo) é gerado por código no próprio jogo (scripts/mundo/egito.gd e shaders/*egito*).

@@ -1,0 +1,24 @@
+Modelo: Low Detail Animated Crowd (torcida do Drag: as 18 pessoas viram cartões em 3 poses,
+gerados por tools/ambiente/torcida_atlas.gd em assets/drag/torcida_atlas.png)
+Autor: Shahriar Shahrabi (https://sketchfab.com/shahriyarshahrabi)
+Licença: CC Attribution — http://creativecommons.org/licenses/by/4.0/
+Link: https://sketchfab.com/3d-models/low-detail-animated-crowd-4fe76fdec12d456f9b0db06b45cc53d6
+
+Crédito (exibir nos créditos do jogo):
+This work is based on "Low Detail Animated Crowd" (https://sketchfab.com/3d-models/low-detail-animated-crowd-4fe76fdec12d456f9b0db06b45cc53d6) by Shahriar Shahrabi (https://sketchfab.com/shahriyarshahrabi) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+----
+Modelo: Grade de Contenção (grades de metal na frente das arquibancadas do Drag)
+Autor: Cowboy3D (https://sketchfab.com/cowboyDDD)
+Licença: CC Attribution — http://creativecommons.org/licenses/by/4.0/
+Link: https://sketchfab.com/3d-models/grade-de-contencao-5d046bba74a848feaf99afe037c03d8f
+
+Crédito (exibir nos créditos do jogo):
+This work is based on "Grade de Contenção" (https://sketchfab.com/3d-models/grade-de-contencao-5d046bba74a848feaf99afe037c03d8f) by Cowboy3D (https://sketchfab.com/cowboyDDD) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+----
+Texturas: asfalto, brita e pneus (assets/drag/asfalto*.png, brita*.png, pneus.png, recortadas e com
+relevo gerado por tools/ambiente/texturas_drag.gd) tiradas do modelo "Race Track (23mb glb)"
+Autor: cemal (https://sketchfab.com/cemalozcan)
+Licença: Sketchfab Standard — https://sketchfab.com/licenses (uso comercial e obras derivadas permitidos)
+Link: https://sketchfab.com/3d-models/race-track-23mb-glb-1d3a0a5a7f5c48ecbc8ff967ec36e6e5

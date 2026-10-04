@@ -1,0 +1,39 @@
+Extinction Day — modelos de terceiros (crédito obrigatório)
+Todos reduzidos e com texturas menores por tools/extinction_day/processar_modelos.py.
+
+tiranossauro/, carnotauro/, espinossauro/, alossauro/, ceratossauro/ (separados do mesmo pacote)
+Crédito: This work is based on "Theropod_inosaur_models (coloured)" (https://sketchfab.com/3d-models/theropod-inosaur-models-coloured-c3852c2167064792ae9f3eca427d7408) by seth the yutyrannus (https://sketchfab.com/slang107123456789) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+trex/trex.glb
+Crédito: This work is based on "Tyrannosaurus Rex Lowpoly" (https://sketchfab.com/3d-models/tyrannosaurus-rex-lowpoly-516dbe9717554e74b0bfcbb77a431b17) by pikabobalex (https://sketchfab.com/pikabobalex) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+titanossauro/titanossauro.glb
+Crédito: This work is based on "JWA Titanosaurus" (https://sketchfab.com/3d-models/jwa-titanosaurus-89608414c0be4154884472bc0046a351) by Jurassic Radassic (https://sketchfab.com/Radassic) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+cranio/cranio.glb
+Crédito: This work is based on "Triceratops Horridus" (https://sketchfab.com/3d-models/triceratops-horridus-178e061463754af3b521933e59c498bb) by ARS 3D HERITAGE (https://sketchfab.com/Ars.archeo) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+meteoro/meteoro.glb
+Crédito: This work is based on "Meteor" (https://sketchfab.com/3d-models/meteor-d3a5a7e9a7d24b76841bf0f49d56a5f3) by Maxim Mavrichev (https://sketchfab.com/mvrc.art) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+lava/ (só as texturas do modelo)
+Crédito: This work is based on "Lava" (https://sketchfab.com/3d-models/lava-845ca6b3b5854b19b69db54e1a840b0b) by Beccasaurus (https://sketchfab.com/beccastabler) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+ruina/ruina.glb
+Crédito: This work is based on "Château de Beauregard (Jura)" (https://sketchfab.com/3d-models/chateau-de-beauregard-jura-056f932ac4e44935a09a74df97cd9230) by pierre391 (https://sketchfab.com/pierre391) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+portao/portao.glb (letreiro original apagado da textura)
+Crédito: This work is based on "Jurassic Park Gate" (https://sketchfab.com/3d-models/jurassic-park-gate-3b7728e476544f6c99c99da5a34bea1d) by Mat Jolicoeur (https://sketchfab.com/MatJolicoeur) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+jaula/jaula.glb
+Crédito: This work is based on "Jurassic Park Cage" (https://sketchfab.com/3d-models/jurassic-park-cage-16e8072619e94f98ab71fddd657b0096) by Willem.Post (https://sketchfab.com/Willem.Post) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+recinto/recinto.glb (CC-BY-SA: a versão reduzida deste arquivo segue a mesma licença)
+Crédito: This work is based on "Jurassic Park Raptor Pen" (https://sketchfab.com/3d-models/jurassic-park-raptor-pen-8d29d58bfcde44638f08998e94f83e0a) by p.wb (https://sketchfab.com/p.wb) licensed under CC-BY-SA-4.0 (http://creativecommons.org/licenses/by-sa/4.0/)
+
+cerca/cerca.glb
+Modelo "Electric fence Jurassic Park" (Sketchfab). O download não trouxe o license.txt: autor e
+licença A CONFIRMAR na página do modelo.
+
+portao/*.png (boca_do_vulcao, extinction_day, placa_tsc_dino_park, placa_tiranossauro_rex)
+Artes do dono do projeto.
