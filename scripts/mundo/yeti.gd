@@ -4,8 +4,7 @@ extends RefCounted
 ## pele deforma com os ossos — e tufos de pelo presos nos ombros, na cabeça e nos braços. Pelo branco
 ## com sombra azulada e mechas em relevo; cara, mãos e pés de couro cinza-azulado; olhos e boca escuros.
 ## pose(): parado (respira, balança, bate no peito de vez em quando), salto (braços para cima, pernas
-## encolhidas) e agarrado (deitado no teto do carro, braços abertos segurando as laterais, pernas
-## balançando atrás, socando o teto).
+## encolhidas) e agarrado (sentado no teto do carro, pernas no para-brisa, socando o vidro).
 ## Coordenadas: de pé, olhando para +Z, pés em y = 0, ~2,6 m.
 
 const FOCA := preload("res://scripts/mundo/foca.gd")
@@ -133,7 +132,7 @@ static func criar(pai: Node3D, semente: int) -> Dictionary:
 			mi.material_override = sm
 			corpo.add_child(mi)
 			mats.append(sm)
-		return {"raiz": r, "corpo": corpo, "mats": mats, "esc": (md[0][1] as Transform3D).basis.get_scale().y, "fase": rng.randf() * TAU}
+		return {"raiz": r, "corpo": corpo, "mats": mats, "xf": md[0][1], "mao_d": Vector3.ZERO, "mao_e": Vector3.ZERO, "esc": (md[0][1] as Transform3D).basis.get_scale().y, "fase": rng.randf() * TAU}
 	var raiz := Node3D.new()
 	raiz.name = "Yeti"
 	pai.add_child(raiz)
@@ -255,7 +254,62 @@ static func criar(pai: Node3D, semente: int) -> Dictionary:
 	return {"raiz": raiz, "esq": esq, "ossos": ids, "fase": rng.randf() * TAU}
 
 
-## modo: "parado", "salto" (u 0..1 do pulo) ou "agarrado" (balanço do carro em `ginga`).
+## Arremesso da bola de neve (yetis da plataforma): tempos em segundos em relação ao instante em que a
+## bola sai da mão. Antes: agacha e junta a neve com as duas mãos, levanta torcendo o corpo, a mão direita
+## vai para trás da cabeça com a bola e a esquerda aponta o alvo. Depois: o corpo desce junto com o braço.
+const ARREMESSO_ANTES := 1.5
+const ARREMESSO_DEPOIS := 0.75
+const ARREMESSO_JUNTA := -0.95    # até aqui a bola está nas duas mãos, no chão
+# [t, giro do corpo, inclinação, y, z, braço direito (frente, fora, cotovelo), braço esquerdo, pernas (e, d), mãos]
+const ARREMESSO := [
+	[-1.5, 0.0, 0.08, 0.0, 0.0, Vector3(0.1, 0.08, 0.15), Vector3(0.1, 0.08, 0.15), Vector2(0.0, 0.0), 0.3],
+	[-1.15, 0.0, 0.75, -0.22, 0.0, Vector3(0.75, -0.25, 0.25), Vector3(0.75, -0.25, 0.25), Vector2(0.6, 0.6), 1.0],
+	[-0.95, 0.0, 0.72, -0.2, 0.0, Vector3(0.8, -0.34, 0.3), Vector3(0.8, -0.34, 0.3), Vector2(0.6, 0.6), 1.0],
+	[-0.45, -0.7, -0.22, 0.0, -0.1, Vector3(3.5, 0.35, 1.5), Vector3(1.45, 0.1, 0.15), Vector2(0.35, -0.3), 1.0],
+	[-0.25, -0.8, -0.28, 0.0, -0.12, Vector3(3.7, 0.4, 1.7), Vector3(1.5, 0.05, 0.1), Vector2(0.4, -0.35), 1.0],
+	[0.0, 0.25, 0.3, 0.0, 0.15, Vector3(2.05, 0.15, 0.15), Vector3(0.2, 0.2, 1.0), Vector2(0.2, -0.45), 0.2],
+	[0.16, 0.6, 0.55, -0.08, 0.25, Vector3(0.7, -0.45, 0.2), Vector3(-0.35, 0.25, 1.2), Vector2(0.1, -0.55), 0.0],
+	[0.45, 0.3, 0.3, 0.0, 0.1, Vector3(0.3, -0.2, 0.3), Vector3(0.0, 0.15, 0.6), Vector2(0.0, -0.2), 0.3],
+	[0.75, 0.0, 0.08, 0.0, 0.0, Vector3(0.1, 0.08, 0.15), Vector3(0.1, 0.08, 0.15), Vector2(0.0, 0.0), 0.3],
+]
+
+
+## Quadro do arremesso no instante `t` (s em relação à soltura): mesma ordem de ARREMESSO, sem o tempo.
+## O chicote (da mão atrás da cabeça até soltar) acelera; a continuação desacelera.
+static func _quadro_arremesso(t: float) -> Array:
+	var n := ARREMESSO.size()
+	t = clampf(t, float(ARREMESSO[0][0]), float(ARREMESSO[n - 1][0]))
+	var k := 0
+	while k < n - 2 and t > float(ARREMESSO[k + 1][0]):
+		k += 1
+	var a: Array = ARREMESSO[k]
+	var b: Array = ARREMESSO[k + 1]
+	var f := clampf((t - float(a[0])) / (float(b[0]) - float(a[0])), 0.0, 1.0)
+	if float(b[0]) == 0.0:
+		f = f * f
+	elif float(a[0]) == 0.0:
+		f = 1.0 - (1.0 - f) * (1.0 - f)
+	else:
+		f = smoothstep(0.0, 1.0, f)
+	var q := []
+	for j in range(1, 9):
+		q.append(lerp(a[j], b[j], f))
+	return q
+
+
+## Palma da mão do yeti pronto (lado +1 = esquerda, -1 = direita) no espaço da raiz, com o braço nos
+## ângulos `ang`: as mesmas contas do shader (yeti_modelo.gdshader).
+static func _palma(y: Dictionary, lado: float, ang: Vector3) -> Vector3:
+	var om := Vector3(0.43 * lado, 0.38, 0.0)
+	var co := Vector3(0.62 * lado, 0.08, 0.05)
+	var h := Vector3(0.6 * lado, -0.4, 0.2)
+	h = co + Basis(Vector3.RIGHT, -ang.z) * (h - co)
+	h = om + Basis(Vector3.BACK, lado * ang.y) * Basis(Vector3.RIGHT, -ang.x) * (h - om)
+	return (y.corpo as Node3D).transform * ((y.xf as Transform3D) * h)
+
+
+## modo: "parado", "salto" (u 0..1 do pulo), "arremesso" (u = segundos em relação à soltura da bola) ou
+## "agarrado" (u 0..1 sentando; balanço do carro em `ginga`).
 static func pose(y: Dictionary, t: float, modo: String, u := 0.0, ginga := 0.0) -> void:
 	if y.has("corpo"):
 		_pose_modelo(y, t, modo, u, ginga)
@@ -292,6 +346,7 @@ static func pose(y: Dictionary, t: float, modo: String, u := 0.0, ginga := 0.0) 
 				esq.set_bone_pose_rotation(o["canela_d" if s > 0.0 else "canela_e"], q.call(Vector3.RIGHT, 1.4 * abre))
 		"arremesso":
 			# Braço direito vai para trás (u até 1) com a bola e joga por cima do ombro
+			u = clampf((u + 0.95) / 0.95, 0.0, 1.0) if u < 0.0 else clampf(1.0 - u / 0.4, 0.0, 1.0)
 			esq.set_bone_pose_rotation(o.tronco, q.call(Vector3.RIGHT, 0.15) * q.call(Vector3.UP, -0.4 * u))
 			esq.set_bone_pose_rotation(o.peito, q.call(Vector3.RIGHT, -0.1 * u))
 			esq.set_bone_pose_rotation(o.cabeca, q.call(Vector3.RIGHT, -0.2))
@@ -325,9 +380,7 @@ static func pose(y: Dictionary, t: float, modo: String, u := 0.0, ginga := 0.0) 
 ## - parado: braços soltos balançando; de vez em quando bate no peito, um punho de cada vez, pulando;
 ## - salto: braços para cima e para fora, pernas encolhidas;
 ## - arremesso: a mão direita vai para trás por cima do ombro (u até 1) e o corpo torce;
-## - agarrado: deitado de bruços no teto (o nó já vem deitado), braços abertos por cima do teto e os
-##   antebraços descendo pelas laterais com as mãos fechadas na lataria; os braços puxam e soltam um de
-##   cada vez (escorrega e se segura) e acompanham o balanço da curva; as pernas pendem e chutam.
+## - agarrado: sentado no teto, pernas penduradas no para-brisa, socando o vidro com um punho de cada vez.
 static func _pose_modelo(y: Dictionary, t: float, modo: String, u: float, ginga: float) -> void:
 	var c: Node3D = y.corpo
 	var ph: float = t + float(y.fase)
@@ -355,24 +408,33 @@ static func _pose_modelo(y: Dictionary, t: float, modo: String, u: float, ginga:
 			pe = Vector2(1.0, 1.0) * 1.0 * e
 			maos = 0.0
 		"arremesso":
-			c.position = Vector3.ZERO
-			c.basis = Basis(Vector3.UP, -0.5 * u) * Basis(Vector3.RIGHT, -0.2 * u)
-			bd = Vector3(2.7 * u, 0.25, 1.3 * u)
-			be = Vector3(0.7 * u, 0.3, 0.4)
-			pe = Vector2(0.25, -0.15) * u
-			maos = 0.8
+			# Entra e sai do arremesso a partir da pose parada (sem tranco)
+			var q := _quadro_arremesso(u)
+			var k := smoothstep(-ARREMESSO_ANTES, -ARREMESSO_ANTES + 0.3, u) * (1.0 - smoothstep(ARREMESSO_DEPOIS - 0.3, ARREMESSO_DEPOIS, u))
+			c.position = Vector3(0.0, float(q[2]), float(q[3])) * k
+			c.basis = Basis(Vector3.UP, lerpf(0.4 * sin(ph * 0.4), float(q[0]), k)) * Basis(Vector3.RIGHT, lerpf(0.08 + 0.03 * resp, float(q[1]), k))
+			bd = Vector3(0.12 * sin(ph * 0.9 + 1.3), 0.08 + 0.04 * resp, 0.15).lerp(q[4], k)
+			be = Vector3(0.12 * sin(ph * 0.9), 0.08 + 0.04 * resp, 0.15).lerp(q[5], k)
+			pe = (q[6] as Vector2) * k
+			maos = lerpf(0.3, float(q[7]), k)
 		"agarrado":
-			# Peito em cima do meio do teto, barriga encostada na lataria
-			var esc: float = y.get("esc", 1.37)
-			const NO_TETO := 0.95   # um pouco menor no teto: o carro tem ~2 m de largura
-			c.position = Vector3(0.0, -1.28 * esc * NO_TETO, -0.15)
-			c.basis = Basis(Vector3.BACK, 0.15 * ginga + 0.05 * sin(ph * 6.0)) * Basis(Vector3.RIGHT, 0.04 * sin(ph * 9.0)) * Basis.from_scale(Vector3.ONE * NO_TETO)
-			# Um braço puxa enquanto o outro afrouxa; na curva o de fora estica e o de dentro encolhe
-			var puxa := sin(ph * 4.5)
-			be = Vector3(0.3 + 0.12 * puxa, 1.85 - 0.15 * ginga, 0.7 + 0.25 * puxa)
-			bd = Vector3(0.3 - 0.12 * puxa, 1.85 + 0.15 * ginga, 0.7 - 0.25 * puxa)
-			pe = Vector2(0.55 + 0.4 * sin(ph * 5.0), 0.55 + 0.4 * sin(ph * 5.0 + PI))
+			# Sentado no teto, de frente para a estrada, as pernas penduradas por cima do para-brisa,
+			# curvado para a frente; os braços sobem por cima da cabeça e descem socando o vidro, um de
+			# cada vez, e o corpo pula a cada soco. Na curva ele tomba para o lado de fora. u: 0..1 logo
+			# depois de cair no teto (sai de pé, do pulo, e senta).
+			const NO_TETO := 0.8   # menor no teto: o carro tem ~2 m de largura
+			var soco_e := pow(0.5 + 0.5 * sin(ph * 7.0), 2.0)
+			var soco_d := pow(0.5 + 0.5 * sin(ph * 7.0 + PI), 2.0)
+			var pulo := absf(sin(ph * 7.0)) * 0.06
+			var senta := smoothstep(0.0, 1.0, u)
+			c.position = Vector3(0.0, -0.35 - 0.62 * NO_TETO + pulo, -0.35) * senta
+			c.basis = Basis(Vector3.BACK, 0.2 * ginga + 0.04 * sin(ph * 3.0)) * Basis(Vector3.RIGHT, 0.32 + 0.06 * sin(ph * 14.0)) * Basis.from_scale(Vector3.ONE * NO_TETO)
+			be = Vector3(0.9 + 1.7 * soco_e, 0.3 - 0.15 * ginga, 0.2 + 0.7 * soco_e)
+			bd = Vector3(0.9 + 1.7 * soco_d, 0.3 + 0.15 * ginga, 0.2 + 0.7 * soco_d)
+			pe = Vector2(1.15 + 0.2 * sin(ph * 5.0), 1.15 + 0.2 * sin(ph * 5.0 + PI)) * senta
 			maos = 1.0
+	y.mao_d = _palma(y, -1.0, bd)
+	y.mao_e = _palma(y, 1.0, be)
 	for m: ShaderMaterial in y.mats:
 		m.set_shader_parameter("braco_e", be)
 		m.set_shader_parameter("braco_d", bd)

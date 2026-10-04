@@ -842,10 +842,15 @@ func eliminar(motivo := "") -> void:
 		if t is Transform3D:
 			if OS.get_environment("TSC_QUEDAS") != "":
 				print("[QUEDA] %s %s em %s v=%.1f" % [nome_piloto, motivo, str(global_position.snapped(Vector3.ONE)), linear_velocity.length()])
-			var estouro := Explosao.new()
-			get_parent().add_child(estouro)
-			estouro.global_position = global_position + Vector3.UP * 0.8
-			estouro.reset_physics_interpolation()
+			# Buraco de água (Frozen Peak): respingo no lugar da explosão
+			var plat = complexo.get("plataforma")
+			if motivo == "buraco" and plat != null and bool(plat.get("buracos_agua")):
+				Recinto.respingo(get_parent(), global_position)
+			else:
+				var estouro := Explosao.new()
+				get_parent().add_child(estouro)
+				estouro.global_position = global_position + Vector3.UP * 0.8
+				estouro.reset_physics_interpolation()
 			telemetria.quedas = int(telemetria.get("quedas", 0)) + 1
 			ressurgir(t, float(Config.valor("mapa.subida.checkpoints.fantasma_s", 3.0)))
 			return

@@ -45,6 +45,12 @@ var _cabines: Array = []            # [nó, fase 0..1]
 var _tele := {}
 var _baloes: Array = []             # [nó, base, fase]
 var _dirigiveis: Array = []         # {no, c, raio, vel, fase}
+# Malha das agulhas em montagem (_pico acumula, _montar_pilares fecha)
+var _pk_pos := PackedVector3Array()
+var _pk_nor := PackedVector3Array()
+var _pk_cor := PackedColorArray()
+var _pk_idx := PackedInt32Array()
+var _pk_ping: Array = []
 
 
 # ------------------------------------------------------------------ materiais (compartilhados)
@@ -72,13 +78,29 @@ static func material(m: Mat) -> Material:
 			s.set_shader_parameter("ruido", Terreno._textura_ruido(0.05, 4, 311))
 			if m == Mat.GELO:
 				# Gelo de geleira maciço (agulhas, seracs, pingentes): azul mais fundo que o dos blocos
-				s.set_shader_parameter("cor_gelo", Color(0.17, 0.5, 0.78))
-				s.set_shader_parameter("cor_gelo_fundo", Color(0.03, 0.2, 0.46))
-				s.set_shader_parameter("brilho", 0.1)
-				s.set_shader_parameter("neve", 0.6)
+				s.set_shader_parameter("cor_gelo", Color(0.4, 0.8, 1.0))
+				s.set_shader_parameter("cor_gelo_fundo", Color(0.04, 0.28, 0.62))
+				s.set_shader_parameter("brilho", 0.22)
+				s.set_shader_parameter("relevo", 1.6)   # (pedido do dono: todo gelo do mapa com o acabamento dos maciços dos alvos)
+				s.set_shader_parameter("neve", 1.0)
 			r = s
 	_mats[m] = r
 	return r
+
+
+## Gelo de gotejamento dos maciços em volta dos alvos (e da base do esmagador, a pedido do dono: "a mesma
+## textura"): o gelo de estrias (modo 0) mais azul e aceso, com neve nas faces de cima.
+static func material_fenda() -> ShaderMaterial:
+	if not _mats.has("gelo_fenda"):
+		var mg := (material(Mat.GELO) as ShaderMaterial).duplicate() as ShaderMaterial
+		mg.set_shader_parameter("cor_gelo", Color(0.4, 0.8, 1.0))
+		mg.set_shader_parameter("cor_gelo_fundo", Color(0.04, 0.28, 0.62))
+		mg.set_shader_parameter("brilho", 0.22)
+		mg.set_shader_parameter("neve", 1.0)
+		mg.set_shader_parameter("relevo", 1.6)
+		mg.set_shader_parameter("sem_pe", 1.0)
+		_mats["gelo_fenda"] = mg
+	return _mats["gelo_fenda"]
 
 
 ## Blocos de gelo com fiada/bloco próprios (muralhas grandes usam blocos maiores).
@@ -249,6 +271,131 @@ static func malha_prisma(lados: int, topo: float) -> CylinderMesh:
 		c.rings = 1
 		_mats[chave] = c
 	return _mats[chave]
+
+
+## Estalactite de gelo de verdade (agulhas, seracs, lascas, pingentes), no lugar do prisma liso: raio ~1
+## embaixo, `topo` em cima, altura 1 centrada em y = 0 (troca direta de malha_prisma). Cada `variante`
+## sorteia as caneluras verticais (escorridos de água que congelou, cada uma de uma largura e fundura),
+## os bojos de gotejamento (de um lado só), as ondas de crescimento, a torção das caneluras e um leve
+## entortar: as peças não saem iguais. `detalhe` 0..2 = resolução (0 para as que são muitas e pequenas).
+static func malha_estalactite(variante: int, topo: float, detalhe := 1) -> ArrayMesh:
+	var chave := "estalactite_%d_%.2f_%d" % [variante, topo, detalhe]
+	if _mats.has(chave):
+		return _mats[chave]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7919 * (variante + 1) + int(topo * 100.0) * 31 + 5
+	var seg: int = [14, 28, 48][detalhe]
+	var aneis: int = [6, 18, 40][detalhe]
+	var nc := rng.randi_range(5, 12)
+	var canais: Array = []      # [ângulo, largura (rad), fundura]
+	for k in nc:
+		canais.append([TAU * (k + rng.randf_range(-0.35, 0.35)) / nc, rng.randf_range(0.08, 0.4), rng.randf_range(0.04, 0.2)])
+	var torcao := rng.randf_range(-0.9, 0.9)
+	var bojos: Array = []       # [altura (0..1), largura, força, lado]
+	for k in rng.randi_range(2, 5):
+		bojos.append([rng.randf_range(0.04, 0.85), rng.randf_range(0.025, 0.08), rng.randf_range(0.03, 0.13), rng.randf() * TAU])
+	var expo := rng.randf_range(0.7, 1.6)
+	var onda_f := rng.randf_range(7.0, 15.0)
+	var onda_a := rng.randf_range(0.01, 0.03)
+	var onda_fase := rng.randf() * TAU
+	var ent_dir := rng.randf() * TAU
+	var ent := rng.randf_range(0.0, 0.06)
+	var cols := seg + 1
+	var pos := PackedVector3Array()
+	pos.resize(cols * (aneis + 1))
+	# Cor do vértice = luz que chega (fundo das caneluras escuro): o shader do gelo lê COLOR.r
+	var luz := PackedColorArray()
+	luz.resize(pos.size())
+	for j in aneis + 1:
+		var t := float(j) / aneis
+		var base := lerpf(1.0, topo, pow(t, expo)) * (1.0 + onda_a * sin(t * onda_f + onda_fase))
+		var desvio := Vector2(cos(ent_dir), sin(ent_dir)) * ent * t * t
+		for i in cols:
+			var a := TAU * i / seg
+			var at := a + torcao * t
+			var sulco := 0.0
+			for cn: Array in canais:
+				var d := wrapf(at - float(cn[0]), -PI, PI) / float(cn[1])
+				sulco += float(cn[2]) * exp(-d * d)
+			var bojo := 0.0
+			for bj: Array in bojos:
+				var dt := (t - float(bj[0])) / float(bj[1])
+				bojo += float(bj[2]) * exp(-dt * dt) * (0.55 + 0.45 * cos(a - float(bj[3])))
+			var caroco := 0.018 * sin(a * 3.0 + t * 11.0 + variante) * sin(a * 5.0 - t * 7.0)
+			var r := base * clampf(1.0 - sulco + bojo + caroco, 0.3, 1.06)   # bojo não passa da colisão
+			pos[j * cols + i] = Vector3(cos(a) * r + desvio.x, t - 0.5, sin(a) * r + desvio.y)
+			var fundo := clampf(sulco / 0.16, 0.0, 1.0)
+			luz[j * cols + i] = Color.WHITE * (1.0 - 0.75 * fundo * fundo)
+	var nor := PackedVector3Array()
+	nor.resize(pos.size())
+	var uv := PackedVector2Array()
+	uv.resize(pos.size())
+	for j in aneis + 1:
+		for i in cols:
+			var ia := posmod(i - 1, seg)
+			var ib := posmod(i + 1, seg)
+			var dtheta := pos[j * cols + ib] - pos[j * cols + ia]
+			var dalt := pos[mini(j + 1, aneis) * cols + i] - pos[maxi(j - 1, 0) * cols + i]
+			var n := dalt.cross(dtheta)
+			nor[j * cols + i] = n.normalized() if n.length_squared() > 1e-10 else Vector3.UP
+			uv[j * cols + i] = Vector2(float(i) / seg, float(j) / aneis)
+	var idx := PackedInt32Array()
+	for j in aneis:
+		for i in seg:
+			var a0 := j * cols + i
+			var c0 := a0 + cols
+			idx.append_array([a0, a0 + 1, c0, a0 + 1, c0 + 1, c0])
+	# Tampas (embaixo some no chão; em cima, para as agulhas, fica sob a capa de neve)
+	for lado in 2:
+		if lado == 1 and topo < 0.02:
+			break
+		var j := 0 if lado == 0 else aneis
+		var n := Vector3.DOWN if lado == 0 else Vector3.UP
+		var centro := Vector3.ZERO
+		for i in seg:
+			centro += pos[j * cols + i]
+		centro /= seg
+		centro.y += 0.0 if lado == 0 else topo * 0.08
+		var c := pos.size()
+		pos.append(centro)
+		nor.append(n)
+		luz.append(Color.WHITE)
+		uv.append(Vector2(0.5, float(lado)))
+		for i in cols:
+			pos.append(pos[j * cols + i])
+			nor.append(n)
+			luz.append(Color.WHITE)
+			uv.append(Vector2(float(i) / seg, float(lado)))
+		for i in seg:
+			if lado == 0:
+				idx.append_array([c, c + 2 + i, c + 1 + i])
+			else:
+				idx.append_array([c, c + 1 + i, c + 2 + i])
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = pos
+	arr[Mesh.ARRAY_NORMAL] = nor
+	arr[Mesh.ARRAY_TEX_UV] = uv
+	arr[Mesh.ARRAY_COLOR] = luz
+	arr[Mesh.ARRAY_INDEX] = idx
+	var m := ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	_mats[chave] = m
+	return m
+
+
+## Instâncias de gelo (Mat.GELO) repartidas entre `variantes` estalactites diferentes: vizinhas não
+## saem iguais. Mesmos transforms de malha_prisma (raio 1, altura 1 centrada).
+static func instancias_gelo(pai: Node, xfs: Array, topo: float, detalhe := 1, sombra := true, alcance := 0.0, variantes := 6) -> void:
+	var grupos: Array = []
+	for v in variantes:
+		grupos.append([])
+	for i in xfs.size():
+		var o: Vector3 = (xfs[i] as Transform3D).origin
+		var v := int(Terreno._hash2(int(floor(o.x * 3.1)) + i * 13, int(floor(o.z * 2.7 + o.y))) * variantes) % variantes
+		grupos[v].append(xfs[i])
+	for v in variantes:
+		_instancias(pai, malha_estalactite(v, topo, detalhe), grupos[v], material(Mat.GELO), sombra, alcance)
 
 
 static func _textura_floco() -> ImageTexture:
@@ -535,59 +682,352 @@ func _miolos(pai: Node3D, etapa: int) -> void:
 
 # ------------------------------------------------------------------ agulhas de gelo (pilares)
 
-## Agulha de gelo: prisma de 7 lados afunilado, com base de lascas menores, capa de neve e baliza
-## vermelha piscando no alto (para quem vem voando).
-func _montar_pilares(pai: Node3D, lista: Array) -> void:
+## Agulhas de gelo (pedido do dono, 2026-10-04, arte em assets/frozen/extruturas/fenda de gelo.png: "quero
+## igual da imagem"): cada agulha é um MACIÇO — um pico principal gordo, de base larga, que afina torto
+## até uma ponta rombuda, com picos menores de alturas variadas fundidos em volta e rochedos de gelo no
+## pé (os maciços vizinhos se encostam na base). Os picos são malhas orgânicas facetadas (_pico): gomos
+## irregulares, ombros de um lado só com neve grossa em cima e cortina de pingentes embaixo, eixo torto.
+## Tudo em geometria (PortaoGelo empresta as facetas, a neve e os pingentes; material "fenda"). A ponta
+## do pico principal fica no eixo, na altura de sempre (as pontes de treliça apoiam nela). Colisão em
+## andares, acompanhando o perfil.
+func _montar_pilares(pai: Node3D, lista: Array, cheios: Array = []) -> void:
 	if lista.is_empty():
 		return
 	var corpo := _corpo(pai)
-	var fustes: Array = []
-	var lascas: Array = []
-	var capas: Array = []
-	var balizas: Array = []
+	var portao = load("res://scripts/mundo/portao_gelo.gd")
+	var geo: Node3D = portao.new()
+	var rng: RandomNumberGenerator = geo.get("_rng")
+	for nome: String in ["_st_pico", "_st_neve", "_st_cristal"]:
+		(geo.get(nome) as SurfaceTool).begin(Mesh.PRIMITIVE_TRIANGLES)
 	for col: Array in lista:
 		var c: Vector2 = col[0]
 		var r: float = col[1]
+		rng.seed = int(c.x) * 7349 + int(c.y) * 9151 + 17
+		# Pedido do dono (2026-10-04: "alargue a base, quero igual"; na etapa 3 também): o maciço tem a base
+		# larga da arte (~1/3 da altura) e se funde com as vizinhas de fresta menor que 32 m. Fresta maior
+		# (até 80 m) é PORTÃO de voo: para esse lado o gelo não passa do raio de sempre da agulha.
+		var juntas: Array = []      # direções das vizinhas coladas
+		var portoes: Array = []     # [ângulo do portão, raio máximo para esse lado]
+		var perto := INF
+		for outra: Array in lista:
+			var d := c.distance_to(outra[0])
+			if d < 0.5:
+				continue
+			perto = minf(perto, d)
+			var fresta := d - r - float(outra[1])
+			var dv: Vector2 = ((outra[0] as Vector2) - c) / d
+			if fresta < 32.0:
+				juntas.append([Vector3(dv.x, 0.0, dv.y), d])
+			elif fresta < 80.0:
+				portoes.append([atan2(dv.y, dv.x), r])
+		var gordo := clampf(float(col[2]) * 0.17, r * 1.1, r * 2.2)
+		# Alturas variadas (a arte não é uma cerca de pontas iguais); as que seguram ponte ficam inteiras.
+		# A altura mortal do terreno (altura()) acompanha: a lista é a mesma.
+		var inteira := false
+		for q: Vector2 in cheios:
+			if q.distance_to(c) < r:
+				inteira = true
+		if not inteira:
+			col[2] = float(col[2]) * (0.7 + 0.3 * rng.randf())
 		var alto: float = col[2]
-		var giro := Terreno._hash2(int(c.x), int(c.y)) * TAU
 		# Pé no chão do vale (altura_em já inclui a própria agulha: usá-la punha a agulha em cima dela mesma)
 		var base := Vector3(c.x, _chao - 3.0, c.y)
-		fustes.append(Transform3D(Basis(Vector3.UP, giro) * Basis.from_scale(Vector3(r, alto + 2.0, r)), base + Vector3.UP * (alto + 2.0) * 0.5))
-		for k in 5:
-			var a := giro + TAU * k / 5.0
-			var rk := r * (0.35 + 0.25 * Terreno._hash2(int(c.x) + k, int(c.y)))
-			var hk := alto * (0.18 + 0.2 * Terreno._hash2(int(c.x), int(c.y) + k))
-			var eixo := (Vector3.UP + Vector3(cos(a), 0.0, sin(a)) * 0.22).normalized()
-			var bk := Basis(Quaternion(Vector3.UP, eixo)) * Basis.from_scale(Vector3(rk, hk, rk))
-			lascas.append(Transform3D(bk, base + Vector3(cos(a), 0.0, sin(a)) * r * 0.95 + eixo * hk * 0.5))
-		capas.append(Transform3D(Basis.from_scale(Vector3(r * 0.6, r * 0.5, r * 0.6)), base + Vector3.UP * (alto + 2.0 + r * 0.25)))
-		balizas.append(Transform3D(Basis.from_scale(Vector3.ONE * 2.4), base + Vector3.UP * (alto + 2.0 + r * 0.5 + 1.2)))
-		# Colisão em dois andares (o prisma afunila)
-		for par: Array in [[0.25, 0.95, 0.5], [0.75, 0.74, 0.5]]:
+		var h := alto + 2.0 + r * 0.5
+		_pico(geo, corpo, base, h, gordo / 1.4, Vector3.ZERO, 20, 18, 0.3, portoes)
+		# Picos menores fundidos: entre esta agulha e cada vizinha colada (fecham o maciço)...
+		for jt: Array in juntas:
+			var dir: Vector3 = jt[0]
+			var meio := float(jt[1]) * 0.5
+			for k in rng.randi_range(1, 2):
+				var fr := rng.randf_range(0.3, 0.82)
+				var hk := h * fr
+				var lado := dir.cross(Vector3.UP) * gordo * rng.randf_range(-0.6, 0.6)
+				_pico(geo, corpo, base + dir * meio * rng.randf_range(0.45, 0.95) + lado, hk, gordo * rng.randf_range(0.4, 0.62), dir * hk * rng.randf_range(-0.04, 0.04), 12, 11, 0.3)
+		# ...e em volta, encostados no principal (dentro do raio de sempre: não fecham passagem)
+		var fase := rng.randf() * TAU
+		var qtd_p := rng.randi_range(3, 5)
+		for k in qtd_p:
+			var ang := fase + TAU * (k + rng.randf_range(-0.3, 0.3)) / qtd_p
+			var dir := Vector3(cos(ang), 0.0, sin(ang))
+			var fr := rng.randf_range(0.2, 0.6)
+			var hk := h * fr
+			var rk := gordo * rng.randf_range(0.3, 0.45)
+			if _no_portao(portoes, ang):
+				continue
+			_pico(geo, corpo, base + dir * (gordo * 0.9 - rk * 0.6), hk, rk, dir * hk * rng.randf_range(0.0, 0.04), 11, 9, 0.2)
+		# Rochedos de gelo no pé e montes de neve
+		var qtd_r := rng.randi_range(6, 9)
+		for k in qtd_r:
+			var ang := fase + 0.5 + TAU * (k + rng.randf_range(-0.35, 0.35)) / qtd_r
+			var dir := Vector3(cos(ang), 0.0, sin(ang))
+			var hk := h * rng.randf_range(0.05, 0.16)
+			var rk := r * rng.randf_range(0.3, 0.5)
+			if _no_portao(portoes, ang):
+				continue
+			_pico(geo, corpo, base + dir * (gordo + rk * rng.randf_range(0.2, 0.9)), hk, rk, dir * hk * rng.randf_range(0.05, 0.25), 9, 6, 0.0)
+			var pm := base + dir.rotated(Vector3.UP, 0.45) * (gordo + r * rng.randf_range(0.3, 0.8)) + Vector3.UP * 2.0
+			var rm := r * rng.randf_range(0.35, 0.6)
+			geo.call("_prisma", geo.get("_st_neve"), pm, Vector3.UP, 12,
+				[Vector2(0.0, rm), Vector2(rm * 0.22, rm * 0.82), Vector2(rm * 0.4, rm * 0.5)], rm * 0.08, 0.1, Vector2(1.0, rng.randf_range(0.6, 0.9)), true, true)
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = _pk_pos
+	arr[Mesh.ARRAY_NORMAL] = _pk_nor
+	arr[Mesh.ARRAY_COLOR] = _pk_cor
+	arr[Mesh.ARRAY_INDEX] = _pk_idx
+	var malha := ArrayMesh.new()
+	malha.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	var mi_g := MeshInstance3D.new()
+	mi_g.mesh = malha
+	mi_g.material_override = material_fenda()
+	pai.add_child(mi_g)
+	Gelo.instancias_gelo(pai, _pk_ping, 0.0, 0, false, 1400.0)
+	var mi_n := MeshInstance3D.new()
+	mi_n.mesh = (geo.get("_st_neve") as SurfaceTool).commit()
+	mi_n.material_override = material(Mat.NEVE)
+	pai.add_child(mi_n)
+	for lista_pk in [_pk_pos, _pk_nor, _pk_cor, _pk_idx, _pk_ping]:
+		lista_pk.clear()
+	geo.free()
+
+
+## Pedestal de gelo de gotejamento (o mesmo dos maciços dos alvos) do chão até `topo` (mundo), para o
+## que fica pendurado na beira de estrada alta (geleira das focas: pedido do dono, "o gelo sem base
+## nenhuma"). `para_estrada` = direção da pista: desse lado o gelo não passa de `folga` m do eixo.
+func pedestal(pai: Node3D, pe: Vector3, topo: float, r: float, para_estrada: Vector3, folga: float, semente: int) -> void:
+	var geo: Node3D = load("res://scripts/mundo/portao_gelo.gd").new()
+	var rng: RandomNumberGenerator = geo.get("_rng")
+	rng.seed = semente
+	var corpo := _corpo(pai, false)
+	corpo.top_level = true
+	corpo.global_transform = Transform3D.IDENTITY
+	var solo := _terreno.altura_em(pe.x, pe.z) - 3.0
+	var base := Vector3(pe.x, solo, pe.z)
+	var h := topo - solo
+	var corte := [[atan2(para_estrada.z, para_estrada.x), folga]]
+	_pico(geo, corpo, base, h, r, Vector3.ZERO, 16, 14, 3.0, corte)
+	# Picos menores encostados, do lado de fora da pista
+	for k in rng.randi_range(3, 4):
+		var ang := atan2(-para_estrada.z, -para_estrada.x) + rng.randf_range(-1.3, 1.3)
+		var dir := Vector3(cos(ang), 0.0, sin(ang))
+		var hk := h * rng.randf_range(0.25, 0.7)
+		_pico(geo, corpo, base + dir * r * rng.randf_range(0.9, 1.5), hk, r * rng.randf_range(0.45, 0.7), dir * hk * 0.03, 11, 9, 0.2)
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = _pk_pos
+	arr[Mesh.ARRAY_NORMAL] = _pk_nor
+	arr[Mesh.ARRAY_COLOR] = _pk_cor
+	arr[Mesh.ARRAY_INDEX] = _pk_idx
+	var malha := ArrayMesh.new()
+	malha.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	var mi := MeshInstance3D.new()
+	mi.mesh = malha
+	mi.material_override = material_fenda()
+	corpo.add_child(mi)
+	Gelo.instancias_gelo(corpo, _pk_ping, 0.0, 0, false, 900.0)
+	for lista_pk in [_pk_pos, _pk_nor, _pk_cor, _pk_idx, _pk_ping]:
+		lista_pk.clear()
+	geo.free()
+
+
+## Maciço de gelo de gotejamento (o dos alvos) nas coordenadas locais de `pai` (portão de gelo: pedido do
+## dono). picos = [[base, altura, raio, ponta, cortes], ...]; cortes = [[ângulo, raio máximo], ...].
+## Colisão própria (não mata).
+func macico(pai: Node3D, picos: Array, semente: int) -> void:
+	var geo: Node3D = load("res://scripts/mundo/portao_gelo.gd").new()
+	(geo.get("_rng") as RandomNumberGenerator).seed = semente
+	var corpo := _corpo(pai, false)
+	for p: Array in picos:
+		var grande: bool = float(p[1]) > 16.0
+		_pico(geo, corpo, p[0], p[1], p[2], Vector3.ZERO, 16 if grande else 11, 14 if grande else 9, p[3], p[4])
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = _pk_pos
+	arr[Mesh.ARRAY_NORMAL] = _pk_nor
+	arr[Mesh.ARRAY_COLOR] = _pk_cor
+	arr[Mesh.ARRAY_INDEX] = _pk_idx
+	var malha := ArrayMesh.new()
+	malha.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	var mi := MeshInstance3D.new()
+	mi.mesh = malha
+	mi.material_override = material_fenda()
+	corpo.add_child(mi)
+	Gelo.instancias_gelo(corpo, _pk_ping, 0.0, 0, false, 600.0)
+	for lista_pk in [_pk_pos, _pk_nor, _pk_cor, _pk_idx, _pk_ping]:
+		lista_pk.clear()
+	geo.free()
+
+
+## O ângulo `ang` aponta para um portão de voo? (nada de pico extra desse lado)
+func _no_portao(portoes: Array, ang: float) -> bool:
+	for pt: Array in portoes:
+		if cos(wrapf(ang - float(pt[0]), -PI, PI)) > 0.3:
+			return true
+	return false
+
+
+## Pico de gelo orgânico e facetado, de pé em `base`: altura `h`, raio `r` no pé (que ainda alarga na
+## saia), ponta deslocada de `tomba` (0 = a ponta fica em cima da base). `seg` x `aneis` facetas.
+## O contorno tem gomos que giram com a altura; dois ou três ombros, cada um de um lado, cortam o raio
+## de uma vez — em cima do ombro vai neve grossa, embaixo uma cortina de pingentes. `ponta` = raio da
+## ponta em fração de r (0 = pontuda). Colisão: cilindros em andares no `corpo`.
+## `portoes` = [[ângulo, raio máximo], ...]: para esses lados (portões de voo) o contorno é cortado.
+func _pico(geo: Node3D, corpo: StaticBody3D, base: Vector3, h: float, r: float, tomba: Vector3, seg: int, aneis: int, ponta: float, portoes: Array = []) -> void:
+	# Pedido do dono (2026-10-04: "tudo reto, sem qualidade; quero curvas e sombreado, gelo que foi pingando
+	# com o tempo"): malha LISA de alta resolução (normais suaves), feita como estalagmite de gotejamento —
+	# caneluras verticais que torcem com a altura (fundo escuro: COLOR.r), andares de bojos como cera de
+	# vela (em cima arredondado, embaixo um beiral de onde pendem pingentes finos), escorridos que descem e
+	# terminam em gota, ponta em cúpula. Vai tudo numa malha só (_pk_*), com o gelo de estrias (modo 0).
+	var rng: RandomNumberGenerator = geo.get("_rng")
+	seg *= 2
+	aneis *= 3
+	const NT := 256
+	var canais: Array = []
+	var nc := rng.randi_range(7, 12)
+	for k in nc:
+		canais.append([TAU * (k + rng.randf_range(-0.35, 0.35)) / nc, rng.randf_range(0.08, 0.26), rng.randf_range(0.1, 0.3)])
+	var tab := PackedFloat32Array()
+	tab.resize(NT)
+	for q in NT:
+		var sv := 0.0
+		for cn: Array in canais:
+			var d := wrapf(TAU * q / NT - float(cn[0]), -PI, PI) / float(cn[1])
+			sv += float(cn[2]) * exp(-d * d)
+		tab[q] = sv
+	var torcao := rng.randf_range(-1.2, 1.2)
+	var g_a := rng.randf_range(0.04, 0.1)
+	var g_fa := rng.randf() * TAU
+	var g_b := rng.randf_range(0.03, 0.08)
+	var g_fb := rng.randf() * TAU
+	var andares_b: Array = []    # [altura, força, lado, meia largura (rad)]
+	var t_o := rng.randf_range(0.12, 0.22)
+	while t_o < 0.9:
+		andares_b.append([t_o, rng.randf_range(0.22, 0.45), rng.randf() * TAU, rng.randf_range(0.9, 2.2)])
+		t_o += rng.randf_range(0.07, 0.15)
+	var escorridos: Array = []   # [ângulo, pé, topo, largura (rad), força]
+	for k in seg / 2:
+		var t_b := rng.randf_range(0.03, 0.85)
+		escorridos.append([rng.randf() * TAU, t_b, minf(t_b + rng.randf_range(0.06, 0.25), 0.97), rng.randf_range(0.07, 0.18), rng.randf_range(0.1, 0.22)])
+	var expo := rng.randf_range(0.8, 1.2)
+	var fim := 0.07 + ponta * 0.15
+	var onda_a := rng.randf() * TAU
+	var onda := r * rng.randf_range(0.06, 0.16)
+	var ts := PackedFloat32Array()
+	for j in aneis + 1:
+		ts.append(float(j) / aneis)
+	for o: Array in andares_b:
+		ts.append(float(o[0]) - 0.011)
+		ts.append(float(o[0]) + 0.004)
+	ts.sort()
+	var cols := seg + 1
+	var v0 := _pk_pos.size()
+	var centros := PackedVector3Array()
+	var raios: Array[PackedFloat32Array] = []
+	for j in ts.size():
+		var t := ts[j]
+		var pf := lerpf(1.0, fim, pow(t, expo)) + 0.4 * exp(-t / 0.16)
+		if t > 0.94:
+			pf *= sqrt(maxf(1.0 - pow((t - 0.94) / 0.06, 2.0), 0.0))   # ponta em cúpula
+		var ativos_b: Array = []
+		for o: Array in andares_b:
+			var dt := t - float(o[0])
+			var fb := exp(-pow(dt / 0.012, 2.0)) if dt < 0.0 else exp(-pow(dt / 0.07, 2.0))
+			if fb > 0.01:
+				ativos_b.append([float(o[1]) * fb, o[2], o[3]])
+		var ativos_e: Array = []
+		for dp: Array in escorridos:
+			if t < float(dp[1]) - 0.03 or t > float(dp[2]):
+				continue
+			var fio := smoothstep(float(dp[1]) - 0.012, float(dp[1]) + 0.006, t) * (1.0 - smoothstep(float(dp[2]) - 0.06, float(dp[2]), t))
+			var gota := 0.9 * exp(-pow((t - float(dp[1]) - 0.012) / 0.016, 2.0))
+			ativos_e.append([float(dp[4]) * (fio + gota), dp[0], dp[3]])
+		var cc := base + Vector3.UP * (h * t) + tomba * t + Vector3(cos(onda_a + t * 4.0), 0.0, sin(onda_a + t * 4.0)) * onda * sin(t * PI)
+		centros.append(cc)
+		var liso := 1.0 - smoothstep(0.9, 1.0, t)
+		var anel := PackedFloat32Array()
+		for i in cols:
+			var a := TAU * i / seg
+			var sulco := tab[posmod(int((a + torcao * t) / TAU * NT), NT)] * liso
+			var m := 1.0 - sulco + g_a * cos(2.0 * a + g_fa + t * 1.3) + g_b * cos(3.0 * a + g_fb - t * 2.0)
+			for x: Array in ativos_b:
+				var d := wrapf(a - float(x[1]), -PI, PI)
+				if absf(d) < float(x[2]):
+					m += float(x[0]) * (0.5 + 0.5 * cos(d / float(x[2]) * PI))
+			for x: Array in ativos_e:
+				var d := wrapf(a - float(x[1]), -PI, PI) / float(x[2])
+				if absf(d) < 2.5:
+					m += float(x[0]) * exp(-d * d)
+			var raio := r * pf * m
+			for pt: Array in portoes:
+				var w := smoothstep(0.2, 0.75, cos(wrapf(a - float(pt[0]), -PI, PI)))
+				raio = lerpf(raio, minf(raio, float(pt[1])), w)
+			anel.append(raio)
+			_pk_pos.append(cc + Vector3(cos(a), 0.0, sin(a)) * raio)
+			var fundo := clampf(sulco / 0.28, 0.0, 1.0)
+			_pk_cor.append(Color.WHITE * (1.0 - 0.75 * fundo * fundo))
+		raios.append(anel)
+	var n_an := ts.size()
+	for j in n_an:
+		for i in cols:
+			var dtheta := _pk_pos[v0 + j * cols + posmod(i + 1, seg)] - _pk_pos[v0 + j * cols + posmod(i - 1, seg)]
+			var dalt := _pk_pos[v0 + mini(j + 1, n_an - 1) * cols + i] - _pk_pos[v0 + maxi(j - 1, 0) * cols + i]
+			var nn := dalt.cross(dtheta)
+			_pk_nor.append(nn.normalized() if nn.length_squared() > 1e-10 else Vector3.UP)
+	for j in n_an - 1:
+		for i in seg:
+			var a0 := v0 + j * cols + i
+			var c0 := a0 + cols
+			_pk_idx.append_array([a0, a0 + 1, c0, a0 + 1, c0 + 1, c0])
+	# Pingentes finos pendurados no beiral de cada andar e na gota de cada escorrido
+	if h > 14.0:
+		var esc_p := clampf(r / 20.0, 0.35, 1.0)
+		var anel_de := func(t: float) -> int:
+			var melhor := 0
+			for j in n_an:
+				if absf(ts[j] - t) < absf(ts[melhor] - t):
+					melhor = j
+			return melhor
+		var pendura := func(j: int, ang: float, l: float) -> void:
+			var i := posmod(int(round(ang / TAU * seg)), seg)
+			var p := centros[j] + Vector3(cos(TAU * i / seg), 0.0, sin(TAU * i / seg)) * raios[j][i] * 0.95
+			var rad := clampf(l * 0.06, 0.2, 0.7)
+			_pk_ping.append(Transform3D(Basis(Vector3.RIGHT, PI) * Basis.from_scale(Vector3(rad, l, rad)), p - Vector3.UP * l * 0.5))
+		for o: Array in andares_b:
+			var j: int = anel_de.call(float(o[0]) - 0.011)
+			var qtd := int(clampf(float(o[3]) * 2.0 * r / 1.1, 5.0, 46.0))
+			for k in qtd:
+				var l := (rng.randf_range(2.0, 6.0) if rng.randf() < 0.6 else rng.randf_range(7.0, 16.0)) * esc_p
+				pendura.call(j, float(o[2]) + float(o[3]) * rng.randf_range(-0.85, 0.85), l)
+		for dp: Array in escorridos:
+			pendura.call(anel_de.call(float(dp[1]) + 0.004), dp[0], rng.randf_range(1.0, 4.0) * esc_p)
+	# Colisão: cilindros em andares — miolo pelo menor raio do contorno e, onde o contorno passa bem dele
+	# (lado gordo, longe do portão), mais um cilindro encostado
+	var andares := 5 if h > 60.0 else (3 if h > 20.0 else 1)
+	for k in andares:
+		var tm := (k + 0.5) / andares
+		var jm := 0
+		for j in n_an:
+			if absf(ts[j] - tm) < absf(ts[jm] - tm):
+				jm = j
+		var oito := PackedFloat32Array()
+		var menor := INF
+		for i in 8:
+			oito.append(raios[jm][i * seg / 8])
+			menor = minf(menor, oito[i])
+		var miolo := menor * 0.92
+		var formas := [[centros[jm], miolo]]
+		for i in 8:
+			if oito[i] > miolo * 1.3:
+				var extra := (oito[i] * 0.94 - miolo) * 0.5 + miolo * 0.25
+				formas.append([centros[jm] + Vector3(cos(TAU * i / 8.0), 0.0, sin(TAU * i / 8.0)) * (oito[i] * 0.94 - extra), extra])
+		for fm: Array in formas:
 			var cs := CollisionShape3D.new()
 			var forma := CylinderShape3D.new()
-			forma.radius = r * float(par[1])
-			forma.height = (alto + 2.0) * float(par[2])
+			forma.radius = fm[1]
+			forma.height = h / andares
 			cs.shape = forma
-			cs.position = base + Vector3.UP * (alto + 2.0) * float(par[0])
+			cs.position = fm[0]
 			corpo.add_child(cs)
-	var prisma := malha_prisma(7, 0.52)
-	# A malha do cilindro é centrada: desloca para a base
-	_instancias(pai, prisma, fustes, material(Mat.GELO))
-	_instancias(pai, malha_prisma(5, 0.15), lascas, material(Mat.GELO))
-	_instancias(pai, malha_prisma(7, 0.05), capas, material(Mat.NEVE))
-	var esfera := SphereMesh.new()
-	esfera.radius = 0.5
-	esfera.height = 1.0
-	esfera.radial_segments = 10
-	esfera.rings = 5
-	var mat_b := ShaderMaterial.new()
-	mat_b.shader = load("res://shaders/luz_sequencial.gdshader")
-	mat_b.set_shader_parameter("cor", Color(1.0, 0.1, 0.06))
-	mat_b.set_shader_parameter("energia", 9.0)
-	mat_b.set_shader_parameter("velocidade", 5.0)
-	mat_b.set_shader_parameter("minimo", 0.05)
-	_instancias(pai, esfera, balizas, mat_b, false)
 
 
 ## Ponte de treliça no alto, de uma agulha à outra, marcando o portão por onde se passa voando:
@@ -825,6 +1265,25 @@ func _furo_redondo(pai: Node3D, corpo: StaticBody3D, bl: Basis, centro: Vector3,
 		for s: float in [-1.0, 1.0]:
 			tiras.append(Transform3D(bl * Basis.from_scale(Vector3(x1 - x0, r - h, esp)), centro + d * ((x0 + x1) * 0.5) + Vector3.UP * s * (h + r) * 0.5))
 	ComplexoLancamento.adicionar_colisoes(corpo, tiras)
+	# Por dentro do furo NÃO explode (pedido do dono, 2026-10-04): o túnel é piso, dá para pousar, andar
+	# por ele e sair do outro lado. Casca própria, fora do grupo "mortal", um pouco para dentro da muralha
+	# (as rodas acham o piso antes das tiras mortais) e passando 1 m de cada face (a beirada também é piso).
+	var piso := _corpo(pai, false)
+	var faces := PackedVector3Array()
+	var rp := r - 0.15
+	var fp := n * (esp * 0.5 + 1.0)
+	for k in SEG:
+		var a0 := TAU * k / SEG
+		var a1 := TAU * (k + 1) / SEG
+		var p0 := centro + (d * cos(a0) + Vector3.UP * sin(a0)) * rp
+		var p1 := centro + (d * cos(a1) + Vector3.UP * sin(a1)) * rp
+		faces.append_array([p0 - fp, p1 - fp, p1 + fp, p0 - fp, p1 + fp, p0 + fp])
+	var casca := ConcavePolygonShape3D.new()
+	casca.backface_collision = true
+	casca.set_faces(faces)
+	var cs_p := CollisionShape3D.new()
+	cs_p.shape = casca
+	piso.add_child(cs_p)
 	# Aro de aço e lâmpadas nas duas faces
 	var w := clampf(r * 0.09, 0.7, 2.2)
 	var luzes: Array[Transform3D] = []
@@ -885,7 +1344,7 @@ func _montar_seracs_e_rochas() -> void:
 			var b := Basis(Quaternion(Vector3.UP, eixo)) * Basis(Vector3.UP, rng.randf() * TAU) * Basis.from_scale(Vector3(r, h, r))
 			var chao := _terreno.altura_em(p.x, p.y)
 			seracs.append(Transform3D(b, Vector3(p.x, chao - 1.0, p.y) + eixo * h * 0.5))
-	_instancias(self, malha_prisma(5, 0.22), seracs, material(Mat.GELO), true, 3600.0)
+	instancias_gelo(self, seracs, 0.22, 0, true, 3600.0)
 	var rochas: Array = []
 	var meta := int(_cfg.get("rochas", 900))
 	tent = 0
@@ -1465,7 +1924,11 @@ func preparar_etapa(indice: int, cfg_etapa: Dictionary) -> void:
 	var e: Dictionary = _cfg.get("etapas", {}).get(str(indice + 1), {})
 	for c in e.get("pilares", []):
 		_pilares_etapa.append([Vector2(float(c[0]), float(c[1])), float(c[2]), float(c[3])])
-	_montar_pilares(_etapa_no, _pilares_etapa)
+	var cheios: Array = []   # agulhas que seguram ponte: altura inteira
+	for pt in e.get("pontes", []):
+		cheios.append(Vector2(float(pt[0]), float(pt[1])))
+		cheios.append(Vector2(float(pt[2]), float(pt[3])))
+	_montar_pilares(_etapa_no, _pilares_etapa, cheios)
 	for pt in e.get("pontes", []):
 		_montar_ponte(_etapa_no, Vector3(float(pt[0]), float(pt[4]), float(pt[1])), Vector3(float(pt[2]), float(pt[4]), float(pt[3])), float(pt[5]) if pt.size() > 5 else 20.0)
 	var muralhas: Array = e.get("muralhas", [])
@@ -1473,6 +1936,8 @@ func preparar_etapa(indice: int, cfg_etapa: Dictionary) -> void:
 		var corpo := _corpo(_etapa_no)
 		for m: Dictionary in muralhas:
 			_montar_muralha(_etapa_no, m, corpo)
+	if e.has("castelo"):
+		load("res://scripts/mundo/castelo_gelo.gd").montar(self, _etapa_no, e.castelo)
 	_miolos(_etapa_no, indice)
 	_vento_cfg = cfg_etapa.get("vento", {})
 	_vento_visual()
@@ -1483,12 +1948,7 @@ func preparar_etapa(indice: int, cfg_etapa: Dictionary) -> void:
 		var ang := deg_to_rad(float(_vento_cfg.get("direcao", 90)))
 		vento_dir = Vector3(sin(ang), 0.0, -cos(ang))
 	(_terreno._mat_terreno as ShaderMaterial).set_shader_parameter("dir_vento", Vector2(vento_dir.x, vento_dir.z))
-	# Biruta ao lado do alvo (num mastro do chão), fora do caminho de quem chega
-	var d: Array = cfg_etapa.get("deslocamento", [0, 0])
-	var lado := vento_dir.cross(Vector3.UP).normalized() if not _vento_cfg.is_empty() else Vector3.RIGHT
-	var pb := Vector3(float(d[0]), 0.0, float(d[1])) + lado * 70.0
-	pb.y = _terreno.altura_em(pb.x, pb.z) - 0.5
-	criar_biruta(_etapa_no, pb, float(cfg_etapa.get("altura", 60)) + 16.0)
+	# (Sem biruta: o dono mandou tirar a biruta e o mastro dela, 2026-10-04)
 
 
 func _physics_process(delta: float) -> void:

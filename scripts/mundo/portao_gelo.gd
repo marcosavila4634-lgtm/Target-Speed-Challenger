@@ -44,6 +44,8 @@ static func montar(r: Recinto) -> void:
 # ------------------------------------------------------------------ materiais
 
 static func _material(nome: String) -> ShaderMaterial:
+	if nome == "geleira":   # geleiras das focas/yetis, túnel de gelo: o gelo de gotejamento novo (pedido do dono)
+		return Gelo.material_fenda()
 	if _mats.has(nome):
 		return _mats[nome]
 	var m := ShaderMaterial.new()
@@ -79,7 +81,35 @@ static func _material(nome: String) -> ShaderMaterial:
 			m.set_shader_parameter("brilho", 0.35)
 			m.set_shader_parameter("rachadura", 0.5)
 			m.set_shader_parameter("celula", 2.2)
-			m.set_shader_parameter("neve_min", 0.18)
+			m.set_shader_parameter("neve_min", 0.3)
+		"fenda":     # agulhas de gelo em volta dos alvos (Gelo._montar_pilares), pela arte "fenda de gelo": azul-claro
+			# facetado, rachaduras brancas visíveis de longe, neve em toda face que deita
+			m.set_shader_parameter("cor_rasa", Color(0.36, 0.82, 1.0))
+			m.set_shader_parameter("cor_funda", Color(0.03, 0.27, 0.66))
+			m.set_shader_parameter("brilho", 0.5)
+			m.set_shader_parameter("celula", 9.0)
+			m.set_shader_parameter("rachas_min", 0.7)
+			m.set_shader_parameter("geada", 0.32)
+			m.set_shader_parameter("mosaico", 0.2)
+			m.set_shader_parameter("rachadura", 1.0)
+			m.set_shader_parameter("profundidade", 2.5)
+			m.set_shader_parameter("relevo", 2.0)
+			m.set_shader_parameter("neve_min", 0.2)
+			m.set_shader_parameter("longe", 2600.0)
+			m.set_shader_parameter("linha_larg", 0.8)
+		"bola", "espinho":   # bola do martelo (arte "bola" do dono): cristal azul fundo com rede de fraturas brancas e neve
+			m.set_shader_parameter("cor_rasa", Color(0.25, 0.72, 1.0) if nome == "bola" else Color(0.5, 0.86, 1.0))
+			m.set_shader_parameter("cor_funda", Color(0.01, 0.14, 0.5) if nome == "bola" else Color(0.06, 0.36, 0.8))
+			m.set_shader_parameter("brilho", 1.3)
+			m.set_shader_parameter("celula", 1.5 if nome == "bola" else 0.9)
+			m.set_shader_parameter("rachadura", 1.3 if nome == "bola" else 0.5)
+			m.set_shader_parameter("rachas_min", 1.0)
+			m.set_shader_parameter("linha_larg", 1.8)
+			m.set_shader_parameter("profundidade", 0.5)
+			m.set_shader_parameter("relevo", 1.6)
+			m.set_shader_parameter("mosaico", 1.0)
+			m.set_shader_parameter("neve_min", 0.72)
+			m.set_shader_parameter("local", 1.0)
 		"geleira":   # geleira das focas (Foca.geleira): gelo azul-claro como na arte dela
 			m.set_shader_parameter("cor_rasa", Color(0.55, 0.86, 1.0))
 			m.set_shader_parameter("cor_funda", Color(0.1, 0.4, 0.74))
@@ -146,7 +176,7 @@ func _montar(r: Recinto) -> void:
 		_coroa(yc, raio)
 	for s: float in [-1.0, 1.0]:
 		_pilar(s, g, fy, fundo_viga)
-		_torre(s, g, fy, y_torre)
+		_macico(s, g, y_torre)
 		for k in 2:
 			var u := s * (raio + 0.7 + 0.9 * k)
 			var h := _rng.randf_range(3.5, 5.5) * (1.0 - 0.3 * k)
@@ -164,8 +194,10 @@ func _montar(r: Recinto) -> void:
 		l.position = Vector3(s * (g + 7.5), 3.0, 4.2)
 		add_child(l)
 
-	for par: Array in [[_st_cristal, _material("cristal")], [_st_moldura, _material("moldura")], [_st_fundo, _material("fundo")],
-			[_st_pico, _material("pico")], [_st_neve, Gelo.material(Gelo.Mat.NEVE)], [_st_rocha, Gelo.material(Gelo.Mat.ROCHA)]]:
+	# Torres, pilares, pingentes e picos com o gelo de gotejamento dos maciços dos alvos (pedido do dono, 2026-10-04:
+	# "faça com as texturas novas"); a viga e o fundo da coroa continuam no gelo escuro, para o letreiro ler
+	for par: Array in [[_st_cristal, Gelo.material_fenda()], [_st_moldura, _material("moldura")], [_st_fundo, _material("fundo")],
+			[_st_pico, Gelo.material_fenda()], [_st_neve, Gelo.material(Gelo.Mat.NEVE)], [_st_rocha, Gelo.material(Gelo.Mat.ROCHA)]]:
 		var mi := MeshInstance3D.new()
 		mi.mesh = (par[0] as SurfaceTool).commit()
 		mi.material_override = par[1]
@@ -304,6 +336,31 @@ func _pilar(s: float, g: float, fy: float, fundo: Callable) -> void:
 		_colunas_z(s, u0 + 0.4, u1 - 0.2, zc, 0.6, fy, alto, 2)
 		_almofada(Vector3(s * (u0 + u1 + 0.2) * 0.5, alto, zc), (u1 - u0 - 0.6) * 0.5, 0.68, 1.0)
 	_colisoes.append(Transform3D(Basis.from_scale(Vector3(u1 - u0, topo - fy, 6.6)), Vector3(s * (u0 + u1) * 0.5, (topo + fy) * 0.5, 0.0)))
+
+
+## Maciço de gelo de gotejamento de cada lado (pedido do dono, 2026-10-04, com desenho: as torres retas
+## "pareciam canos"): picos altos junto do arco, passando da coroa, descendo em degraus para fora até o
+## chão, com picos menores na frente e atrás. O pico colado na passagem é cortado do lado dela. Na
+## plataforma (sem chão do lado de fora) o maciço fica do lado de dentro.
+func _macico(s: float, g: float, y_torre: float) -> void:
+	var dentro := 0.0 if _fora_no_chao else 3.5
+	var cortes_z: Array = [] if _fora_no_chao else [[-PI * 0.5, 4.5]]
+	var picos: Array = []
+	var perfil := [[3.6, -2.6, 1.12, 3.0], [9.4, -2.8, 0.95, 3.2], [14.5, 0.3, 0.7, 4.2], [20.0, -0.6, 0.46, 4.0], [25.0, 0.2, 0.28, 3.4], [29.5, 0.0, 0.15, 2.8]]
+	for k in perfil.size():
+		var p: Array = perfil[k]
+		var cortes := cortes_z.duplicate()
+		if k == 0:
+			cortes.append([PI if s > 0.0 else 0.0, 3.3])
+		picos.append([Vector3(s * (g + float(p[0])), -3.0, float(p[1]) + dentro), y_torre * float(p[2]) * _rng.randf_range(0.94, 1.06) + 3.0, p[3], 0.3, cortes])
+	for k in 9:
+		var u := _rng.randf_range(12.5, 28.0)
+		var z := _rng.randf_range(3.5, 5.5) * (1.0 if k % 2 == 0 or not _fora_no_chao else -1.0)
+		var h := y_torre * lerpf(1.0, 0.15, (u - 3.8) / 25.7) * _rng.randf_range(0.22, 0.45)
+		picos.append([Vector3(s * (g + u), -3.0, z + dentro), h + 3.0, _rng.randf_range(1.6, 2.6), 0.2, cortes_z])
+	var gl := Gelo.new()
+	gl.macico(self, picos, 4421 + int(s) * 7 + int(_r.piso_y))
+	gl.free()
 
 
 ## Torre em três degraus de colunas de cristal, neve grossa em cada degrau e no topo, montanhas de

@@ -94,7 +94,7 @@ func _pingentes() -> void:
 			var h := 0.35 + 2.0 * sorte * sorte * 2.6
 			var p := sub.amostra(i) + lat * (1.0 if lado == 1 else -1.0) * (meia - 0.12) - nrm * (ComplexoSubida.ESPESSURA_ESTRADA + h * 0.5 - 0.05)
 			xfs.append(Transform3D(Basis(Vector3.RIGHT, PI) * Basis.from_scale(Vector3(0.07 + h * 0.06, h, 0.07 + h * 0.06)), p))
-	Gelo._instancias(self, Gelo.malha_prisma(5, 0.0), xfs, Gelo.material(Gelo.Mat.GELO), false, 450.0)
+	Gelo.instancias_gelo(self, xfs, 0.0, 0, false, 450.0)
 
 
 # ------------------------------------------------------------------ arcos
@@ -111,7 +111,7 @@ func _arco(i: int, altura: float, alt_logo: float, texto := "", bandeiras := tru
 		_aco.append_array(ComplexoLancamento.trelica(pe, pe + Vector3.UP * altura, 2.0, 2.4, 0.24, 0.1))
 		_colisao.append(Transform3D(b * Basis.from_scale(Vector3(2.0, altura, 2.0)), pe + Vector3.UP * altura * 0.5))
 		# Sacada de concreto e coluna até o chão
-		_concreto.append(Transform3D(b * Basis.from_scale(Vector3(4.6, 1.0, 4.6)), pe + Vector3.DOWN * (ComplexoSubida.ESPESSURA_ESTRADA * 0.5 + 0.1)))
+		_concreto.append(Transform3D(b * Basis.from_scale(Vector3(4.6, 1.6, 4.6)), pe + Vector3.DOWN * 0.78))   # topo rente ao pé da torre
 		_colisao.append(_concreto[_concreto.size() - 1])
 		var chao := _terreno.altura_em(pe.x, pe.z)
 		if c.y - chao > 3.0:
@@ -155,12 +155,7 @@ func _rampa_final() -> void:
 	var fim := sub.total_amostras() - 1
 	var i := sub.indice_trecho("C", -75.0)
 	_arco(i, 11.0, 3.4, "TARGET SPEED CHALLENGER")
-	var j := sub.indice_trecho("C", -46.0)
-	var lat := sub.lateral_em(j)
-	for s: float in [-1.0, 1.0]:
-		var pe_b := sub.amostra(j) + lat * s * (sub.largura_em(j) * 0.5 + 0.8) + Vector3.DOWN * 0.6
-		Gelo.criar_biruta(self, pe_b, 8.5)
-		_consolo(pe_b, lat * s)
+	# (Sem birutas na ponta da rampa: o dono mandou tirar, 2026-10-04)
 	for k in 5:
 		var q := sub.indice_trecho("C", -150.0 - k * 16.0)
 		if q <= 0 or q >= fim:

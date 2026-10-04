@@ -24,6 +24,16 @@ var _fade: ColorRect
 
 const ARFAGEM_PADRAO := -0.2
 
+## Câmera livre (pedido do dono: percorrer o mapa sem jogar, procurando falhas). F3 liga e desliga.
+## Mouse olha; setas ou WASD andam na direção do olhar; E/ESPAÇO sobe, Q/C desce; SHIFT corre, CTRL vai
+## devagar; a rodinha muda a velocidade. Atravessa tudo. Enquanto está ligada, o carro do jogador não
+## recebe comandos e o relógio da etapa para (Partida e ControleJogador leem `livre`).
+static var livre := false
+var _livre_vel := 60.0
+var _livre_yaw := 0.0
+var _livre_arf := 0.0
+var _livre_aviso: Label
+
 var modo := Modo.SEGUIR
 var veiculo: Veiculo
 var terreno: Terreno
@@ -89,6 +99,19 @@ func podio(foco: Vector3, posicao: Vector3) -> void:
 
 
 func _unhandled_input(evento: InputEvent) -> void:
+	if evento is InputEventKey and evento.pressed and not evento.echo and evento.physical_keycode == KEY_F3:
+		_alternar_livre()
+		return
+	if livre:
+		if evento is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+			_livre_yaw -= evento.relative.x * sensibilidade
+			_livre_arf = clampf(_livre_arf - evento.relative.y * sensibilidade, -1.55, 1.55)
+		elif evento is InputEventMouseButton and evento.pressed:
+			if evento.button_index == MOUSE_BUTTON_WHEEL_UP:
+				_livre_vel = minf(_livre_vel * 1.25, 1500.0)
+			elif evento.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+				_livre_vel = maxf(_livre_vel / 1.25, 4.0)
+		return
 	if evento is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		_yaw_extra -= evento.relative.x * sensibilidade
 		_arfagem = clampf(_arfagem - evento.relative.y * sensibilidade, -1.25, 0.45)
@@ -224,7 +247,72 @@ func _mostrar_cinema(sim: bool) -> void:
 	tw.tween_property(_faixa_baixo, "offset_top", -altura if sim else 0.0, 0.8)
 
 
+func _alternar_livre() -> void:
+	livre = not livre
+	if livre:
+		# Parte de onde a câmera está, olhando para onde ela olha
+		var b := cam.global_transform.basis
+		var frente := -b.z
+		_livre_yaw = atan2(-frente.x, -frente.z)
+		_livre_arf = asin(clampf(frente.y, -1.0, 1.0))
+		var onde := cam.global_position
+		cam.transform = Transform3D.IDENTITY
+		global_position = onde
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		if _livre_aviso == null:
+			var camada := CanvasLayer.new()
+			camada.layer = 60
+			add_child(camada)
+			_livre_aviso = Label.new()
+			_livre_aviso.position = Vector2(24.0, 120.0)
+			_livre_aviso.add_theme_font_size_override("font_size", 18)
+			_livre_aviso.add_theme_color_override("font_outline_color", Color.BLACK)
+			_livre_aviso.add_theme_constant_override("outline_size", 6)
+			camada.add_child(_livre_aviso)
+	else:
+		cam.transform = Transform3D.IDENTITY
+		cam.fov = 70.0
+	if _livre_aviso:
+		_livre_aviso.visible = livre
+
+
+func _exit_tree() -> void:
+	livre = false
+
+
+func _processar_livre(delta: float) -> void:
+	var b := Basis(Vector3.UP, _livre_yaw) * Basis(Vector3.RIGHT, _livre_arf)
+	var anda := Vector3.ZERO
+	if Input.is_physical_key_pressed(KEY_UP) or Input.is_physical_key_pressed(KEY_W):
+		anda -= b.z
+	if Input.is_physical_key_pressed(KEY_DOWN) or Input.is_physical_key_pressed(KEY_S):
+		anda += b.z
+	if Input.is_physical_key_pressed(KEY_RIGHT) or Input.is_physical_key_pressed(KEY_D):
+		anda += b.x
+	if Input.is_physical_key_pressed(KEY_LEFT) or Input.is_physical_key_pressed(KEY_A):
+		anda -= b.x
+	if Input.is_physical_key_pressed(KEY_E) or Input.is_physical_key_pressed(KEY_SPACE):
+		anda += Vector3.UP
+	if Input.is_physical_key_pressed(KEY_Q) or Input.is_physical_key_pressed(KEY_C):
+		anda -= Vector3.UP
+	var vel := _livre_vel
+	if Input.is_physical_key_pressed(KEY_SHIFT):
+		vel *= 4.0
+	if Input.is_physical_key_pressed(KEY_CTRL):
+		vel *= 0.2
+	if anda.length_squared() > 0.0:
+		global_position += anda.normalized() * vel * delta
+	global_transform = Transform3D(b, global_position)
+	cam.transform = Transform3D.IDENTITY
+	cam.fov = 70.0
+	var p := global_position
+	_livre_aviso.text = "CÂMERA LIVRE (F3 sai)   x %.0f   y %.0f   z %.0f   vel %.0f m/s\nmouse olha · setas/WASD andam · E sobe · Q desce · SHIFT corre · CTRL devagar · rodinha = velocidade" % [p.x, p.y, p.z, vel]
+
+
 func _process(delta: float) -> void:
+	if livre:
+		_processar_livre(delta)
+		return
 	if modo == Modo.DRONE:
 		_processar_drone(delta)
 		return

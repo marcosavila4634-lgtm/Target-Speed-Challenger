@@ -773,6 +773,8 @@ func _atualizar() -> void:
 				var perigo := _boca(g, _t + 1.0) < 2.6 or h < 10.9
 				for m: StandardMaterial3D in g.olhos:
 					m.emission = Color(1.0, 0.08, 0.04) if perigo else Color(0.25, 1.0, 0.35)
+				if g.has("esmagador"):
+					_animar_esmagador(g, h, perigo)
 			"jato":
 				var lig := _jato_ligado(g, _t)
 				for p: GPUParticles3D in g.particulas:
@@ -996,9 +998,12 @@ func _apoios_gelo(pai: Node3D, i: int, meia_lado: float, prof: float) -> void:
 	for s: float in [-1.0, 1.0]:
 		var pe := c + sub.lateral_em(i) * s * meia_lado
 		var chao := _terreno.altura_em(pe.x, pe.z)
-		if c.y - chao > 3.0:
+		if c.y - chao > 3.0 and _terreno.gelo:
+			# Pedido do dono (2026-10-04): bases antigas (colunas de concreto) viram pedestal de gelo de gotejamento
+			_terreno.gelo.pedestal(pai, pe, c.y - 1.2, 4.6, -sub.lateral_em(i) * s, meia_lado - sub.largura_em(i) * 0.5 - 0.4, 3301 + i + int(s) * 5)
+		elif c.y - chao > 3.0:
 			colunas.append(Transform3D(b * Basis.from_scale(Vector3(3.2, c.y - chao, 3.2)), Vector3(pe.x, (c.y + chao) * 0.5 - 1.5, pe.z)))
-	ComplexoLancamento.criar_multimesh(pai, pecas, Gelo.material(Gelo.Mat.CONCRETO))
+	ComplexoLancamento.criar_multimesh(pai, pecas, Gelo.material_fenda())
 	ComplexoLancamento.criar_multimesh(pai, colunas, Gelo.material(Gelo.Mat.CONCRETO))
 	var est := StaticBody3D.new()
 	est.collision_layer = 1
@@ -1021,13 +1026,14 @@ func _portico_gelo(no: Node3D, i: int, meia_fora: float, altura: float, prof := 
 		var pe := c + lat * s * meia_fora
 		aco.append_array(ComplexoLancamento.trelica(pe, pe + Vector3.UP * altura, 2.4, 2.6, 0.26, 0.11))
 		colisao.append(Transform3D(b * Basis.from_scale(Vector3(2.4, altura, 2.4)), pe + Vector3.UP * altura * 0.5))
-		gelo_b.append(Transform3D(b * Basis.from_scale(Vector3(4.2, 1.6, prof + 1.6)), pe + Vector3.UP * 0.8))
+		# A sapata desce até a laje de apoio (que fica embaixo da estrada): a torre não fica no ar (dono, 2026-10-04)
+		gelo_b.append(Transform3D(b * Basis.from_scale(Vector3(4.2, 3.8, prof + 1.6)), pe + Vector3.DOWN * 0.3))
 	var e := c - lat * (meia_fora + 1.2) + Vector3.UP * (altura + 1.0)
 	var d := c + lat * (meia_fora + 1.2) + Vector3.UP * (altura + 1.0)
 	aco.append_array(ComplexoLancamento.trelica(e, d, 2.4, 2.6, 0.26, 0.11))
 	colisao.append(Transform3D(b * Basis.from_scale(Vector3(meia_fora * 2.0 + 2.4, 2.4, 2.4)), c + Vector3.UP * (altura + 1.0)))
 	ComplexoLancamento.criar_multimesh(no, aco, Gelo.material(Gelo.Mat.ACO))
-	ComplexoLancamento.criar_multimesh(no, gelo_b, Gelo.material(Gelo.Mat.BLOCOS))
+	ComplexoLancamento.criar_multimesh(no, gelo_b, Gelo.material_fenda())
 	# Pingentes de gelo pendurados na viga
 	var pingentes: Array = []
 	var n := int(meia_fora * 2.0 / 0.9)
@@ -1036,7 +1042,7 @@ func _portico_gelo(no: Node3D, i: int, meia_fora: float, altura: float, prof := 
 		var h := 0.6 + 1.6 * Terreno._hash2(i * 7 + k, 31)
 		for face: float in [-1.0, 1.0]:
 			pingentes.append(Transform3D(b * Basis(Vector3.RIGHT, PI) * Basis.from_scale(Vector3(0.16, h, 0.16)), c + lat * x + Vector3.UP * (altura - 0.2 - h * 0.5) + b.z * face * 1.0))
-	Gelo._instancias(no, Gelo.malha_prisma(5, 0.0), pingentes, Gelo.material(Gelo.Mat.GELO), false)
+	Gelo.instancias_gelo(no, pingentes, 0.0, 0, false)
 	if logo:
 		for face: float in [-1.0, 1.0]:
 			Gelo.painel_logo(no, c + Vector3.UP * (altura + 1.0) + b.z * face * 1.5, Basis.looking_at(-b.z * face, Vector3.UP), 2.0)
@@ -1080,23 +1086,45 @@ func _montar_martelo(item: Array, cfg: Dictionary) -> void:
 	esfera.radial_segments = 20
 	esfera.rings = 10
 	var centro := Vector3(0, -comp + raio, 0)
-	_malha(corpo, esfera, Gelo.material(Gelo.Mat.GELO), Transform3D(Basis.IDENTITY, centro))
-	# Cinta de aço e espinhos
-	var cinta := TorusMesh.new()
-	cinta.inner_radius = raio - 0.05
-	cinta.outer_radius = raio + 0.25
-	_malha(corpo, cinta, _mat_ouro, Transform3D(Basis(Vector3.RIGHT, PI * 0.5), centro))
+	# Bola de cristal de gelo (pedido do dono, 2026-10-04, arte "bola" em assets/frozen/extruturas): esfera
+	# azul funda com a rede de fraturas brancas, espinhos grandes de cristal em todas as direções (uns
+	# compridos, outros curtos, com um colar de lascas no pé) e neve assentada no alto
+	var portao = load("res://scripts/mundo/portao_gelo.gd")
+	_malha(corpo, esfera, portao._material("bola"), Transform3D(Basis.IDENTITY, centro))
 	var espinhos: Array = []
-	for k in 14:
-		var u := (k + 0.5) / 14.0
+	var lascas: Array = []
+	for k in 15:
+		var u := (k + 0.5) / 15.0
 		var th := acos(1.0 - 2.0 * u)
 		var ph := k * 2.39996
 		var dir := Vector3(sin(th) * cos(ph), cos(th), sin(th) * sin(ph))
-		espinhos.append(Transform3D(Basis(Quaternion(Vector3.UP, dir)) * Basis.from_scale(Vector3(0.42, 1.5, 0.42)), centro + dir * (raio + 0.55)))
-	Gelo._instancias(corpo, Gelo.malha_prisma(6, 0.0), espinhos, _mat_ouro, false)
+		var comp_e := 1.1 + 1.1 * Terreno._hash2(k * 7 + i, 13)
+		var larg_e := 0.42 + 0.2 * Terreno._hash2(k * 3 + i, 29)
+		var bq := Basis(Quaternion(Vector3.UP, dir)) * Basis(Vector3.UP, k * 1.7)
+		espinhos.append(Transform3D(bq * Basis.from_scale(Vector3(larg_e, comp_e, larg_e)), centro + dir * (raio - 0.25 + comp_e * 0.5)))
+		for j in 2:
+			var lado := (bq * Vector3(cos(j * 2.1), 0.0, sin(j * 2.1))).normalized()
+			var dl := (dir + lado * 0.55).normalized()
+			var cl := comp_e * (0.3 + 0.12 * j)
+			lascas.append(Transform3D(Basis(Quaternion(Vector3.UP, dl)) * Basis.from_scale(Vector3(larg_e * 0.45, cl, larg_e * 0.45)), centro + dir * (raio - 0.2) + lado * larg_e * 0.6 + dl * cl * 0.5))
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.0
+	cone.bottom_radius = 1.0
+	cone.height = 1.0
+	cone.radial_segments = 5
+	cone.rings = 1
+	Gelo._instancias(corpo, cone, espinhos, portao._material("espinho"), false)
+	Gelo._instancias(corpo, cone, lascas, portao._material("espinho"), false)
+	# Neve em cima (acompanha a bola)
+	var neve_b := SphereMesh.new()
+	neve_b.radius = raio * 0.72
+	neve_b.height = raio * 0.5
+	neve_b.radial_segments = 16
+	neve_b.rings = 6
+	_malha(corpo, neve_b, Gelo.material(Gelo.Mat.NEVE), Transform3D(Basis.IDENTITY, centro + Vector3.UP * raio * 0.78))
 	var cs := CollisionShape3D.new()
 	var sp := SphereShape3D.new()
-	sp.radius = raio + 0.5
+	sp.radius = raio + 0.8
 	cs.shape = sp
 	cs.position = centro
 	corpo.add_child(cs)
@@ -1247,8 +1275,12 @@ func _animar_estalactites(g: Dictionary, lado: int, e: float) -> void:
 
 # ------------------------------------------------------------------ prensa de gelo
 
-## Bloco de gelo gigante que despenca entre duas torres e fecha a estrada inteira; sobe devagar.
-## Os faróis da frente ficam vermelhos antes de cair. (Mesmo ritmo da boca da serpente.)
+const ESMAGADOR := preload("res://scripts/mundo/esmagador_gelo.gd")
+
+## Esmagador (pedido do dono, 2026-10-04, arte em assets/frozen/extruturas/esmagador.png): máquina de aço
+## e blocos de gelo por cima da estrada; o bloco dos faróis vermelhos despenca entre os dois pilares e
+## fecha a estrada inteira; sobe devagar. Antes de cair, os faróis e a tela da viga piscam em vermelho.
+## A máquina fica em cima de um maciço de gelo que vem do chão. (Mesmo ritmo da boca da serpente.)
 func _montar_prensa(item: Array, cfg: Dictionary) -> void:
 	var i := sub.indice_trecho(str(item[0]), float(item[1]))
 	var periodo := float(item[3]) if item.size() > 3 else float(cfg.get("periodo", 6.0))
@@ -1261,38 +1293,62 @@ func _montar_prensa(item: Array, cfg: Dictionary) -> void:
 	var no := Node3D.new()
 	no.name = "Prensa%d" % _portoes.size()
 	add_child(no)
-	_apoios_gelo(no, i_meio, meia + 4.0, comp)
-	var torres: Array[Transform3D] = []
-	var guias: Array[Transform3D] = []
-	for s: float in [-1.0, 1.0]:
-		torres.append(Transform3D(b * Basis.from_scale(Vector3(4.6, 19.0, comp + 2.0)), c + lat * s * (meia + 3.2) + Vector3.UP * 9.5))
-		for z: float in [-1.0, 1.0]:
-			guias.append(Transform3D(b * Basis.from_scale(Vector3(0.5, 17.0, 0.5)), c + lat * s * (meia + 0.75) + Vector3.UP * 8.5 + b.z * z * comp * 0.35))
-	var viga: Array[Transform3D] = [Transform3D(b * Basis.from_scale(Vector3(meia * 2.0 + 11.0, 3.0, comp + 1.0)), c + Vector3.UP * 18.5)]
-	ComplexoLancamento.criar_multimesh(no, torres, Gelo.material_blocos(1.9, 3.6))
-	ComplexoLancamento.criar_multimesh(no, guias, _mat_ouro)
-	ComplexoLancamento.criar_multimesh(no, viga, Gelo.material(Gelo.Mat.ACO))
-	for face: float in [-1.0, 1.0]:
-		Gelo.painel_logo(no, c + Vector3.UP * 18.5 + b.z * face * (comp * 0.5 + 0.8), Basis.looking_at(-b.z * face, Vector3.UP), 2.2)
-	var est := _corpo_mortal(no)
-	ComplexoLancamento.adicionar_colisoes(est, torres)
-	ComplexoLancamento.adicionar_colisoes(est, viga)
+	var chao := c.y - 4.0
+	if _terreno:
+		chao = INF
+		for ax: float in [-1.0, -0.5, 0.0, 0.5, 1.0]:
+			for az: float in [-1.0, 0.0, 1.0]:
+				var p := c + lat * ax * (meia + 23.0) + b.z * az * (comp * 0.5 + 7.0)
+				chao = minf(chao, _terreno.altura_em(p.x, p.z))
+	var maquina := Node3D.new()
+	maquina.name = "Esmagador"
+	no.add_child(maquina)
+	maquina.global_transform = Transform3D(b, c)
+	var m: Dictionary = ESMAGADOR.montar(maquina, meia, comp, minf(chao - c.y, -4.0) - 1.0, 911 + i)
+	var est := _corpo_mortal(maquina)
+	ComplexoLancamento.adicionar_colisoes(est, m.colisao)
+	var apoio := StaticBody3D.new()
+	apoio.collision_layer = 1
+	apoio.collision_mask = 0
+	apoio.add_to_group("estrutura")
+	maquina.add_child(apoio)
+	ComplexoLancamento.adicionar_colisoes(apoio, m.base)
 	# O bloco (origem na face de baixo)
 	var corpo := _corpo_mortal(no, true)
 	var largura := meia * 2.0 + 1.0
-	_malha(corpo, _caixa(Vector3(largura, 5.5, comp)), Gelo.material_blocos(1.9, 3.6), Transform3D(Basis.IDENTITY, Vector3(0, 2.75, 0)))
-	var listras := ShaderMaterial.new()
-	listras.shader = load("res://shaders/listras_perigo.gdshader")
-	listras.set_shader_parameter("ruido", Terreno._textura_ruido(0.05, 3, 7))
-	_malha(corpo, _caixa(Vector3(largura + 0.3, 0.9, comp + 0.3)), listras, Transform3D(Basis.IDENTITY, Vector3(0, 0.45, 0)))
-	var olhos: Array = []
-	for face: float in [-1.0, 1.0]:
-		for s: float in [-1.0, 1.0]:
-			olhos.append(_lampada(corpo, Vector3(s * largura * 0.3, 3.8, face * (comp * 0.5 + 0.1)), 0.7))
+	m.merge(ESMAGADOR.bloco(corpo, largura, comp, 977 + i))
 	_forma_caixa(corpo, Vector3(largura, 5.5, comp), Transform3D(Basis.IDENTITY, Vector3(0, 2.75, 0)))
 	_portoes.append({"tipo": "serpente", "i": i, "s": sub.progresso_amostra(i), "comp": comp, "fase": float(item[2]) if item.size() > 2 else 0.0,
 		"periodo": periodo, "fecha": float(cfg.get("fecha_s", 0.35)), "fechada": float(cfg.get("fechada_s", 1.4)), "abre": float(cfg.get("abre_s", 1.0)),
-		"corpo": corpo, "centro": c, "base": b, "olhos": olhos, "total": true, "giro": 0.0})
+		"corpo": corpo, "centro": c, "base": b, "olhos": [], "total": true, "giro": 0.0, "esmagador": m})
+
+
+## Esmagador: faróis e luzes piscando no perigo, tela da viga (barra que arma, setas na queda), hastes
+## dos pistões acompanhando o bloco e a nuvem de neve na batida.
+func _animar_esmagador(g: Dictionary, h: float, perigo: bool) -> void:
+	var e: Dictionary = g.esmagador
+	var f := fposmod(_t + float(g.fase), float(g.periodo))
+	var ciclo := float(g.fecha) + float(g.fechada) + float(g.abre)
+	var carga := clampf((f - ciclo) / maxf(float(g.periodo) - ciclo, 0.1), 0.0, 1.0)
+	var pisca := 0.5 + 0.5 * sin(_t * 22.0)
+	var tela: ShaderMaterial = e.tela
+	tela.set_shader_parameter("perigo", 1.0 if perigo else 0.0)
+	tela.set_shader_parameter("carga", carga)
+	var faixas: StandardMaterial3D = e.faixas
+	faixas.emission = Color(1.0, 0.1, 0.05) if perigo else Color(0.5, 0.9, 1.0)
+	faixas.albedo_color = faixas.emission
+	for m: StandardMaterial3D in e.lampadas:
+		m.emission_energy_multiplier = lerpf(1.2, 12.0, pisca) if perigo else 3.2
+	for l: OmniLight3D in e.luzes:
+		l.light_energy = lerpf(0.6, 5.0, pisca) if perigo else 1.4
+	var topo := h + ESMAGADOR.ALTO + 0.3
+	for haste: Node3D in e.hastes:
+		var comp_h := maxf(ESMAGADOR.Y_VIGA + 0.4 - topo, 0.05)
+		haste.position.y = topo + comp_h * 0.5
+		haste.scale = Vector3(1.0, comp_h, 1.0)
+	if h <= 0.3 and float(e.h_ant) > 0.3:
+		(e.estouro as GPUParticles3D).restart()
+	e.h_ant = h
 
 
 # ------------------------------------------------------------------ bolas de neve (avalanche)
@@ -1354,7 +1410,7 @@ func _montar_bolas(item: Array, cfg: Dictionary) -> void:
 		for j in 7:
 			var dir := Vector3(sin(j * 2.4) * cos(j * 1.1), sin(j * 1.1), cos(j * 2.4) * cos(j * 1.1)).normalized()
 			lascas.append(Transform3D(Basis(Quaternion(Vector3.UP, dir)) * Basis.from_scale(Vector3(0.45, 1.0, 0.45)), dir * (raio * 0.95)))
-		Gelo._instancias(mi, Gelo.malha_prisma(5, 0.2), lascas, Gelo.material(Gelo.Mat.GELO), false)
+		Gelo.instancias_gelo(mi, lascas, 0.2, 0, false, 0.0, 3)
 		var cs := CollisionShape3D.new()
 		var sp := SphereShape3D.new()
 		sp.radius = raio * 0.95
@@ -1696,6 +1752,9 @@ func _montar_focas(item: Array, cfg: Dictionary) -> void:
 		no.add_child(base_g)
 		base_g.global_transform = Transform3D(Basis.looking_at(lat * s_k, Vector3.UP), Vector3(pe.x, 0.0, pe.z))
 		var col := FOCA.geleira(base_g, minf(chao, topo - 3.0), topo, 731 + k * 17 + i)
+		if _terreno and _terreno.gelo and c.y - _terreno.altura_em(pe.x, pe.z) > 14.0:
+			# Estrada alta: a geleira não fica pendurada no ar — pedestal de gelo de gotejamento até o chão
+			_terreno.gelo.pedestal(base_g, pe, c.y - 1.5, 6.5, -lat * s_k, 2.7, 1733 + k * 31 + i)
 		var est := StaticBody3D.new()
 		est.collision_layer = 1
 		est.collision_mask = 0
@@ -1867,6 +1926,9 @@ func _montar_yetis(item: Array, cfg: Dictionary) -> void:
 		no.add_child(base_g)
 		base_g.global_transform = Transform3D(Basis.looking_at(lat * s_k, Vector3.UP), Vector3(pe.x, 0.0, pe.z))
 		var col := FOCA.geleira(base_g, minf(chao, topo - 3.0), topo, 977 + k * 31 + i)
+		if _terreno and _terreno.gelo and c.y - _terreno.altura_em(pe.x, pe.z) > 14.0:
+			# Estrada alta: pedestal de gelo de gotejamento até o chão (pedido do dono: nada pendurado no ar)
+			_terreno.gelo.pedestal(base_g, pe, c.y - 1.5, 6.5, -lat * s_k, 2.7, 2741 + k * 31 + i)
 		var est := StaticBody3D.new()
 		est.collision_layer = 1
 		est.collision_mask = 0
@@ -1883,13 +1945,13 @@ func _montar_yetis(item: Array, cfg: Dictionary) -> void:
 		"segura": float(cfg.get("segura_s", 5.0)), "descanso": float(cfg.get("descanso_s", 3.0)), "bichos": bichos, "total": false})
 
 
-## Teto do carro (onde o yeti deita), no mundo.
+## Teto do carro (onde o yeti senta), no mundo.
 func _teto(v: Veiculo) -> Transform3D:
 	var cx := v.caixa_corpo
 	var xf := v.global_transform
 	var topo := xf * Vector3(cx.get_center().x, cx.end.y, cx.get_center().z)
-	# De bruços, olhando para a frente do carro (o modelo olha para +Z; o carro anda para -Z)
-	return Transform3D(xf.basis.orthonormalized() * Basis(Vector3.UP, PI) * Basis(Vector3.RIGHT, PI * 0.5) * Basis.from_scale(Vector3.ONE), topo + xf.basis.y.normalized() * 0.35 - xf.basis.z.normalized() * 0.2)
+	# Em pé/sentado, olhando para a frente do carro (o modelo olha para +Z; o carro anda para -Z)
+	return Transform3D(xf.basis.orthonormalized() * Basis(Vector3.UP, PI), topo + xf.basis.y.normalized() * 0.35 - xf.basis.z.normalized() * 0.2)
 
 
 func _animar_yetis(g: Dictionary) -> void:
@@ -1966,7 +2028,7 @@ func _animar_yetis(g: Dictionary) -> void:
 				# Ginga com a curva do carro (velocidade de giro)
 				yb.ginga = lerpf(float(yb.ginga), clampf(v.angular_velocity.y * 0.6, -1.0, 1.0), dt * 5.0)
 				no.global_transform = _teto(v) * Transform3D(Basis(Vector3.BACK, float(yb.ginga) * 0.25), Vector3.ZERO)
-				YETI.pose(yb.y, _t, "agarrado", 0.0, float(yb.ginga))
+				YETI.pose(yb.y, _t, "agarrado", clampf(dur / 0.25, 0.0, 1.0), float(yb.ginga))
 			"volta":
 				# Salta do carro para a neve do lado de fora da pista, some numa nuvem de neve e volta para a
 				# geleira (de longe, voar de volta parecia um balão)
@@ -2028,7 +2090,8 @@ func _montar_yetis_plataforma(cfg: Dictionary) -> void:
 	var pontos := [[r.comprimento * 0.25, -1.0], [r.comprimento * 0.6, 1.0], [r.comprimento * 0.45, -1.0], [r.comprimento * 0.8, -1.0], [r.comprimento * 0.3, 1.0], [r.comprimento * 0.15, 1.0]]
 	for k in mini(qtd, pontos.size()):
 		var x: float = pontos[k][0]
-		var s: float = pontos[k][1]
+		# Lados contados a partir da porta (E2 tem a porta do outro lado: sem espelhar, um yeti tampava a entrada)
+		var s: float = float(pontos[k][1]) * (float(r.entradas[0][0]) if not r.entradas.is_empty() else 1.0)
 		var pe := r.pa(x, s * (meia - 4.0), r.piso_y)
 		var bloco := Node3D.new()
 		no.add_child(bloco)
@@ -2053,60 +2116,116 @@ func _montar_yetis_plataforma(cfg: Dictionary) -> void:
 		bola.material_override = Gelo.material(Gelo.Mat.NEVE)
 		bola.visible = false
 		no.add_child(bola)
-		lista.append({"y": y, "no": suporte, "bola": bola, "prox": float(k) * 0.9 + 1.0, "voo": {}})
+		lista.append({"y": y, "no": suporte, "bola": bola, "prox": float(k) * 0.9 + 3.0, "voo": {}})
 	_portoes.append({"tipo": "yeti_neve", "i": 0, "s": -1.0e9, "comp": 0.0, "fase": 0.0, "bichos": lista, "total": false,
 		"intervalo": float(cfg.get("intervalo_s", 3.2)), "alcance": float(cfg.get("alcance", 70.0)), "sem_pq": float(cfg.get("sem_pq_s", 5.0))})
 
 
 func _animar_yetis_plataforma(g: Dictionary) -> void:
+	var dt := get_physics_process_delta_time()
 	for yb: Dictionary in g.bichos:
 		var no: Node3D = yb.no
 		var voo: Dictionary = yb.voo
-		var falta := float(yb.prox) - _t
-		# Arremesso: o braço vai para trás no último 0,6 s e a bola sai na frente
-		YETI.pose(yb.y, _t, "arremesso" if falta < 0.6 or (not voo.is_empty() and _t - float(voo.t0) < 0.3) else "parado", clampf(1.0 - falta / 0.6, 0.0, 1.0))
-		if not voo.is_empty():
-			var u := (_t - float(voo.t0)) / float(voo.dur)
-			var bola: MeshInstance3D = yb.bola
-			var p: Vector3 = (voo.de as Vector3).lerp(voo.ate, u) + Vector3.UP * float(voo.arco) * 4.0 * u * (1.0 - u)
-			bola.global_position = p
-			bola.rotate_x(0.3)
-			var v: Veiculo = voo.v
-			if is_instance_valid(v) and not v.eliminado and p.distance_to(v.global_position) < 2.6:
-				v.pq_bloqueado_ate = v.relogio + float(g.sem_pq)
-				if v.paraquedas_aberto:
-					v.fechar_paraquedas()
-				if OS.get_environment("TSC_SUB_LOG") != "":
-					print("[NEVE] acertou %s em %.1f s" % [v.name, _t])
-				_puf_neve(self, p)
-				bola.visible = false
-				yb.voo = {}
-			elif u >= 1.0:
-				_puf_neve(self, p)
-				bola.visible = false
-				yb.voo = {}
+		var bola: MeshInstance3D = yb.bola
+		var raiz: Node3D = yb.y.raiz
+		var tau := _t - float(yb.prox)   # segundos em relação à soltura da bola
+		var alvo_v := yb.get("alvo") as Veiculo
+		if not yb.has("frente0"):
+			yb.frente0 = no.global_transform.basis
+		# Arremesso inteiro (Yeti.ARREMESSO): escolhe o carro, vira para ele, agacha e junta a neve com as
+		# duas mãos, leva a bola para trás da cabeça, joga e acompanha com o corpo
+		if OS.get_environment("TSC_YETI_POSE") != "":
+			# Conferência: TSC_YETI_POSE="-1.1,-0.4,0" segura cada instante do arremesso por 1 s
+			var ts := OS.get_environment("TSC_YETI_POSE").split_floats(",")
+			tau = ts[int(_t) % ts.size()]
+			yb.prox = _t - tau
+			yb.jogando = true
+			yb.solta = tau >= 0.0
+			bola.visible = tau < 0.0 and tau > -1.3
+		var jogando := bool(yb.get("jogando", false))
+		if not jogando and tau >= -YETI.ARREMESSO_ANTES and voo.is_empty():
+			# Alvo: o carro mais perto dentro do alcance (no chão da plataforma ou voando por cima dela)
+			var melhor: Veiculo = null
+			var dist := float(g.alcance)
+			for no_v in get_tree().get_nodes_in_group("veiculo"):
+				var v := no_v as Veiculo
+				if v == null or v.eliminado or v.fantasma() or v.travado:
+					continue
+				var d := v.global_position.distance_to(no.global_position)
+				if d < dist:
+					dist = d
+					melhor = v
+			if melhor == null and OS.get_environment("TSC_YETI_JOGA") == "":   # TSC_YETI_JOGA: joga mesmo sem carro (conferir a animação)
+				yb.prox = _t + YETI.ARREMESSO_ANTES + 0.4
+			else:
+				yb.prox = _t + YETI.ARREMESSO_ANTES
+				yb.alvo = melhor
+				yb.jogando = true
+				yb.solta = false
+				jogando = true
+				alvo_v = melhor
+			tau = _t - float(yb.prox)
+		var frente: Basis = yb.frente0
+		if jogando:
+			YETI.pose(yb.y, _t, "arremesso", tau)
+			if tau < 0.0 and is_instance_valid(alvo_v):
+				var para := alvo_v.global_position + alvo_v.linear_velocity * 0.5 - no.global_position
+				para.y = 0.0
+				if para.length_squared() > 1.0:
+					frente = Basis.looking_at(-para.normalized(), Vector3.UP)
+				yb.frente_jogada = frente
+			elif yb.has("frente_jogada"):
+				frente = yb.frente_jogada
+			var mao_d: Vector3 = raiz.global_transform * (yb.y.mao_d as Vector3)
+			var mao_e: Vector3 = raiz.global_transform * (yb.y.mao_e as Vector3)
+			if not bool(yb.solta):
+				if tau >= 0.0:
+					# Sai da mão
+					var dist_a := 30.0
+					var ate := mao_d + no.global_transform.basis.z * 30.0
+					var dur := 0.9
+					if is_instance_valid(alvo_v) and not alvo_v.eliminado:
+						dist_a = alvo_v.global_position.distance_to(mao_d)
+						dur = clampf(dist_a / 32.0, 0.5, 1.6)
+						ate = alvo_v.global_position + alvo_v.linear_velocity * dur + Vector3.UP * 0.6
+					yb.voo = {"de": mao_d, "ate": ate, "t0": _t, "dur": dur, "arco": dist_a * 0.12, "v": alvo_v}
+					voo = yb.voo
+					yb.solta = true
+					bola.scale = Vector3.ONE
+				elif tau > -1.3:
+					# Na mão: nasce pequena entre as duas mãos, no chão, e vai para a direita
+					if not bola.visible:
+						bola.visible = true
+						_puf_neve(self, (mao_d + mao_e) * 0.5)
+					var junta := smoothstep(YETI.ARREMESSO_JUNTA - 0.05, YETI.ARREMESSO_JUNTA + 0.3, tau)
+					bola.global_position = ((mao_d + mao_e) * 0.5).lerp(mao_d, junta)
+					bola.scale = Vector3.ONE * lerpf(0.25, 1.0, smoothstep(-1.3, YETI.ARREMESSO_JUNTA, tau))
+			if tau >= YETI.ARREMESSO_DEPOIS:
+				yb.jogando = false
+				yb.prox = _t + float(g.intervalo) * randf_range(0.8, 1.25) + YETI.ARREMESSO_ANTES
+		else:
+			YETI.pose(yb.y, _t, "parado")
+		no.global_transform = Transform3D(no.global_transform.basis.slerp(frente, clampf(dt * (7.0 if jogando else 2.5), 0.0, 1.0)).orthonormalized(), no.global_position)
+		if voo.is_empty():
 			continue
-		if falta > 0.0:
-			continue
-		yb.prox = _t + float(g.intervalo) * randf_range(0.8, 1.25)
-		# Alvo: o carro mais perto dentro do alcance (no chão da plataforma ou voando por cima dela)
-		var melhor: Veiculo = null
-		var dist := float(g.alcance)
-		for no_v in get_tree().get_nodes_in_group("veiculo"):
-			var v := no_v as Veiculo
-			if v == null or v.eliminado or v.fantasma() or v.travado:
-				continue
-			var d := v.global_position.distance_to(no.global_position)
-			if d < dist:
-				dist = d
-				melhor = v
-		if melhor == null:
-			continue
-		var de := no.global_position + Vector3.UP * 3.4
-		var dur := clampf(dist / 32.0, 0.5, 1.6)
-		var ate := melhor.global_position + melhor.linear_velocity * dur + Vector3.UP * 0.6
-		(yb.bola as MeshInstance3D).visible = true
-		yb.voo = {"de": de, "ate": ate, "t0": _t, "dur": dur, "arco": dist * 0.12, "v": melhor}
+		var u := (_t - float(voo.t0)) / float(voo.dur)
+		var p: Vector3 = (voo.de as Vector3).lerp(voo.ate, u) + Vector3.UP * float(voo.arco) * 4.0 * u * (1.0 - u)
+		bola.global_position = p
+		bola.rotate_x(0.3)
+		var v_a := voo.v as Veiculo
+		if is_instance_valid(v_a) and not v_a.eliminado and p.distance_to(v_a.global_position) < 2.6:
+			v_a.pq_bloqueado_ate = v_a.relogio + float(g.sem_pq)
+			if v_a.paraquedas_aberto:
+				v_a.fechar_paraquedas()
+			if OS.get_environment("TSC_SUB_LOG") != "":
+				print("[NEVE] acertou %s em %.1f s" % [v_a.name, _t])
+			_puf_neve(self, p)
+			bola.visible = false
+			yb.voo = {}
+		elif u >= 1.0:
+			_puf_neve(self, p)
+			bola.visible = false
+			yb.voo = {}
 
 
 func _primeiro_yeti() -> Dictionary:

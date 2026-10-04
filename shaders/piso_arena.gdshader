@@ -11,6 +11,7 @@ uniform vec3 vagas[16];           // (x, lateral, direção em radianos); x < -1
 uniform float comprimento = 110.0;
 uniform float saida_largura = 18.0;
 uniform vec3 cor_seta : source_color = vec3(1.0, 0.45, 0.08);
+uniform vec3 cor_filete : source_color = vec3(1.0, 0.1, 0.03);   // boca do buraco (água: azul-gelo)
 uniform vec3 cor_piso : source_color = vec3(0.47, 0.43, 0.39);   // Egito: lajes de arenito
 
 float caixa(vec2 p, vec2 meio) {
@@ -77,11 +78,11 @@ void fragment() {
 		vec3 listra = mix(vec3(0.95, 0.72, 0.08), vec3(0.05, 0.05, 0.05), zebra);
 		cor = mix(cor, listra * (0.8 + 0.25 * fino), faixa * 0.92);
 		float filete = step(b.z, r) * (1.0 - step(b.z + 0.25, r));
-		cor = mix(cor, vec3(0.9, 0.08, 0.04), filete);
-		emissao += vec3(1.0, 0.1, 0.03) * filete * 2.5;
+		cor = mix(cor, cor_filete * 0.9, filete);
+		emissao += cor_filete * filete * 2.5;
 		// Aviso: anel vermelho desbotado mais afastado
 		float aviso = 1.0 - smoothstep(0.1, 0.25, abs(r - (b.z + 4.0)));
-		cor = mix(cor, vec3(0.62, 0.1, 0.07), aviso * 0.55);
+		cor = mix(cor, cor_filete * 0.62, aviso * 0.55);
 		rug = mix(rug, 0.6, faixa);
 	}
 

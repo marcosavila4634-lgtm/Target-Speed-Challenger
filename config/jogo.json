@@ -1386,8 +1386,8 @@
 								},
 								"2": {
 									"capsulas": [],
-									"rota": [[-1150, -861, 205], [-1150, -959, 197], [-1150, -1011, 192], [-1150, -1111], [-1060, -1291]],
-									"rotas_alt": [[[-850, -861, 205], [-850, -959, 197], [-850, -1011, 192], [-850, -1111], [-940, -1291]]]
+									"rota": [[-1200, -870, 208], [-1300, -960, 202], [-1312, -1040, 196], [-1285, -1071, 192], [-1215, -1071, 188], [-1160, -1110, 180], [-1150, -1200], [-1060, -1300]],
+									"rotas_alt": [[[-800, -870, 208], [-700, -960, 202], [-688, -1040, 196], [-715, -1071, 192], [-785, -1071, 188], [-840, -1110, 180], [-850, -1200], [-940, -1300]]]
 								},
 								"3": {
 									"capsulas": [],
@@ -1395,7 +1395,7 @@
 								},
 								"4": {
 									"capsulas": [],
-									"rota": [[311, -1287], [401, -1289], [486, -1273], [601, -1241], [701, -1235], [801, -1245]]
+									"rota": [[311, -1287], [500, -1284], [700, -1281], [860, -1281]]
 								}
 							}
 						},
@@ -1429,9 +1429,11 @@
 									"grade_altura": 8.5,
 									"placa": "FORTALEZA AZUL",
 									"entradas": [[1, 50, 12]],
-									"buracos": [],
-									"impulsos": [[34, 34, -35, false], [58, -40, 0, false], [76, 2, 0, false]],
-									"_buracos": "Pedido do dono (2026-10-03): sem buracos de fogo; piso todo de gelo e yetis jogando bolas de neve (armadilhas.yetis_plataforma).",
+									"buracos": [[24, 20, 6], [30, -22, 6], [52, 8, 7], [68, 28, 6], [74, -24, 6], [88, -30, 5], [46, -32, 5]],
+									"buracos_agua": true,
+									"impulsos": [[34, 34, -35, false], [58, -40, 0, false], [76, 2, 0, false], [14, -10, 90, false], [40, -8, -60, false], [62, -4, 150, false], [84, 20, -120, false], [20, 36, 200, false], [70, -34, 45, false], [90, 30, 180, false], [36, -38, 10, false], [56, 22, -90, false], [10, 20, 30, false]],
+									"molas": [[16, -26, 10], [42, 18, 12], [64, 12, 10], [94, -36, 11], [92, 10, 9], [28, 4, 10], [58, -20, 12]],
+									"_buracos": "Pedido do dono (2026-10-04): buracos de ÁGUA gelada (sem fogo; cair = volta ao checkpoint com respingo), muitos aceleradores e molas ejetoras espalhados para atrapalhar; a porta fica forrada de aceleradores (Recinto.forrar_portas). Yetis seguem jogando bolas de neve.",
 									"aderencia": 0.3
 								},
 								"trechos": {
@@ -1462,6 +1464,15 @@
 								},
 								"armadilhas": {
 									"martelos": [["B", 270, 0], ["C", 984, 1.1]],
+									"_prensas": "Esmagador (pedido do dono, 2026-10-04: pode ser usado em todas as etapas): aqui lento e com bastante tempo aberto.",
+									"prensas": [["C", 1420, 0]],
+									"prensa": {
+										"periodo": 6.8,
+										"fecha_s": 0.45,
+										"fechada_s": 1.1,
+										"abre_s": 1.1,
+										"comprimento": 9
+									},
 									"yetis": [["A", 450], ["A", 824], ["B", 130], ["C", 360], ["C", 1300]],
 									"yeti": {
 										"segura_s": 5,
@@ -1527,10 +1538,12 @@
 									"grade_altura": 8.5,
 									"placa": "FORTALEZA DO YETI",
 									"entradas": [[-1, 50, 12]],
-									"buracos": [],
-									"impulsos": [[34, -34, 35, false], [58, 40, 0, false], [76, -2, 0, false]],
+									"buracos": [[24, -20, 6], [30, 22, 6], [52, -8, 7], [68, -28, 6], [74, 24, 6], [88, 30, 5], [46, 32, 5]],
+									"buracos_agua": true,
+									"impulsos": [[34, -34, 35, false], [58, 40, 0, false], [76, -2, 0, false], [14, 10, -90, false], [40, 8, 60, false], [62, 4, -150, false], [84, -20, 120, false], [20, -36, -200, false], [70, 34, -45, false], [90, -30, -180, false], [36, 38, -10, false], [56, -22, 90, false], [10, -20, -30, false]],
+									"molas": [[16, 26, 10], [42, -18, 12], [64, -12, 10], [94, 36, 11], [92, -10, 9], [28, -4, 10], [58, 20, 12]],
 									"aderencia": 0.3,
-									"_buracos": "Pedido do dono (2026-10-03): sem buracos de fogo; piso todo de gelo e yetis jogando bolas de neve (armadilhas.yetis_plataforma)."
+									"_buracos": "Pedido do dono (2026-10-04): buracos de ÁGUA gelada (sem fogo; cair = volta ao checkpoint com respingo), muitos aceleradores e molas ejetoras espalhados para atrapalhar; a porta fica forrada de aceleradores (Recinto.forrar_portas). Yetis seguem jogando bolas de neve."
 								},
 								"trechos": {
 									"A": [[828, 10, 700], [799.8, 11, 700], [771.5, 12, 700], [743.3, 13, 700], [715, 14, 700], [703, 15.2, 700], [699, 15.6, 700], [696, 15.9, 700], [689, 14.8, 700], [669, 14.8, 700], [642.3, 16.5, 700], [615.7, 18.1, 700], [589, 19.8, 700], [565.6, 20.9, 697.7], [543.1, 22.1, 690.9], [522.3, 23.2, 679.8], [504.1, 24.3, 664.9], [489.2, 25.4, 646.7], [478.1, 26.6, 625.9], [471.3, 27.7, 603.4], [469, 28.8, 580], [469, 31.1, 546.7], [469, 33.5, 513.3], [469, 35.8, 480], [466.9, 37.2, 460.2], [460.8, 38.6, 441.4], [450.9, 40, 424.2], [437.6, 41.4, 409.4], [421.5, 42.8, 397.7], [403.4, 44.2, 389.6], [383.9, 45.6, 385.5], [364.1, 47, 385.5], [344.6, 48.4, 389.6], [326.5, 49.8, 397.7], [310.4, 51.2, 409.4], [297.1, 52.6, 424.2], [287.2, 54, 441.4], [281.1, 55.4, 460.2], [279, 56.8, 480], [281.1, 58.2, 499.8], [287.2, 59.6, 518.6], [297.1, 61, 535.8], [310.4, 62.4, 550.6], [326.5, 63.8, 562.3], [344.6, 65.2, 570.4], [364.1, 66.6, 574.5], [383.9, 68, 574.5], [403.4, 69.4, 570.4], [421.5, 70.8, 562.3], [437.6, 72.2, 550.6], [450.9, 73.6, 535.8], [460.8, 75, 518.6], [466.9, 76.4, 499.8], [469, 77.8, 480], [469, 79.8, 450], [469, 81.8, 420], [469, 83.8, 390], [469, 85.8, 360], [469.7, 86.2, 353.8], [471.6, 86.6, 347.8], [474.7, 87, 342.4], [478.9, 87.4, 337.7], [484, 87.8, 334], [489.1, 88.2, 330.3], [493.3, 88.6, 325.7], [496.4, 89, 320.2], [498.3, 89.4, 314.3], [499, 89.8, 308], [498.3, 90.2, 301.8], [496.4, 90.6, 295.8], [493.3, 91, 290.4], [489.1, 91.4, 285.7], [484, 91.8, 282.1], [478.9, 92.2, 278.4], [474.7, 92.6, 273.7], [471.6, 93, 268.3], [469.7, 93.4, 262.3], [469, 93.8, 256.1], [469, 95.9, 229.4], [469, 97.9, 202.7], [469, 100, 176]],
@@ -1645,10 +1658,12 @@
 									"grade_altura": 8.5,
 									"placa": "FORTALEZA DE CRISTAL",
 									"entradas": [[1, 50, 12]],
-									"buracos": [],
-									"impulsos": [[34, 34, -35, false], [58, -40, 0, false], [76, 2, 0, false]],
+									"buracos": [[24, 20, 6], [30, -22, 6], [52, 8, 7], [68, 28, 6], [74, -24, 6], [88, -30, 5], [46, -32, 5]],
+									"buracos_agua": true,
+									"impulsos": [[34, 34, -35, false], [58, -40, 0, false], [76, 2, 0, false], [14, -10, 90, false], [40, -8, -60, false], [62, -4, 150, false], [84, 20, -120, false], [20, 36, 200, false], [70, -34, 45, false], [90, 30, 180, false], [36, -38, 10, false], [56, 22, -90, false], [10, 20, 30, false]],
+									"molas": [[16, -26, 10], [42, 18, 12], [64, 12, 10], [94, -36, 11], [92, 10, 9], [28, 4, 10], [58, -20, 12]],
 									"aderencia": 0.3,
-									"_buracos": "Pedido do dono (2026-10-03): sem buracos de fogo; piso todo de gelo e yetis jogando bolas de neve (armadilhas.yetis_plataforma)."
+									"_buracos": "Pedido do dono (2026-10-04): buracos de ÁGUA gelada (sem fogo; cair = volta ao checkpoint com respingo), muitos aceleradores e molas ejetoras espalhados para atrapalhar; a porta fica forrada de aceleradores (Recinto.forrar_portas). Yetis seguem jogando bolas de neve."
 								},
 								"trechos": {
 									"A": [[-600, 10, 878], [-600, 11, 848], [-600, 12, 818], [-600, 13, 788], [-600, 14, 758], [-598.8, 14.6, 746.3], [-595.4, 15.3, 735], [-589.9, 15.9, 724.7], [-582.4, 16.5, 715.6], [-573.3, 17.1, 708.1], [-563, 17.8, 702.6], [-551.7, 18.4, 699.2], [-540, 19, 698], [-511.1, 21.1, 698], [-482.2, 23.2, 698], [-453.3, 25.3, 698], [-424.4, 27.4, 698], [-395.6, 29.6, 698], [-366.7, 31.7, 698], [-337.8, 33.8, 698], [-308.9, 35.9, 698], [-280, 38, 698], [-275, 38.2, 697.5], [-270.2, 38.4, 695.9], [-265.9, 38.6, 693.4], [-262.2, 38.8, 690.1], [-259.2, 39, 686], [-257.2, 39.2, 681.4], [-256.1, 39.4, 676.5], [-256.1, 39.6, 671.5], [-257.2, 39.8, 666.6], [-259.2, 40, 662], [-262.2, 40.2, 657.9], [-265.9, 40.4, 654.6], [-270.2, 40.6, 652.1], [-275, 40.8, 650.5], [-280, 41, 650], [-312.5, 43.5, 650], [-345, 46, 650], [-377.5, 48.5, 650], [-410, 51, 650], [-422, 52.2, 650], [-426, 52.6, 650], [-429, 52.9, 650], [-437, 51.6, 650], [-457, 51.6, 650], [-487.7, 54, 650], [-518.5, 56.4, 650], [-549.2, 58.8, 650], [-580, 61.2, 650], [-585, 61.4, 649.5], [-589.8, 61.6, 647.9], [-594.1, 61.8, 645.4], [-597.8, 62, 642.1], [-600.8, 62.2, 638], [-602.8, 62.4, 633.4], [-603.9, 62.6, 628.5], [-603.9, 62.8, 623.5], [-602.8, 63, 618.6], [-600.8, 63.2, 614], [-597.8, 63.4, 609.9], [-594.1, 63.6, 606.6], [-589.8, 63.8, 604.1], [-585, 64, 602.5], [-580, 64.2, 602], [-551.1, 66.3, 602], [-522.2, 68.4, 602], [-493.3, 70.5, 602], [-464.4, 72.6, 602], [-435.6, 74.8, 602], [-406.7, 76.9, 602], [-377.8, 79, 602], [-348.9, 81.1, 602], [-320, 83.2, 602], [-308.3, 83.8, 600.8], [-297, 84.5, 597.4], [-286.7, 85.1, 591.9], [-277.6, 85.7, 584.4], [-270.1, 86.3, 575.3], [-264.6, 87, 565], [-261.2, 87.6, 553.7], [-260, 88.2, 542], [-260, 90.2, 512], [-260, 92.2, 482], [-260, 94.8, 453.7], [-260, 97.4, 425.3], [-260, 100, 397]],
@@ -1763,10 +1778,12 @@
 									"grade_altura": 8.5,
 									"placa": "FORTALEZA DA TEMPESTADE",
 									"entradas": [[1, 50, 12]],
-									"buracos": [],
-									"impulsos": [[34, 34, -35, false], [58, -40, 0, false], [76, 2, 0, false]],
+									"buracos": [[24, 20, 6], [30, -22, 6], [52, 8, 7], [68, 28, 6], [74, -24, 6], [88, -30, 5], [46, -32, 5]],
+									"buracos_agua": true,
+									"impulsos": [[34, 34, -35, false], [58, -40, 0, false], [76, 2, 0, false], [14, -10, 90, false], [40, -8, -60, false], [62, -4, 150, false], [84, 20, -120, false], [20, 36, 200, false], [70, -34, 45, false], [90, 30, 180, false], [36, -38, 10, false], [56, 22, -90, false], [10, 20, 30, false]],
+									"molas": [[16, -26, 10], [42, 18, 12], [64, 12, 10], [94, -36, 11], [92, 10, 9], [28, 4, 10], [58, -20, 12]],
 									"aderencia": 0.3,
-									"_buracos": "Pedido do dono (2026-10-03): sem buracos de fogo; piso todo de gelo e yetis jogando bolas de neve (armadilhas.yetis_plataforma)."
+									"_buracos": "Pedido do dono (2026-10-04): buracos de ÁGUA gelada (sem fogo; cair = volta ao checkpoint com respingo), muitos aceleradores e molas ejetoras espalhados para atrapalhar; a porta fica forrada de aceleradores (Recinto.forrar_portas). Yetis seguem jogando bolas de neve."
 								},
 								"trechos": {
 									"A": [[-2003, 10, -400], [-1970, 11.5, -400], [-1937, 13, -400], [-1925, 14.2, -400], [-1921, 14.6, -400], [-1918, 14.9, -400], [-1911, 13.8, -400], [-1891, 13.8, -400], [-1861, 15.8, -400], [-1831, 17.8, -400], [-1819, 19, -400], [-1815, 19.4, -400], [-1812, 19.7, -400], [-1805, 18.6, -400], [-1785, 18.6, -400], [-1755, 20.6, -400], [-1725, 22.6, -400], [-1705.5, 23.5, -401.9], [-1686.7, 24.3, -407.6], [-1669.4, 25.2, -416.9], [-1654.3, 26.1, -429.3], [-1641.9, 27, -444.4], [-1632.6, 27.9, -461.7], [-1626.9, 28.7, -480.5], [-1625, 29.6, -500], [-1625, 31.3, -526.7], [-1625, 32.9, -553.3], [-1625, 34.6, -580], [-1624.5, 34.9, -584.8], [-1623.1, 35.2, -589.3], [-1620.8, 35.5, -593.5], [-1617.8, 35.7, -597.2], [-1614, 36, -600.2], [-1609.8, 36.3, -602.3], [-1605.2, 36.6, -603.6], [-1600.2, 36.9, -605.1], [-1595.7, 37.2, -607.5], [-1591.8, 37.5, -610.9], [-1588.7, 37.8, -615], [-1586.6, 38.1, -619.7], [-1585.5, 38.4, -624.7], [-1585.5, 38.8, -629.8], [-1586.6, 39.1, -634.9], [-1588.7, 39.4, -639.5], [-1591.8, 39.7, -643.7], [-1595.7, 40, -647], [-1600.2, 40.3, -649.5], [-1605.2, 40.6, -650.9], [-1609.8, 40.9, -652.2], [-1614, 41.2, -654.4], [-1617.8, 41.5, -657.4], [-1620.8, 41.7, -661], [-1623.1, 42, -665.2], [-1624.5, 42.3, -669.8], [-1625, 42.6, -674.5], [-1625, 44.7, -704.5], [-1625, 46.8, -734.5], [-1625, 48.9, -764.5], [-1625, 51, -794.5], [-1625, 53.1, -824.5], [-1625, 54.9, -849.5], [-1625, 56.6, -874.5], [-1623, 57.8, -893.3], [-1617.2, 59, -911.1], [-1607.8, 60.2, -927.4], [-1595.2, 61.4, -941.4], [-1580, 62.6, -952.5], [-1562.8, 63.8, -960.1], [-1544.4, 65, -964], [-1525.6, 66.2, -964], [-1507.2, 67.4, -960.1], [-1490, 68.6, -952.5], [-1474.8, 69.8, -941.4], [-1462.2, 71, -927.4], [-1452.8, 72.2, -911.1], [-1447, 73.4, -893.3], [-1445, 74.6, -874.5], [-1447, 75.8, -855.8], [-1452.8, 77, -837.9], [-1462.2, 78.2, -821.6], [-1474.8, 79.4, -807.7], [-1490, 80.6, -796.6], [-1507.2, 81.8, -788.9], [-1525.6, 83, -785], [-1544.4, 84.2, -785], [-1562.8, 85.4, -788.9], [-1580, 86.6, -796.6], [-1595.2, 87.8, -807.7], [-1607.8, 89, -821.6], [-1617.2, 90.2, -837.9], [-1623, 91.4, -855.8], [-1625, 92.6, -874.5], [-1625, 94.7, -907.9], [-1625, 96.7, -941.2], [-1625, 98.8, -974.5], [-1625, 100, -1002]],
@@ -1891,7 +1908,7 @@
 									"pontes": [[194, -1046, 84, -1046, 262, 20]]
 								},
 								"2": {
-									"_": "Cidadela de gelo em volta do alvo. Na muralha virada para a rampa: furo redondo de 8 m no meio (corredor reto e curto até o alvo) e dois furos redondos de 52 m à esquerda e à direita (corredores de fora: o caminho é mais comprido, contornando as divisórias).",
+									"_": "Cidadela de gelo em volta do alvo. Na muralha virada para a rampa: só o furo redondo do meio, de 16 m (corredor reto e curto até o alvo). Os dois furos de 52 m ficam nas muralhas dos LADOS, a 100 m da quina (pedido do dono): quem não tem mão para o do meio dá a volta por fora, entra de lado no corredor de fora e contorna a divisória.",
 									"muralhas": [
 										{
 											"a": [-1240, -971],
@@ -1900,19 +1917,9 @@
 											"espessura": 12,
 											"aberturas": [
 												{
-													"centro": 90,
-													"y": 197,
-													"raio": 26
-												},
-												{
 													"centro": 240,
 													"y": 197,
-													"raio": 4
-												},
-												{
-													"centro": 390,
-													"y": 197,
-													"raio": 26
+													"raio": 8
 												}
 											]
 										},
@@ -1926,13 +1933,27 @@
 											"a": [-1240, -1561],
 											"b": [-1240, -971],
 											"altura": 290,
-											"espessura": 12
+											"espessura": 12,
+											"aberturas": [
+												{
+													"centro": 490,
+													"y": 190,
+													"raio": 26
+												}
+											]
 										},
 										{
 											"a": [-760, -1561],
 											"b": [-760, -971],
 											"altura": 290,
-											"espessura": 12
+											"espessura": 12,
+											"aberturas": [
+												{
+													"centro": 490,
+													"y": 190,
+													"raio": 26
+												}
+											]
 										},
 										{
 											"a": [-1070, -1241],
@@ -1956,98 +1977,8 @@
 									"pontes": [[-313, -628, -324, -553, 274, 15], [-483, -739, -457, -673, 252, 13]]
 								},
 								"4": {
-									"_": "Fenda da Tempestade: corredor de 56 m entre dois paredões de gelo, com uma curva, que desemboca na cidadela em volta do alvo.",
-									"muralhas": [
-										{
-											"a": [311, -1335],
-											"b": [401, -1309],
-											"altura": 290,
-											"espessura": 12,
-											"torres": false
-										},
-										{
-											"a": [401, -1309],
-											"b": [507, -1308],
-											"altura": 290,
-											"espessura": 12,
-											"torres": false
-										},
-										{
-											"a": [507, -1308],
-											"b": [617, -1262],
-											"altura": 290,
-											"espessura": 12,
-											"torres": false
-										},
-										{
-											"a": [617, -1262],
-											"b": [722, -1263],
-											"altura": 290,
-											"espessura": 12,
-											"torres": false
-										},
-										{
-											"a": [311, -1227],
-											"b": [401, -1253],
-											"altura": 290,
-											"espessura": 12,
-											"torres": false
-										},
-										{
-											"a": [401, -1253],
-											"b": [495, -1254],
-											"altura": 290,
-											"espessura": 12,
-											"torres": false
-										},
-										{
-											"a": [495, -1254],
-											"b": [605, -1208],
-											"altura": 290,
-											"espessura": 12,
-											"torres": false
-										},
-										{
-											"a": [605, -1208],
-											"b": [722, -1207],
-											"altura": 290,
-											"espessura": 12,
-											"torres": false
-										},
-										{
-											"a": [722, -1561],
-											"b": [722, -1001],
-											"altura": 290,
-											"espessura": 12,
-											"aberturas": [
-												{
-													"centro": 326,
-													"largura": 44,
-													"y0": 0,
-													"y1": 999
-												}
-											]
-										},
-										{
-											"a": [1283, -1561],
-											"b": [1283, -1001],
-											"altura": 290,
-											"espessura": 12
-										},
-										{
-											"a": [722, -1561],
-											"b": [1283, -1561],
-											"altura": 290,
-											"espessura": 12
-										},
-										{
-											"a": [722, -1001],
-											"b": [1283, -1001],
-											"altura": 290,
-											"espessura": 12
-										}
-									],
-									"pontes": [[401, -1309, 401, -1253, 300, 6], [722, -1263, 722, -1207, 300, 6]]
+									"_": "Castelo de gelo gigante em volta do alvo (pedido do dono, 2026-10-04, no lugar da fenda e da cidadela quadrada): muralha em anel com torres, portão virado para a rampa, torre de menagem no fundo e lago congelado no pátio, de onde sai o megalodonte congelado — a boca dele é o alvo.",
+									"castelo": { "centro": [1001, -1281], "frente": [-1, 0], "raio": 235 }
 								}
 							}
 						}
@@ -2102,7 +2033,7 @@
 							"rajada": 2,
 							"periodo": 7
 						},
-						"_etapa": "Médio: espiral com bolas de neve, salto duplo, gelo fino que quebra, prensa e turbina. Alvo (pedido do dono, no lugar da cruz que girava e jogava os carros para fora): disco FIXO de gelo com 140 m (5x os normais), que escorrega — o pneu quase não segura e o zigue-zague freia pouco. Fica dentro de uma cidadela de gelo com três furos redondos na muralha."
+						"_etapa": "Médio: espiral com bolas de neve, salto duplo, gelo fino que quebra, prensa e turbina. Alvo (pedido do dono, no lugar da cruz que girava e jogava os carros para fora): disco FIXO de gelo com 140 m (5x os normais), que escorrega — o pneu quase não segura e o zigue-zague freia pouco. Fica dentro de uma cidadela de gelo: furo de 16 m na muralha da frente e dois furos de 52 m nas muralhas dos lados (é preciso dar a volta)."
 					},
 					{
 						"nome": "Garganta de Cristal",
@@ -2128,25 +2059,19 @@
 					{
 						"nome": "Pico da Tempestade",
 						"tempo_mult": 1.2,
-						"forma": "triangulo",
-						"diametro": 26,
-						"lado": 26,
+						"forma": "disco",
+						"diametro": 30,
+						"_tubarao": "O alvo é a boca do megalodonte congelado (TubaraoGelo): o tampo fica em cima da mandíbula de baixo. frente = para onde ele olha [x, z]; inclinacao = graus do focinho para cima (a boca abre o mesmo tanto).",
+						"tubarao": { "frente": [-1, 0], "inclinacao": 55 },
 						"deslocamento": [1001, -1281],
 						"altura": 60,
-						"trajeto": {
-							"tipo": "oito",
-							"comprimento": 70,
-							"largura": 34,
-							"periodo": 44,
-							"direcao": 0
-						},
 						"vento": {
 							"direcao": 180,
 							"forca": 3.5,
 							"rajada": 3.5,
 							"periodo": 4.5
 						},
-						"_etapa": "Muito difícil: saltos em sequência, o Fio da Navalha (estreito com turbina), duas espirais, nevasca. Alvo triangular num drone fazendo um oito, no fim de uma fenda entre paredões de gelo."
+						"_etapa": "Muito difícil: saltos em sequência, o Fio da Navalha (estreito com turbina), duas espirais, nevasca. Alvo: a boca aberta do megalodonte congelado que sai do lago do castelo de gelo."
 					}
 				]
 			}

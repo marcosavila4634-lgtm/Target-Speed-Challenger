@@ -722,6 +722,8 @@ func _rastro(delta: float) -> void:
 
 
 func _contar_tempo(delta: float) -> void:
+	if CameraJogo.livre:   # câmera livre (F3): o relógio da etapa para
+		return
 	tempo_restante -= delta
 
 
@@ -1346,8 +1348,10 @@ func _vista_debug(vista: String) -> void:
 			"gelo_yeti": [sub.amostra(sub.indice_trecho("A", 450.0)) + Vector3.UP * 2.0, sub.amostra(sub.indice_trecho("A", 432.0)) + sub.lateral_em(sub.indice_trecho("A", 450.0)) * 9.0 + Vector3.UP * 5.0],
 			"gelo_yeti_carro": [sub.amostra(sub.indice_trecho("A", 468.0)) + Vector3.UP * 1.5, sub.amostra(sub.indice_trecho("A", 490.0)) + sub.lateral_em(sub.indice_trecho("A", 468.0)) * 7.0 + Vector3.UP * 4.0],
 			"gelo_yeti_rosto": [sub.amostra(sub.indice_trecho("A", 450.0)) + sub.lateral_em(sub.indice_trecho("A", 450.0)) * 11.5 + Vector3.UP * 5.5, sub.amostra(sub.indice_trecho("A", 443.0)) + sub.lateral_em(sub.indice_trecho("A", 450.0)) * 4.0 + Vector3.UP * 5.0],
+			"gelo_yeti_joga": [sub.plataforma.pa(sub.plataforma.comprimento * 0.25, -(sub.plataforma.largura_arena * 0.5 - 4.0) * (float(sub.plataforma.entradas[0][0]) if not sub.plataforma.entradas.is_empty() else 1.0), sub.plataforma.piso_y + 5.0), sub.plataforma.pa(sub.plataforma.comprimento * 0.25 + 9.0, -(sub.plataforma.largura_arena * 0.5 - 15.0) * (float(sub.plataforma.entradas[0][0]) if not sub.plataforma.entradas.is_empty() else 1.0), sub.plataforma.piso_y + 5.5)],
 			"gelo_plat_yetis": [sub.plataforma.pa(sub.plataforma.comprimento * 0.5, 0.0, sub.plataforma.piso_y), sub.plataforma.pa(-10.0, 0.0, sub.plataforma.piso_y + 22.0)],
 			"gelo_yeti_seguir": ([Armadilhas.ultimo_agarrado.global_position + Vector3.UP * 1.0, Armadilhas.ultimo_agarrado.global_position + Armadilhas.ultimo_agarrado.global_transform.basis.x * 3.5 - Armadilhas.ultimo_agarrado.global_transform.basis.z * 4.0 + Vector3.UP * 2.2] if is_instance_valid(Armadilhas.ultimo_agarrado) else [a_g, a_g + Vector3.UP * 50.0]),
+			"gelo_yeti_tras": ([Armadilhas.ultimo_agarrado.global_position + Vector3.UP * 1.0, Armadilhas.ultimo_agarrado.global_position + Armadilhas.ultimo_agarrado.global_transform.basis.z * 4.8 + Vector3.UP * 3.4] if is_instance_valid(Armadilhas.ultimo_agarrado) else [a_g, a_g + Vector3.UP * 50.0]),
 			"gelo_yeti_cima": ([Armadilhas.ultimo_agarrado.global_position, Armadilhas.ultimo_agarrado.global_position + Vector3.UP * 7.0 + Armadilhas.ultimo_agarrado.global_transform.basis.z * 0.01] if is_instance_valid(Armadilhas.ultimo_agarrado) else [a_g, a_g + Vector3.UP * 50.0]),
 			"gelo_yeti_lado": ([Armadilhas.ultimo_agarrado.global_position + Vector3.UP * 1.2, Armadilhas.ultimo_agarrado.global_position - Armadilhas.ultimo_agarrado.global_transform.basis.x * 6.0 + Vector3.UP * 1.4] if is_instance_valid(Armadilhas.ultimo_agarrado) else [a_g, a_g + Vector3.UP * 50.0]),
 			"gelo_yeti_frente": ([Armadilhas.ultimo_agarrado.global_position + Vector3.UP * 1.2, Armadilhas.ultimo_agarrado.global_position - Armadilhas.ultimo_agarrado.global_transform.basis.z * 6.0 + Vector3.UP * 1.6] if is_instance_valid(Armadilhas.ultimo_agarrado) else [a_g, a_g + Vector3.UP * 50.0]),
@@ -1358,6 +1362,15 @@ func _vista_debug(vista: String) -> void:
 			"gelo_lago": [Vector3(-700, 5, 420), Vector3(-380, 70, 720)],
 			"gelo_vila": [Vector3(-1100, 12, 620), Vector3(-960, 40, 740)],
 		}
+		if vista.begins_with("gelo_frente"):
+			# gelo_frenteN: da estrada, chegando na N-ésima armadilha (como o piloto vê); TSC_CAM_RECUO = metros antes
+			var n_f := maxi(int(vista.trim_prefix("gelo_frente")), 1) - 1
+			var lista_f: Array = sub.armadilhas.posicoes() if sub.armadilhas else []
+			if n_f < lista_f.size():
+				var gf: Array = lista_f[n_f]
+				var recuo := float(OS.get_environment("TSC_CAM_RECUO")) if OS.get_environment("TSC_CAM_RECUO") != "" else 42.0
+				camera.podio(gf[0] + Vector3.UP * 11.0, gf[0] - gf[2] * recuo + Vector3.UP * 5.0)
+			return
 		if vista.begins_with("gelo_armadilha"):
 			# gelo_armadilhaN: de lado, perto da N-ésima armadilha do percurso (1 = primeira)
 			var n_a := maxi(int(vista.trim_prefix("gelo_armadilha")), 1) - 1

@@ -15,6 +15,9 @@ const PAREDE := 1.0
 const CELULA := 2.0
 const IMPULSO_MEIO := Vector2(3.5, 2.0)
 const COR_EVENTO := Color(1.0, 0.45, 0.08)
+## Buracos de água: nível da água abaixo do piso (cair até ela = volta ao checkpoint, com respingo).
+const AGUA_PROF := 5.0
+const MOLA_MEIA := 2.6
 
 var origem := Vector3.ZERO      # centro do muro do fundo, na altura do piso
 var frente := Vector3.RIGHT
@@ -28,6 +31,12 @@ var muro_altura := 2.6
 var grade_altura := 7.4
 var buracos: Array = []         # [Vector2(x, lateral), raio]
 var impulsos: Array = []        # [Vector2(x, lateral), ângulo (0 = frente), segura]
+## Molas ejetoras no piso (Frozen Peak): [Vector2(x, lateral), altura do lançamento]. Placa amarela de
+## 5,2 m; quem passa é jogado para cima girando, como a mola da estrada (ComplexoSubida.ejetor_em).
+var molas: Array = []
+var _molas_vis: Array = []      # [prato Node3D, espiras Node3D, t do disparo]
+## Buracos com água gelada em vez de fogo (Frozen Peak, pedido do dono 2026-10-04).
+var buracos_agua := false
 var entradas: Array = []        # [lado (+1/-1), x do centro, largura]
 var vagas: Array = []           # [x, lateral, direção em graus (0 = para a saída)]
 var nome_placa := ""
@@ -75,6 +84,7 @@ func montar(p_origem: Vector3, p_frente: Vector3, terreno_y: float) -> void:
 	_montar_cerca()
 	_montar_buracos()
 	_montar_impulsos()
+	_montar_molas()
 	_montar_vagas()
 	_montar_portao()
 	_montar_nav()
@@ -144,7 +154,7 @@ func buraco_mortal(p: Vector3) -> bool:
 		return false
 	for b in buracos:
 		if l.distance_to(b[0]) < b[1] + 0.6:
-			return true
+			return not buracos_agua or p.y < piso_y - AGUA_PROF + 0.8
 	return p.y < piso_y - (14.0 if sem_piso else 6.0) and p.y > chao_y
 
 
@@ -290,6 +300,8 @@ func _montar_piso() -> void:
 	for k in 12:
 		arr_b.append(Vector3(buracos[k][0].x, buracos[k][0].y, buracos[k][1]) if k < buracos.size() else Vector3.ZERO)
 	mat.set_shader_parameter("buracos", arr_b)
+	if buracos_agua:
+		mat.set_shader_parameter("cor_filete", Color(0.2, 0.75, 1.0))
 	var arr_v := PackedVector3Array()
 	for k in 16:
 		if k < vagas.size():
@@ -530,6 +542,9 @@ func _montar_buracos() -> void:
 		mi.material_override = _material_pedra()
 		mi.position = Vector3(c.x, (piso_y + fundo) * 0.5, c.z)
 		add_child(mi)
+		if buracos_agua:
+			_agua_buraco(c, r)
+			continue
 		var brasa := CylinderMesh.new()
 		brasa.top_radius = r
 		brasa.bottom_radius = r
@@ -552,6 +567,168 @@ func _montar_buracos() -> void:
 		luz.position = Vector3(c.x, fundo + 8.0, c.z)
 		add_child(luz)
 		Fogo.criar(self, Vector3(c.x, fundo + 0.5, c.z), r * 0.75, 16.0, 90, r * 1.1)
+
+
+## Água gelada no buraco: superfície escura com ondinhas a AGUA_PROF m abaixo do piso, gelo partido
+## boiando junto da parede e fundo escuro (não se vê o vazio embaixo).
+func _agua_buraco(c: Vector3, r: float) -> void:
+	var y := piso_y - AGUA_PROF
+	var disco := CylinderMesh.new()
+	disco.top_radius = r
+	disco.bottom_radius = r
+	disco.height = 0.1
+	disco.radial_segments = 40
+	var mi := MeshInstance3D.new()
+	mi.mesh = disco
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/agua.gdshader")
+	mat.set_shader_parameter("ruido", Terreno._textura_ruido(0.03, 3, 41))
+	mat.set_shader_parameter("normal_a", Terreno._textura_normal(0.02, 4, 43, 6.0))
+	mat.set_shader_parameter("normal_b", Terreno._textura_normal(0.045, 3, 47, 4.0))
+	mat.set_shader_parameter("cor_rasa", Color(0.1, 0.36, 0.5))
+	mat.set_shader_parameter("cor_funda", Color(0.01, 0.07, 0.14))
+	mat.set_shader_parameter("cor_espuma", Color(0.85, 0.93, 1.0))
+	mat.set_shader_parameter("profundidade_cor", 2.0)
+	mat.set_shader_parameter("correnteza", Vector2(0.004, 0.009))
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.position = Vector3(c.x, y, c.z)
+	add_child(mi)
+	var fundo := CylinderMesh.new()
+	fundo.top_radius = r
+	fundo.bottom_radius = r
+	fundo.height = 0.2
+	var mf := MeshInstance3D.new()
+	mf.mesh = fundo
+	var mat_f := StandardMaterial3D.new()
+	mat_f.albedo_color = Color(0.01, 0.04, 0.08)
+	mf.material_override = mat_f
+	mf.position = Vector3(c.x, y - 2.5, c.z)
+	add_child(mf)
+	# Placas de gelo partido boiando junto da parede
+	var xfs: Array[Transform3D] = []
+	var h := Terreno._hash2(int(c.x), int(c.z))
+	for k in 7:
+		var a := TAU * (k + h) / 7.0 + h * 3.0
+		var tam := 0.9 + 1.3 * Terreno._hash2(int(c.x) + k, int(c.z) - k)
+		var d := r - tam * 0.7 - 0.2
+		xfs.append(Transform3D(Basis(Vector3.UP, a * 2.3) * Basis.from_scale(Vector3(tam * 1.4, 0.25, tam)), Vector3(c.x + cos(a) * d, y + 0.05, c.z + sin(a) * d)))
+	ComplexoLancamento.criar_multimesh(self, xfs, Gelo.material(Gelo.Mat.GELO), false)
+
+
+## Respingo de água (carro caindo no buraco de água): gotas subindo em anel, com o som do mergulho.
+static func respingo(pai: Node, p: Vector3) -> void:
+	var part := GPUParticles3D.new()
+	part.amount = 70
+	part.lifetime = 1.6
+	part.one_shot = true
+	part.explosiveness = 0.95
+	part.local_coords = false
+	var proc := ParticleProcessMaterial.new()
+	proc.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_RING
+	proc.emission_ring_axis = Vector3.UP
+	proc.emission_ring_radius = 1.6
+	proc.emission_ring_inner_radius = 0.6
+	proc.emission_ring_height = 0.2
+	proc.direction = Vector3.UP
+	proc.spread = 25.0
+	proc.initial_velocity_min = 5.0
+	proc.initial_velocity_max = 13.0
+	proc.gravity = Vector3(0, -14.0, 0)
+	proc.scale_min = 0.8
+	proc.scale_max = 2.2
+	var curva := Curve.new()
+	curva.add_point(Vector2(0.0, 1.0))
+	curva.add_point(Vector2(1.0, 0.0))
+	var tc := CurveTexture.new()
+	tc.curve = curva
+	proc.alpha_curve = tc
+	part.process_material = proc
+	var quad := QuadMesh.new()
+	quad.size = Vector2(0.6, 0.6)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(0.85, 0.95, 1.0, 0.8)
+	mat.vertex_color_use_as_albedo = true
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	quad.material = mat
+	part.draw_pass_1 = quad
+	pai.add_child(part)
+	part.global_position = p
+	part.emitting = true
+	Audio.tocar("efeitos/agua_splash_", p, 6.0, 0.7, 0.05, "Efeitos", 40.0)
+	pai.get_tree().create_timer(2.5).timeout.connect(part.queue_free)
+
+
+## Molas ejetoras do piso: placa amarela acesa em moldura, que estala para cima em cima de espiras.
+func _montar_molas() -> void:
+	var mat_m := ComplexoLancamento._material_metal(Color(0.6, 0.62, 0.66), 0.9, 0.25)
+	var espira := TorusMesh.new()
+	espira.inner_radius = 0.75
+	espira.outer_radius = 1.0
+	espira.rings = 14
+	espira.ring_segments = 6
+	for m in molas:
+		var no := Node3D.new()
+		add_child(no)
+		no.global_position = pa((m[0] as Vector2).x, (m[0] as Vector2).y, piso_y)
+		var prato := Node3D.new()
+		no.add_child(prato)
+		var placa := PlaneMesh.new()
+		placa.size = Vector2(MOLA_MEIA * 2.0, MOLA_MEIA * 2.0)
+		var mi := MeshInstance3D.new()
+		mi.mesh = placa
+		var mat := ShaderMaterial.new()
+		mat.shader = load("res://shaders/impulso.gdshader")
+		mat.set_shader_parameter("cor", Color(1.0, 0.8, 0.05))
+		mat.set_shader_parameter("tamanho", Vector2(MOLA_MEIA * 2.0, MOLA_MEIA * 2.0))
+		mi.material_override = mat
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.basis = Basis.looking_at(frente, Vector3.UP)
+		mi.position.y = 0.04
+		prato.add_child(mi)
+		var moldura: Array[Transform3D] = []
+		for k in 4:
+			var b := Basis(Vector3.UP, PI * 0.5 * k)
+			moldura.append(Transform3D(b * Basis.from_scale(Vector3(MOLA_MEIA * 2.0 + 0.6, 0.08, 0.3)), b * Vector3(0.0, 0.03, MOLA_MEIA + 0.15)))
+		ComplexoLancamento.criar_multimesh(no, moldura, ComplexoLancamento._material_luz(Color(1.0, 0.75, 0.05), 2.5), false)
+		var espiras := Node3D.new()
+		no.add_child(espiras)
+		for k in 5:
+			var anel := MeshInstance3D.new()
+			anel.mesh = espira
+			anel.material_override = mat_m
+			anel.set_meta("k", k)
+			espiras.add_child(anel)
+		espiras.visible = false
+		_molas_vis.append([prato, espiras, -100.0])
+
+
+## Velocidade para cima da mola embaixo de `p` (0 fora); `agora` dispara a animação do prato.
+func mola_em(p: Vector3, agora: float) -> float:
+	if molas.is_empty() or absf(p.y - piso_y) > 2.5:
+		return 0.0
+	var l := local(p)
+	for k in molas.size():
+		var d: Vector2 = l - (molas[k][0] as Vector2)
+		if absf(d.x) < MOLA_MEIA + 0.3 and absf(d.y) < MOLA_MEIA + 0.3:
+			if k < _molas_vis.size():
+				_molas_vis[k][2] = agora
+			return sqrt(2.0 * 9.8 * float(molas[k][1]))
+	return 0.0
+
+
+func animar_molas(agora: float) -> void:
+	for mv: Array in _molas_vis:
+		var dt: float = agora - float(mv[2])
+		var alt := 2.6 * clampf(dt / 0.08, 0.0, 1.0) * exp(-maxf(dt - 0.08, 0.0) * 1.8) if dt < 4.0 else 0.0
+		(mv[0] as Node3D).position.y = alt
+		var esp: Node3D = mv[1]
+		esp.visible = alt > 0.15
+		if esp.visible:
+			for anel in esp.get_children():
+				(anel as Node3D).position = Vector3.UP * (alt * (float(anel.get_meta("k")) + 0.5) / 5.0 - 0.1)
 
 
 func _montar_impulsos() -> void:
@@ -1133,6 +1310,9 @@ func _custo_celula(q: Vector2) -> float:
 		var f := Vector2(cos(im[1]), sin(im[1]))
 		if absf(dq.dot(f)) < IMPULSO_MEIO.x + 1.5 and absf(dq.dot(Vector2(-f.y, f.x))) < IMPULSO_MEIO.y + 1.5:
 			c = c + 12.0 if not im[2] else c * 0.5
+	for m in molas:
+		if (q - (m[0] as Vector2)).length() < MOLA_MEIA + 2.0:
+			c += 14.0
 	return c
 
 

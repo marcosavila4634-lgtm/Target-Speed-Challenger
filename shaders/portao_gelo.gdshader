@@ -20,12 +20,20 @@ uniform float lados = 0.0;          // escurece as faces paralelas a `eixo` (lat
 uniform vec3 eixo = vec3(0.0, 0.0, 1.0);
 uniform float relevo = 1.0;          // força do relevo lascado
 uniform vec3 cor_lado : source_color = vec3(0.02, 0.1, 0.3);   // cor das laterais (letras: contorno escuro)
+uniform float longe = 260.0;         // distância em que as rachaduras da superfície somem
+uniform float linha_larg = 1.0;      // largura das rachaduras (agulhas gigantes: mais grossas)
+uniform float rachas_min = 0.0;      // 1 = toda borda de bloco vira rachadura (agulhas: rede de fraturas inteira)
+uniform float mosaico = 1.0;         // quanto cada bloco entre rachaduras tem um tom próprio (agulhas: pouco, gelo contínuo)
+uniform float local = 0.0;           // 1 = desenho preso na peça (bola do martelo, que balança), não no mundo
+uniform float geada = 0.0;           // véu de geada branca por cima do gelo (agulhas)
 
 varying vec3 pos_mundo;
 varying vec3 normal_mundo;
+varying vec3 pos_peca;
 
 void vertex() {
 	pos_mundo = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	pos_peca = VERTEX;
 	normal_mundo = normalize(transpose(inverse(mat3(MODEL_MATRIX))) * NORMAL);
 }
 
@@ -63,7 +71,8 @@ void fragment() {
 	vec3 nw = normalize(normal_mundo);
 	vec3 olho = normalize(CAMERA_POSITION_WORLD - p);
 	float dist = length(CAMERA_POSITION_WORLD - p);
-	float perto = smoothstep(260.0, 20.0, dist);
+	float perto = smoothstep(longe, 20.0, dist);
+	p = mix(p, pos_peca + 40.0, local);
 	float ndv = clamp(dot(nw, olho), 0.0, 1.0);
 	float n1 = texture(ruido, p.xz / 19.0 + p.y / 23.0).r;
 	float n2 = texture(ruido, p.xy / 3.7 + p.z / 5.3).r;
@@ -76,10 +85,10 @@ void fragment() {
 	// Poucas fraturas, finas e só de perto (as linhas brancas por toda parte pareciam vidro trincado)
 	float mascara = smoothstep(0.56, 0.7, texture(ruido, p.xy / 9.0 + p.z / 11.0).r);
 	float mascara2 = smoothstep(0.5, 0.7, texture(ruido, p.zy / 6.0 + p.x / 8.0 + 0.37).r);
-	float linha = (1.0 - smoothstep(0.006, 0.022, v1.x)) * mascara * perto;
+	float linha = (1.0 - smoothstep(0.006 * linha_larg, 0.022 * linha_larg, v1.x)) * max(mascara, rachas_min) * perto;
 	float linha_funda = (1.0 - smoothstep(0.01, 0.06, v2.x)) * 0.6 * mascara2;
 	// Tom do bloco: cada um mais claro ou mais fundo, com o miolo aceso
-	float tom = clamp(0.12 + v1.y * 0.4 + (n1 - 0.5) * 0.9 + (n2 - 0.5) * 0.3, 0.0, 1.0);
+	float tom = clamp(0.12 + mix(0.2, v1.y * 0.4, mosaico) + (n1 - 0.5) * 0.9 + (n2 - 0.5) * 0.3, 0.0, 1.0);
 	tom = tom * tom * (3.0 - 2.0 * tom);
 	vec3 cor = mix(cor_funda, cor_rasa, tom);
 	float miolo = 1.0 - smoothstep(0.0, 0.75, v1.z);
@@ -95,6 +104,7 @@ void fragment() {
 	// Laterais (extrusão das letras): azul mais fundo
 	float lateral = (1.0 - abs(dot(nw, normalize(eixo)))) * lados;
 	cor = mix(cor, cor_lado, lateral * (1.0 - linha * 0.6));
+	cor = mix(cor, vec3(0.86, 0.94, 1.0), smoothstep(0.35, 0.8, n1 * 0.6 + n2 * 0.5) * geada);
 	cor *= 0.96 + 0.08 * n2;
 	float borda = pow(1.0 - ndv, 3.0);
 	cor = mix(cor, cor_rasa * 1.3, borda * 0.45);

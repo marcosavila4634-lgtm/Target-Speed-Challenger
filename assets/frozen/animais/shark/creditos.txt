@@ -1,0 +1,3 @@
+Modelo usado em scripts/mundo/tubarao_gelo.gd (shark_modelo.glb = cretoxyrhina (2).glb reduzido de 1,3 milhão para 67 mil triângulos, texturas em 2048 px):
+This work is based on "Cretoxyrhina" (https://sketchfab.com/3d-models/cretoxyrhina-cb6c498b19cf432ea8effdd71ab6b8d3) by Julian Johnson-Mortimer (https://sketchfab.com/FreddyFoxFreddy) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+No jogo: a mandíbula abre e a pele ganha geada por shader (shaders/tubarao.gdshader).

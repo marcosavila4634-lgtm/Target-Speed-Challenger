@@ -265,6 +265,9 @@ func _recinto_cfg(r: Recinto, cfg: Dictionary) -> void:
 	r.aderencia = float(cfg.get("aderencia", 1.0))
 	r.sem_piso = bool(cfg.get("sem_piso", false))
 	r.entrada_fundo = float(cfg.get("entrada_fundo", 0.0))
+	r.buracos_agua = bool(cfg.get("buracos_agua", false))
+	for m in cfg.get("molas", []):
+		r.molas.append([Vector2(float(m[0]), float(m[1])), float(m[2]) if m.size() > 2 else 9.0])
 	r.forrar_portas()
 
 
@@ -1037,6 +1040,8 @@ func ejetor_em(p: Vector3) -> float:
 			if absf(q.y) < 2.5 and absf(q.dot(f[1])) < float(e.meio_passo) and absf(q.dot(f[2])) < float(f[3]) + 0.3:
 				e.t = _relogio_desvios
 				return float(e.vy)
+	if plataforma:
+		return plataforma.mola_em(p, _relogio_desvios)
 	return 0.0
 
 
@@ -1052,6 +1057,8 @@ func ejetor_adiante(i: int, alcance: float) -> Dictionary:
 
 
 func _atualizar_ejetores() -> void:
+	if plataforma:
+		plataforma.animar_molas(_relogio_desvios)
 	for e: Dictionary in _ejetores:
 		var dt: float = _relogio_desvios - float(e.t)
 		# O prato estala para cima (0,08 s) e desce devagar

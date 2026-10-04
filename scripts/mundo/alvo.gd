@@ -1428,6 +1428,11 @@ func _montar_livre(etapa: Dictionary) -> void:
 	if dino_f:
 		AlvoDino.suporte(self, etapa)
 		return
+	if etapa.has("tubarao"):
+		# Frozen Peak, etapa 4 (pedido do dono): o tampo é a língua do megalodonte congelado
+		set_meta("aderencia", float(etapa.get("aderencia", 0.3)))
+		load("res://scripts/mundo/tubarao_gelo.gd").montar(self, etapa)
+		return
 	if bool(etapa.get("gelo", false)):
 		# Tampo de gelo (pedido do dono): escorrega — o pneu lê a meta "aderencia" do corpo embaixo da roda
 		set_meta("aderencia", float(etapa.get("aderencia", 0.15)))
@@ -1522,7 +1527,7 @@ func _suporte_gelo() -> void:
 		var pe := dir * (r * 0.52) + Vector3.UP * (y_topo - alt)
 		var b := Basis(Quaternion(Vector3.UP, (Vector3.UP * h_l - dir * r * 0.16).normalized())) * Basis.from_scale(Vector3(r * 0.13, h_l, r * 0.13))
 		lascas.append(Transform3D(b, pe + (Vector3.UP * h_l - dir * r * 0.16) * 0.5))
-	Gelo._instancias(self, Gelo.malha_prisma(6, 0.25), lascas, gelo_m)
+	Gelo.instancias_gelo(self, lascas, 0.25, 1)
 	# Pingentes pendurados na beirada do tampo
 	var pingentes: Array = []
 	var qtd := int(TAU * r / 3.2)
@@ -1530,7 +1535,7 @@ func _suporte_gelo() -> void:
 		var a := TAU * k / qtd
 		var h_p := 1.2 + 3.2 * absf(sin(k * 12.9898)) * absf(cos(k * 4.1))
 		pingentes.append(Transform3D(Basis(Vector3.RIGHT, PI) * Basis.from_scale(Vector3(0.5, h_p, 0.5)), Vector3(cos(a), 0.0, sin(a)) * (r - 0.6) + Vector3.UP * (y_topo - h_p * 0.5)))
-	Gelo._instancias(self, Gelo.malha_prisma(5, 0.05), pingentes, gelo_m, false)
+	Gelo.instancias_gelo(self, pingentes, 0.05, 0, false)
 
 
 ## Nó fixo no mundo (não acompanha o alvo): torres, cabos, pilares.

@@ -12,6 +12,8 @@ const armas = [
     bolas: [['A', '#a6+35', '#a6+365', 0.0]], bola: { periodo: 11.0, velocidade: 12, raio: 2.0, padrao: 'alterna' },
     pingentes: [['A', '#a4+20', 0.0]], pingente: { periodo: 5.4, mover_s: 0.3, fora_s: 1.7, comprimento: 12, altura: 9.5 },
     martelos: [['B', '#b2+12', 0.0], ['C', '#c4+30', 1.1]], martelo: { periodo: 4.6, amplitude: 60, comprimento: 9.5 },
+    // Esmagador (pedido do dono, 2026-10-04: em todas as etapas): aqui lento e com bastante tempo aberto
+    prensas: [['C', 1420, 0.0]], prensa: { periodo: 6.8, fecha_s: 0.45, fechada_s: 1.1, abre_s: 1.1, comprimento: 9 },
     yetis: [['A', 450], ['A', 824], ['B', 130], ['C', 360], ['C', 1300]], yeti: { segura_s: 5.0, descanso_s: 3.0 },
     // Pedido do dono (2026-10-03, no trecho da foto dele): duas focas em geleiras cospem gelo na faixa delas
     focas: [['A', 285, 0], ['B', 570, 1.2], ['C', 1180, 2]], foca: { periodo: 5.0, cuspe_s: 1.3, congela_s: 4.0 },
@@ -188,15 +190,16 @@ const rotas_alt = {};
   const mx = 240, zf = c[1] + 390, zt = c[1] - 200, topo = 290, esp = 12, lado_f = 150, div = 70, y_f = 197;
   etapas_gelo['2'] = { _: 'Cidadela de gelo em volta do alvo. Na muralha virada para a rampa: furo redondo de 8 m no meio (corredor reto e curto até o alvo) e dois furos redondos de 52 m à esquerda e à direita (corredores de fora: o caminho é mais comprido, contornando as divisórias).',
     muralhas: [
-      { a: [c[0] - mx, zf], b: [c[0] + mx, zf], altura: topo, espessura: esp, aberturas: [{ centro: mx - lado_f, y: y_f, raio: 26 }, { centro: mx, y: y_f, raio: 4 }, { centro: mx + lado_f, y: y_f, raio: 26 }] },
+      { a: [c[0] - mx, zf], b: [c[0] + mx, zf], altura: topo, espessura: esp, aberturas: [{ centro: mx, y: y_f, raio: 8 }] },
       { a: [c[0] - mx, zt], b: [c[0] + mx, zt], altura: topo, espessura: esp },
-      { a: [c[0] - mx, zt], b: [c[0] - mx, zf], altura: topo, espessura: esp },
-      { a: [c[0] + mx, zt], b: [c[0] + mx, zf], altura: topo, espessura: esp },
+      { a: [c[0] - mx, zt], b: [c[0] - mx, zf], altura: topo, espessura: esp, aberturas: [{ centro: zf - zt - 100, y: y_f - 7, raio: 26 }] },
+      { a: [c[0] + mx, zt], b: [c[0] + mx, zf], altura: topo, espessura: esp, aberturas: [{ centro: zf - zt - 100, y: y_f - 7, raio: 26 }] },
       { a: [c[0] - div, c[1] + 120], b: [c[0] - div, zf], altura: topo, espessura: 8, torres: false },
       { a: [c[0] + div, c[1] + 120], b: [c[0] + div, zf], altura: topo, espessura: 8, torres: false },
     ] };
   // Bots: pelos furos grandes (cada um sorteia o lado); o do meio fica para quem tem mão
-  const lado = sx => [[c[0] + sx * lado_f, zf + 110, y_f + 8], [c[0] + sx * lado_f, zf + 12, y_f], [c[0] + sx * lado_f, zf - 40, y_f - 5], [c[0] + sx * lado_f, c[1] + 250], [c[0] + sx * 60, c[1] + 70]];
+  // (pedido do dono, 2026-10-04: os furos grandes foram para as muralhas dos lados, a 100 m da quina; o do meio passou a 16 m)
+  const lado = sx => [[c[0] + sx * 200, zf + 101, 208], [c[0] + sx * 300, zf + 11, 202], [c[0] + sx * 312, zf - 69, 196], [c[0] + sx * 285, zf - 100, 192], [c[0] + sx * 215, zf - 100, 188], [c[0] + sx * 160, zf - 139, 180], [c[0] + sx * 150, zf - 229], [c[0] + sx * 60, zf - 329]];
   rotas['2'] = lado(-1);
   rotas_alt['2'] = [lado(1)];
 }
@@ -384,7 +387,7 @@ const mapa = {
         _etapa: 'Fácil: saltos curtos, um trecho de gelo, uma chicane estreita, bolas de neve e martelos lentos. Alvo redondo num carrinho sobre cabos, atrás de um anel de agulhas com portão largo.' },
       { nome: 'Passo do Yeti', forma: 'disco', gelo: true, aderencia: 0.14, diametro: 140, deslocamento: alvos[1], altura: 55,
         vento: { direcao: 90, forca: 1.5, rajada: 2.0, periodo: 7.0 },
-        _etapa: 'Médio: espiral com bolas de neve, salto duplo, gelo fino que quebra, prensa e turbina. Alvo (pedido do dono, no lugar da cruz que girava e jogava os carros para fora): disco FIXO de gelo com 140 m (5x os normais), que escorrega — o pneu quase não segura e o zigue-zague freia pouco. Fica dentro de uma cidadela de gelo com três furos redondos na muralha.' },
+        _etapa: 'Médio: espiral com bolas de neve, salto duplo, gelo fino que quebra, prensa e turbina. Alvo (pedido do dono, no lugar da cruz que girava e jogava os carros para fora): disco FIXO de gelo com 140 m (5x os normais), que escorrega — o pneu quase não segura e o zigue-zague freia pouco. Fica dentro de uma cidadela de gelo com furo de 16 m na muralha da frente e dois furos de 52 m nas muralhas dos lados (é preciso dar a volta).' },
       { nome: 'Garganta de Cristal', tempo_mult: 1.1, forma: 'anel', diametro: 36, furo: 14, deslocamento: alvos[2], altura: 52, trajeto: { tipo: 'vertical', amplitude: 36, periodo: 36 },
         vento: { direcao: 0, forca: 3.0, rajada: 3.0, periodo: 5.0 },
         _etapa: 'Difícil: ziguezague de montanha com gelo nas curvas fechadas, todas as armadilhas e vento de lado. Alvo em anel subindo e descendo numa torre, atrás de dois anéis de agulhas.' },

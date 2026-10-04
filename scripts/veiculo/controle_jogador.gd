@@ -11,6 +11,13 @@ var ativo := false
 func _physics_process(_delta: float) -> void:
 	if veiculo == null or not ativo:
 		return
+	if CameraJogo.livre:   # câmera livre (F3): as teclas andam com a câmera, o carro fica parado
+		veiculo.entrada.acelerar = 0.0
+		veiculo.entrada.re = 0.0
+		veiculo.entrada.freiar = 0.0
+		veiculo.entrada.direcao = 0.0
+		veiculo.entrada.nitro = false
+		return
 	veiculo.entrada.acelerar = Input.get_action_strength("acelerar")
 	# O carro não tem freio: no chão, S é ré (andando para a frente, a ré é que segura o carro).
 	# No ar e no paraquedas, S continua inclinando/sustentando.
@@ -22,7 +29,7 @@ func _physics_process(_delta: float) -> void:
 
 
 func _unhandled_input(evento: InputEvent) -> void:
-	if veiculo == null or not ativo:
+	if veiculo == null or not ativo or CameraJogo.livre:
 		return
 	if evento.is_action_pressed("ejetor"):
 		veiculo.pedir_ejetor()
