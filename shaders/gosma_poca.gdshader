@@ -7,6 +7,9 @@ render_mode blend_mix, depth_draw_never, cull_disabled;
 uniform sampler2D ruido : filter_linear_mipmap, repeat_enable;
 uniform float quanto = 0.0;
 uniform float semente = 0.0;
+// Cores (padrão: gosma verde). A gema dos ovos de pterossauro usa a mesma poça em amarelo
+uniform vec3 cor_borda = vec3(0.5, 0.82, 0.12);
+uniform vec3 cor_meio = vec3(0.09, 0.28, 0.02);
 
 float campo(vec2 uv) {
 	vec2 p = (uv - 0.5) * 2.0;
@@ -22,7 +25,7 @@ void fragment() {
 	float d = 0.012;
 	vec3 n = normalize(vec3(campo(UV - vec2(d, 0.0)) - campo(UV + vec2(d, 0.0)), campo(UV - vec2(0.0, d)) - campo(UV + vec2(0.0, d)), 0.16));
 	float alto = smoothstep(0.0, 0.3, f);
-	ALBEDO = mix(vec3(0.5, 0.82, 0.12), vec3(0.09, 0.28, 0.02), alto);
+	ALBEDO = mix(cor_borda, cor_meio, alto);
 	NORMAL_MAP = mix(n, vec3(0.0, 0.0, 1.0), alto * 0.6) * 0.5 + 0.5;
 	NORMAL_MAP_DEPTH = 1.6;
 	ROUGHNESS = 0.05;

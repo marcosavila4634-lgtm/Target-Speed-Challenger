@@ -395,6 +395,9 @@ func _trechos_muro() -> Array:
 
 
 func _montar_cerca() -> void:
+	if tema == "selva":
+		CercaSelva.montar(self)   # cerca da arte do dono (largada e plataforma, todas as etapas): pilares da serpente com braseiros e grade de pedra
+		return
 	var pedra: Array[Transform3D] = []
 	var capa: Array[Transform3D] = []
 	var ferro: Array[Transform3D] = []
@@ -545,6 +548,9 @@ func _montar_buracos() -> void:
 		if buracos_agua:
 			_agua_buraco(c, r)
 			continue
+		if tema == "selva":
+			_cobras_buraco(c, r, fundo)   # Serpent's Climb: sem fogo, cobrinhas no fundo (pedido do dono, 2026-10-05)
+			continue
 		var brasa := CylinderMesh.new()
 		brasa.top_radius = r
 		brasa.bottom_radius = r
@@ -561,12 +567,49 @@ func _montar_buracos() -> void:
 		add_child(mb)
 		var luz := OmniLight3D.new()
 		luz.light_color = Color(1.0, 0.25, 0.08)
-		luz.light_energy = 12.0
+		# Serpent's Climb: fogo 70% menor (pedido do dono, 2026-10-05: o clarão tapava a plataforma)
+		var k_fogo := 0.3 if tema == "selva" else 1.0
+		luz.light_energy = 12.0 * k_fogo
 		luz.omni_range = piso_y - fundo + 8.0
 		luz.shadow_enabled = false
 		luz.position = Vector3(c.x, fundo + 8.0, c.z)
 		add_child(luz)
-		Fogo.criar(self, Vector3(c.x, fundo + 0.5, c.z), r * 0.75, 16.0, 90, r * 1.1)
+		Fogo.criar(self, Vector3(c.x, fundo + 0.5, c.z), r * 0.75, 16.0 * k_fogo, int(90 * k_fogo), r * 1.1 * k_fogo)
+
+
+## Serpent's Climb: fundo de terra com cobrinhas (o mesmo modelo das cobras grandes, mesma cor) dando
+## voltas, e uma luz fraca para elas aparecerem lá embaixo. Cair aqui continua sendo morte (buraco_mortal).
+func _cobras_buraco(c: Vector3, r: float, fundo: float) -> void:
+	var chao := MeshInstance3D.new()
+	var disco := CylinderMesh.new()
+	disco.top_radius = r
+	disco.bottom_radius = r
+	disco.height = 0.4
+	chao.mesh = disco
+	var terra := StandardMaterial3D.new()
+	terra.albedo_color = Color(0.13, 0.1, 0.07)
+	terra.roughness = 1.0
+	chao.material_override = terra
+	chao.position = Vector3(c.x, fundo + 0.2, c.z)
+	add_child(chao)
+	var luz := OmniLight3D.new()
+	luz.light_color = Color(0.95, 0.85, 0.6)
+	luz.light_energy = 1.6
+	luz.omni_range = 14.0
+	luz.shadow_enabled = false
+	luz.position = Vector3(c.x, fundo + 6.0, c.z)
+	add_child(luz)
+	for k in 3:
+		var raio: float = r * [0.3, 0.5, 0.7][k]
+		var volta := PackedVector3Array()
+		var n := maxi(int(TAU * raio / 0.5), 24)
+		for i in n:
+			var a := TAU * float(i) / n * (1.0 if k != 1 else -1.0) + k * 2.0
+			volta.append(Vector3(c.x + cos(a) * raio, fundo + 0.42, c.z + sin(a) * raio))
+		var cobra := SerpenteGigante.new()
+		add_child(cobra)
+		cobra.montar_pontos(volta, {"comprimento": r * 1.6, "grossura": 1.0, "velocidade": 1.2 + 0.4 * k, "ossos": 20,
+			"inicio": TAU * raio * 0.3 * k, "alcance_visivel": 260.0})
 
 
 ## Água gelada no buraco: superfície escura com ondinhas a AGUA_PROF m abaixo do piso, gelo partido
@@ -787,6 +830,8 @@ func _montar_portao_arte() -> bool:
 	for s: float in [-1.0, 1.0]:
 		pedra.append(Transform3D(b * Basis.from_scale(Vector3(larg * 0.11, alt * 0.74, 2.2)), pa(x, s * larg * 0.36, piso_y + alt * 0.37)))
 	pedra.append(Transform3D(b * Basis.from_scale(Vector3(larg * 0.6, alt * 0.16, 2.2)), pa(x, 0.0, piso_y + alt * 0.63)))
+	# As duas folhas de madeira abertas também têm colisão (dava para atravessá-las com o carro)
+	pedra.append_array(TunelVulcao.colisao_folhas(portico_arte, FOLHAS, pa(x, 0.0, piso_y), -frente, larg, -0.3, true, 1.3))
 	ComplexoLancamento.adicionar_colisoes(corpo, pedra)
 	# Semáforo pendurado embaixo da viga, virado para dentro
 	var para_dentro := Basis.looking_at(-frente, Vector3.UP)
@@ -1184,6 +1229,9 @@ func _montar_portao() -> void:
 		return
 	if tema == "gelo":
 		preload("res://scripts/mundo/portao_gelo.gd").montar(self)   # portal de cristal com o nome em letras de gelo (arte do dono)
+		return
+	if tema == "selva" and name == "Largada":
+		PortaoSelva.montar(self)   # portão principal do Serpent's Climb: pórtico asteca da serpente emplumada (arte do dono)
 		return
 	var g := saida_largura * 0.5 + 1.6
 	var altura := muro_altura + grade_altura + 4.0

@@ -25,6 +25,7 @@ var _t := 0.0
 var _espera := 0.0
 var _usa_nitro := false
 var _usa_ejetor := false
+var _cobra_dbg := 0.0
 var _ejetou := false
 var _mira := Vector3.ZERO
 var _abre_com_vy := 0.0
@@ -100,6 +101,8 @@ var _rota_pela_rampa := false
 ## jeito esperto em vez do prudente — pular com o ejetor por cima das placas de ré, pular um carro lento que
 ## fecha as duas faixas, esperar o ejetor recarregar antes de uma plataforma mais alta. Cai com o nível.
 var _esperteza := 0.75
+var _toca_id := 0             # cobra da toca (SerpenteBote) que está planejando passar
+var _toca_olha := true
 var _pulo_re_s := -1.0      # zona de placas de ré em que já decidiu (pula ou costura)
 var _pulo_re := false
 var _pulo_carro_t := 0.0    # descanso entre pulos por cima de carro
@@ -309,6 +312,16 @@ func _physics_process(delta: float) -> void:
 	if lp:
 		_dirigir_looping(e, lp)
 		return
+	# Chegando ao looping: alinha com o eixo da fita e entra de pé embaixo (sem aceleradores no laço, é o embalo que conta)
+	if sub_lp and veiculo.estado == Veiculo.Estado.APOIADO and not veiculo.travado:
+		var mira_lp := sub_lp.looping_chegando(veiculo.global_position)
+		if mira_lp != Vector3.INF:
+			_apontar(e, mira_lp, 3.0)
+			e.acelerar = 1.0
+			e.nitro = true
+			_parado_t = 0.0
+			_encerrar_ataque()
+			return
 	match veiculo.estado:
 		Veiculo.Estado.APOIADO:
 			_dirigir(e, delta)
@@ -643,8 +656,8 @@ func _dirigir_subida(e: Dictionary, sub: ComplexoSubida) -> void:
 		veiculo.sem_impulso_ate = veiculo.relogio + 3.0
 		if veiculo.ejetor_disponivel():
 			veiculo.pedir_ejetor()
-	# Poço no nível da pista (Extinction Day E2, pedido do dono): o píer acaba e o portão fica 70 m adiante,
-	# na mesma altura — pula com o ejetor rente à ponta (no ar, _planar leva até o portão)
+	# Poço no nível da pista (Extinction Day E2, pedido do dono): a estrada acaba no muro do fundo e o portão fica
+	# 100 m adiante, na mesma altura — pula com o ejetor rente à ponta (no ar, _planar leva até o portão)
 	if salto_plat and sub.plataforma.entrada_fundo > 0.0 and falta < 3.5 + v * 0.1 and veiculo.ejetor_disponivel():
 		veiculo.pedir_ejetor()
 	# Frozen Peak: vão (salto) logo à frente, trecho estreito e gelo vivo
@@ -739,6 +752,29 @@ func _dirigir_subida(e: Dictionary, sub: ComplexoSubida) -> void:
 				veiculo.pedir_ejetor()
 				if rng.randf() < 0.3:
 					_falar(["Por cima!", "Placa de ré? Pulei.", "Voando baixo!"][rng.randi() % 3])
+	if _cobra_dbg > 0.0:
+		_cobra_dbg -= _dt_ia
+		if fmod(_cobra_dbg, 0.1) < _dt_ia:
+			print("[COBRA]   %s p=%s lat=%.1f v=%.1f vy=%.1f rodas=%d toca=%s" % [veiculo.nome_piloto, str(p.snapped(Vector3.ONE)), (p - sub.amostra(i)).dot(sub.lateral_em(i)), v, veiculo.linear_velocity.y, veiculo.rodas_no_chao, str(veiculo.get_colliding_bodies().map(func(b): return b.name))])
+	# Serpent's Climb E1: corpo da serpente colossal deitado na pista à frente → salta por cima com o ejetor,
+	# do jeito do pulo das placas de ré: pelo meio, reto, a ~18 m/s (mais rápido o carro capotava no pouso) (rápido demais o voo passava de 100 m e o
+	# carro pousava torto, fora da estrada), saltando ~0,35 s antes da beirada do corpo (o tempo de subir mais que ele; o voo passa por cima da largura dele).
+	var cobra := SerpenteCaminho.atual
+	if cobra and is_instance_valid(cobra) and veiculo.rodas_no_chao > 0:
+		var d_cobra := cobra.corpo_na_pista_adiante(p, sub.tangente_em(i), 110.0)
+		if d_cobra < 110.0:
+			alvo_lat = 0.0
+			re_vel = 18.0 if re_vel < 0.0 else minf(re_vel, 18.0)
+			_ultrap_t = 0.0
+			_encerrar_ataque()
+			if d_cobra < cobra.largura * 0.5 + 4.0 + v * 0.35 and veiculo.ejetor_disponivel():
+				veiculo.sem_impulso_ate = veiculo.relogio + 3.0
+				veiculo.pedir_ejetor()
+				if OS.get_environment("TSC_COBRA_LOG") != "":
+					print("[COBRA] %s pula d=%.1f v=%.1f lat=%.1f" % [veiculo.nome_piloto, d_cobra, v, (p - sub.amostra(i)).dot(sub.lateral_em(i))])
+					_cobra_dbg = 3.5
+			elif OS.get_environment("TSC_COBRA_LOG") != "" and d_cobra < 25.0:
+				print("[COBRA] %s perto d=%.1f v=%.1f ejetor=%s rec=%.1f" % [veiculo.nome_piloto, d_cobra, v, str(veiculo.ejetor_disponivel()), veiculo.recarga_ejetor])
 	# Serpent's Climb: armadilhas do templo. Para lâmina, lanças, boca da serpente e jatos, escolhe a
 	# menor chegada (entre 7 e 19 m/s) em que a faixa fica livre do bico entrar até a traseira sair e
 	# ajusta a velocidade para chegar nessa hora (sem parar na frente: fila na armadilha derruba gente).
@@ -807,7 +843,39 @@ func _dirigir_subida(e: Dictionary, sub: ComplexoSubida) -> void:
 			alvo_lat = (1.0 if lado_p == 1 else -1.0) * Armadilhas.FAIXA
 			_ultrap_t = 0.0
 			_encerrar_ataque()
-	# Desvio da catapulta: chega devagar, para em cima da boca do gêiser e espera a erupção
+	# Serpent's Climb E1: cobra da toca atravessando a pista (o ciclo dela é fixo). Passa com a cabeça dela
+	# dentro da toca: escolhe a hora de chegar como nas armadilhas, contando que chega acelerando (atravessa
+	# mais rápido que a média). Sem janela, segura longe da zona. Quem é menos esperto às vezes nem olha.
+	var toca := SerpenteBote.toca_adiante(sub, i, 150.0)
+	if not toca.is_empty():
+		var cobra_t: SerpenteBote = toca.cobra
+		if cobra_t.get_instance_id() != _toca_id:
+			_toca_id = cobra_t.get_instance_id()
+			_toca_olha = rng.randf() < 0.35 + 0.65 * _esperteza
+		var falta_t: float = toca.falta
+		if _toca_olha and falta_t > 0.5:
+			var melhor_t := INF
+			var tt := falta_t / _arm_vel_max
+			var tt_max := maxf(falta_t / 3.0, tt)
+			while tt <= tt_max:
+				var vv := falta_t / maxf(tt, 0.05)
+				var chegada := clampf(2.0 * vv - v, vv, _arm_vel_max) if vv > v else vv
+				if vv <= v + ARM_ACEL * 0.5 * tt + 1.0 and cobra_t.livre_entre(tt - 0.25, tt + (float(toca.comp) + 5.0) / maxf(chegada, 6.0) + 0.25):
+					melhor_t = tt
+					break
+				tt += 0.1
+			var vel_t := 0.0
+			if melhor_t < INF:
+				vel_t = clampf(2.0 * falta_t / melhor_t - v, falta_t / melhor_t, _arm_vel_max) if falta_t / melhor_t > v else maxf(falta_t / melhor_t, 3.0)
+			else:
+				vel_t = 0.0 if falta_t < 45.0 else ARM_VEL_MIN
+			arm_vel = vel_t if arm_vel < 0.0 else minf(arm_vel, vel_t)
+			_ultrap_t = 0.0
+			_encerrar_ataque()
+		elif falta_t <= 0.5:
+			arm_vel = maxf(24.0, _arm_vel_max)   # dentro da zona: sai depressa
+			alvo_lat = 0.0
+		# Desvio da catapulta: chega devagar, para em cima da boca do gêiser e espera a erupção
 	var cat := sub.catapulta_adiante(i)
 	var segurar := false
 	if not cat.is_empty() and float(cat.falta) < 70.0:
@@ -845,8 +913,11 @@ func _dirigir_subida(e: Dictionary, sub: ComplexoSubida) -> void:
 	var destino_e := sub.amostra(k) + sub.lateral_em(k) * alvo_lat
 	if not cat.is_empty() and float(cat.falta) < 30.0 and float(cat.falta) > 2.2:
 		destino_e = cat.pos
-	if porta_acel and falta < 26.0:
-		destino_e = _porta_mira   # pula na diagonal: o pouso (e o quique) passam ao lado do buraco da linha da porta
+	# Pula na diagonal (o pouso e o quique passam ao lado do buraco da linha da porta), mas só vira na
+	# hora do pulo e com o ejetor pronto: virando a 26 m, devagar, o carro saía da estrada de 10 m e
+	# caía na pirâmide (Serpent's Climb E1, chegada com curva)
+	if porta_acel and falta < 6.0 and veiculo.ejetor_disponivel():
+		destino_e = _porta_mira
 	_apontar(e, destino_e, 2.6 if na_beirada else (1.5 if ader < 0.9 else 2.2))
 	if ader < 0.9 and not na_beirada:
 		e.direcao = clampf(float(e.direcao), -0.4, 0.4)
@@ -966,6 +1037,10 @@ func _dirigir_subida(e: Dictionary, sub: ComplexoSubida) -> void:
 	# Chegada na plataforma: freia a tempo (a distância cresce com a velocidade — a 70 m fixos, vindo a
 	# 120 km/h, entrava a 80). Porta com aceleradores: entra mais devagar, porque pula por cima deles com o
 	# ejetor e, rápido, o voo terminava no meio dos buracos.
+	# Sem o ejetor na porta: espera no eixo, antes dos aceleradores, até ele recarregar
+	if porta_acel and falta < 14.0 and not veiculo.ejetor_disponivel():
+		e.acelerar = 0.0
+		e.re = 1.0 if v > 0.8 else 0.0
 	var v_plat := v_porta if porta_acel else VEL_PLATAFORMA * 1.4
 	if sub.trecho_de(i) == 0 and not sub.plataforma.sem_piso and falta < maxf(70.0, (v * v - v_plat * v_plat) / 9.0 + 25.0) and v > v_plat:
 		e.acelerar = 0.0

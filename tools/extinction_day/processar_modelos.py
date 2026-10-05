@@ -141,7 +141,46 @@ def lava():
                 im.save()
                 print("LAVA", nome, im.size[:])
 
+def pterossauro():
+    # Pterossauro da plataforma dos buracos (solta ovos nos carros): só o bicho, sem a ilha do cenário,
+    # com o esqueleto e a animação de voo do autor — três batidas de asa e um planeio, que se repetem a
+    # cada 258 quadros (o resto do arquivo é a mesma coisa com o bicho dando a volta na ilha). O passeio
+    # pela ilha fica nos nós de cima e nas curvas do objeto: saem, o voo é feito no jogo.
+    limpar()
+    importar("pterodactilo/flying_pterodactyl_dinosaur_soars_over_island (1).glb")
+    sc = bpy.context.scene
+    sc.frame_set(0)
+    arm = bpy.data.objects["GLTF_created_0"]
+    malhas = [o for o in sc.objects if o.type == 'MESH' and any(m.type == 'ARMATURE' and m.object == arm for m in o.modifiers)]
+    mw = arm.matrix_world.copy()
+    ac = arm.animation_data.action
+    fora = 0
+    for camada in ac.layers:
+        for faixa in camada.strips:
+            for saco in faixa.channelbags:
+                for fc in list(saco.fcurves):
+                    if not fc.data_path.startswith("pose.bones"):
+                        saco.fcurves.remove(fc)
+                        fora += 1
+    arm.parent = None
+    arm.matrix_world = mw
+    for o in list(sc.objects):
+        if o != arm and o not in malhas:
+            bpy.data.objects.remove(o)
+    texturas(1024)
+    sc.frame_start = 0
+    sc.frame_end = 258
+    os.makedirs(DEST + "pterossauro", exist_ok=True)
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in [arm] + malhas:
+        o.select_set(True)
+    bpy.ops.export_scene.gltf(filepath=DEST + "pterossauro/pterossauro.glb", export_format='GLB', use_selection=True,
+        export_image_format='JPEG', export_jpeg_quality=88, export_animations=True, export_frame_range=True,
+        export_force_sampling=True, export_apply=False, export_yup=True)
+    print("EXPORTADO pterossauro tris", sum(tris(o) for o in malhas), "curvas de objeto tiradas", fora)
+
 tarefas = {
+    "pterossauro": pterossauro,
     "dinos": dinos_pacote,
     "trex": lambda: simples("trex", "Tyrannosaurus/tyrannosaurus_rex_lowpoly.glb", 12000, 1024, True),
     "titanossauro": lambda: simples("titanossauro", "Theropod_inosaur_models (coloured)/jwa_titanosaurus.glb", 12000, 1024, True),

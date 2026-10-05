@@ -5,6 +5,7 @@ extends Node3D
 ##   balaustradas que terminam em cabeças de serpente (como em Chichén Itzá) e templo no topo;
 ## - rio e lago cavados no terreno (cavar_rio) e a cachoeira que despenca do paredão norte no lago;
 ## - jogo de bola, estelas, altares, cabeças de jaguar e colunas da serpente (as da etapa são mortais);
+## - a serpente gigante rastejando pela mata (SerpenteGigante, só enfeite, nas etapas da config);
 ## - mata fechada (sumaúmas gigantes com cipós, árvores de copa, palmeiras, bananeiras, samambaias),
 ##   bandos de araras, tucanos e urubus, garças no rio e borboletas (Fauna).
 ## Tudo que é pedra é mortal: entra em altura() (somada em Terreno.altura_em) e tem colisão no grupo
@@ -14,7 +15,7 @@ var penhasco := 170.0
 var _terreno: Terreno
 var _cfg: Dictionary = {}
 var _chao := 6.5
-var _piramides: Array = []        # {c: Vector2, mb, mt, topo, niveis, escadas: String, templo: bool}
+var _piramides: Array = []        # {c: Vector2, mb, mt, topo, templo: bool} + perfil (PiramideSelva.perfil)
 var _colunas_fixas: Array = []    # [centro Vector2, raio, altura]
 var _colunas_etapa: Array = []
 var _rio := PackedVector2Array()
@@ -26,6 +27,10 @@ var _t := 0.0
 var _estradas: Array = []         # [PackedVector3Array] pontos de controle de todas as estradas (todas as etapas)
 var _grade_estrada := {}          # Vector2i -> [[a, b], ...] segmentos
 const CEL := 40.0
+var _serpente_cfg: Dictionary = {}
+var _trilha_serpente := PackedVector2Array()   # por onde a serpente gigante rasteja (SerpenteGigante.tracar)
+var _grade_trilha := {}           # Vector2i (células de CEL_TRILHA m) em cima da trilha: sem mata
+const CEL_TRILHA := 4.0
 
 static var _mats := {}
 
@@ -169,6 +174,7 @@ func preparar(terreno: Terreno) -> void:
 	for p in _cfg.get("piramides", []):
 		_piramides.append({"c": Vector2(float(p[0]), float(p[1])), "mb": float(p[2]), "mt": float(p[3]), "topo": float(p[4]),
 			"niveis": int(p[5]) if p.size() > 5 else 6, "escadas": str(p[6]) if p.size() > 6 else "S", "templo": bool(p[7]) if p.size() > 7 else false})
+		PiramideSelva.perfil(_piramides[_piramides.size() - 1], _chao)
 	for c in _cfg.get("colunas", []):
 		_colunas_fixas.append([Vector2(float(c[0]), float(c[1])), float(c[2]), float(c[3])])
 	var rio: Dictionary = _cfg.get("rio", {})
@@ -198,6 +204,32 @@ func preparar(terreno: Terreno) -> void:
 					if not _grade_estrada.has(chave):
 						_grade_estrada[chave] = []
 					_grade_estrada[chave].append([a, b])
+	# Trilha da serpente gigante: a mata não nasce em cima (o corpo atravessaria os troncos)
+	_serpente_cfg = _cfg.get("serpente_gigante", {})
+	_trilha_serpente = SerpenteGigante.tracar(_serpente_cfg, self)
+	var folga := float(_serpente_cfg.get("grossura", 5.0)) * 0.5 + 5.0
+	var nc := ceili(folga / CEL_TRILHA)
+	for q in _trilha_serpente:
+		var c := Vector2i(floori(q.x / CEL_TRILHA), floori(q.y / CEL_TRILHA))
+		for dx in range(-nc, nc + 1):
+			for dz in range(-nc, nc + 1):
+				if (Vector2(c.x + dx + 0.5, c.y + dz + 0.5) * CEL_TRILHA).distance_to(q) < folga:
+					_grade_trilha[c + Vector2i(dx, dz)] = true
+
+
+func _na_trilha(p: Vector2) -> bool:
+	return _grade_trilha.has(Vector2i(floori(p.x / CEL_TRILHA), floori(p.y / CEL_TRILHA)))
+
+
+## Distância (no chão) até a estrada mais próxima de qualquer etapa; INF a mais de ~30 m.
+func dist_estrada(p: Vector2) -> float:
+	var melhor := INF
+	for seg: Array in _grade_estrada.get(Vector2i(floori(p.x / CEL), floori(p.y / CEL)), []):
+		var a := Vector2(seg[0].x, seg[0].z)
+		var ab := Vector2(seg[1].x, seg[1].z) - a
+		var t := clampf((p - a).dot(ab) / maxf(ab.length_squared(), 0.01), 0.0, 1.0)
+		melhor = minf(melhor, p.distance_to(a + ab * t))
+	return melhor
 
 
 # ------------------------------------------------------------------ alturas (mortais)
@@ -211,45 +243,12 @@ func altura(x: float, z: float) -> float:
 		var dz := absf(z - c.y)
 		var ch := maxf(dx, dz)
 		if ch < p.mb:
-			h = maxf(h, _altura_piramide(p, ch, x - c.x, z - c.y))
+			h = maxf(h, PiramideSelva.altura(p, ch))
 	for lista: Array in [_colunas_fixas, _colunas_etapa]:
 		for col: Array in lista:
 			var d := Vector2(x, z).distance_to(col[0])
 			if d < col[1]:
 				h = maxf(h, _chao + float(col[2]))
-	return h
-
-
-## Perfil da pirâmide: em cada nível, talude (inclinado, 65% da altura) e painel vertical; a escada
-## (faixa no meio de cada face com escada) sobe reto da base ao topo.
-func _altura_piramide(p: Dictionary, ch: float, dx: float, dz: float) -> float:
-	var n: int = p.niveis
-	var mb: float = p.mb
-	var mt: float = p.mt
-	var topo: float = p.topo
-	if ch <= mt:
-		return topo
-	var recuo := (mb - mt) / n
-	var hk := (topo - _chao) / n
-	var k := clampi(int((mb - ch) / recuo), 0, n - 1)
-	var m0 := mb - k * recuo
-	var y0 := _chao + k * hk
-	var talude_fim := m0 - recuo * 0.55
-	var h := y0 + hk if ch <= talude_fim else y0 + hk * 0.65 * (m0 - ch) / (recuo * 0.55)
-	# Escadaria
-	var esc: String = p.escadas
-	var meia_esc := mb * 0.13
-	for f in esc:
-		var ao_longo := 0.0
-		var lateral := 0.0
-		match f:
-			"S": ao_longo = dz; lateral = dx
-			"N": ao_longo = -dz; lateral = dx
-			"E": ao_longo = dx; lateral = dz
-			"W": ao_longo = -dx; lateral = dz
-		if ao_longo > 0.0 and absf(lateral) < meia_esc + 2.0:
-			var t := clampf((mb + 4.0 - ao_longo) / (mb + 4.0 - mt), 0.0, 1.0)
-			h = maxf(h, _chao + t * (topo - _chao))
 	return h
 
 
@@ -329,144 +328,12 @@ func _corpo_mortal(pai: Node = null) -> StaticBody3D:
 	return corpo
 
 
-## Pirâmide em talude-tablero com escadarias, alfardas (balaustradas) terminando em cabeças de
-## serpente, braseiros nos cantos do topo e (opcional) o templo com crista no alto.
+## Pirâmide igual à arte do dono (PiramideSelva): a pintura é a pele de um relevo nas quatro faces.
 func _montar_piramide(p: Dictionary) -> void:
-	var c: Vector2 = p.c
-	var n: int = p.niveis
-	var mb: float = p.mb
-	var mt: float = p.mt
-	var topo: float = p.topo
-	var recuo := (mb - mt) / n
-	var hk := (topo - _chao) / n
-	var st_t := SurfaceTool.new()   # taludes e patamares (blocos)
-	st_t.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var st_p := SurfaceTool.new()   # painéis (friso entalhado e pintado)
-	st_p.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var caixas: Array[Transform3D] = []
-	for k in n:
-		var m0 := mb - k * recuo
-		var y0 := _chao + k * hk
-		var ym := y0 + hk * 0.65
-		var y1 := y0 + hk
-		var mm := m0 - recuo * 0.55   # topo do talude
-		var mp := mm + 0.6             # painel um pouco saliente (sombra embaixo)
-		var cantos := [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]
-		for q in 4:
-			var a: Vector2 = cantos[q]
-			var b: Vector2 = cantos[(q + 1) % 4]
-			var fora := Vector3((a + b).x, 0.0, (a + b).y).normalized()
-			var ba := Vector3(c.x + a.x * m0, y0 - (3.0 if k == 0 else 0.0), c.y + a.y * m0)
-			var bb := Vector3(c.x + b.x * m0, y0 - (3.0 if k == 0 else 0.0), c.y + b.y * m0)
-			var ta := Vector3(c.x + a.x * mm, ym, c.y + a.y * mm)
-			var tb := Vector3(c.x + b.x * mm, ym, c.y + b.y * mm)
-			var n_t := (tb - ta).cross(ba - ta).normalized()
-			if n_t.dot(fora) < 0.0:
-				n_t = -n_t
-			Egito._quad(st_t, ta, tb, bb, ba, n_t)
-			# Painel vertical
-			var pa := Vector3(c.x + a.x * mp, ym, c.y + a.y * mp)
-			var pb := Vector3(c.x + b.x * mp, ym, c.y + b.y * mp)
-			Egito._quad(st_p, pa + Vector3.UP * (y1 - ym), pb + Vector3.UP * (y1 - ym), pb, pa, fora)
-			# Base do painel (por baixo da saliência) e o patamar até o próximo nível
-			Egito._quad(st_t, ta, tb, pb, pa, Vector3.DOWN)
-			var m1 := m0 - recuo
-			var ia := Vector3(c.x + a.x * m1, y1, c.y + a.y * m1)
-			var ib := Vector3(c.x + b.x * m1, y1, c.y + b.y * m1)
-			Egito._quad(st_t, pa + Vector3.UP * (y1 - ym), pb + Vector3.UP * (y1 - ym), ib, ia, Vector3.UP)
-		caixas.append(Transform3D(Basis.from_scale(Vector3(mm * 2.0, hk + (3.0 if k == 0 else 0.0), mm * 2.0)), Vector3(c.x, (y0 + y1) * 0.5 - (1.5 if k == 0 else 0.0), c.y)))
-	# Topo
-	Egito._quad(st_t, Vector3(c.x - mt, topo, c.y - mt), Vector3(c.x + mt, topo, c.y - mt), Vector3(c.x + mt, topo, c.y + mt), Vector3(c.x - mt, topo, c.y + mt), Vector3.UP)
 	var no := Node3D.new()
 	no.name = "Piramide"
 	add_child(no)
-	for par: Array in [[st_t, material_pedra(0, 1.1)], [st_p, material_pedra(2, hk * 0.35 / 2.0)]]:
-		var mi := MeshInstance3D.new()
-		mi.mesh = (par[0] as SurfaceTool).commit()
-		mi.material_override = par[1]
-		no.add_child(mi)
-	var corpo := _corpo_mortal(no)
-	ComplexoLancamento.adicionar_colisoes(corpo, caixas)
-	# Escadarias
-	for f in str(p.escadas):
-		_escadaria(no, corpo, p, f)
-	# Braseiros acesos nos cantos do topo
-	for s: Vector2 in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
-		var q := c + s * (mt - 4.0)
-		var base := Vector3(q.x, topo, q.y)
-		_caixa(no, Vector3(2.2, 1.6, 2.2), base + Vector3.UP * 0.8, material_pedra(2, 0.8))
-		Fogo.criar(no, base + Vector3.UP * 1.7, 0.9, 3.5, 24, 1.4)
-	if p.templo:
-		_templo(no, Vector3(c.x, topo, c.y), mt)
-
-
-## Escadaria numa face (S, N, E ou W): degraus de 0,55 m, alfardas dos lados e cabeças de serpente
-## na base das alfardas.
-func _escadaria(no: Node3D, corpo: StaticBody3D, p: Dictionary, f: String) -> void:
-	var c: Vector2 = p.c
-	var mb: float = p.mb
-	var mt: float = p.mt
-	var topo: float = p.topo
-	var dir: Vector3 = {"S": Vector3(0, 0, 1), "N": Vector3(0, 0, -1), "E": Vector3(1, 0, 0), "W": Vector3(-1, 0, 0)}[f]
-	var lat := Vector3.UP.cross(dir).normalized()
-	var meia := mb * 0.13
-	var ini := mb + 4.0     # pé da escada (fora da base)
-	var fim := mt
-	var degraus := int((topo - _chao) / 0.55)
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var centro := Vector3(c.x, 0.0, c.y)
-	for k in degraus:
-		var t0 := float(k) / degraus
-		var t1 := float(k + 1) / degraus
-		var d0 := lerpf(ini, fim, t0)
-		var d1 := lerpf(ini, fim, t1)
-		var y1 := _chao + (topo - _chao) * t1
-		var y0 := _chao + (topo - _chao) * t0
-		# espelho (vertical) e piso do degrau
-		var e0 := centro + dir * d0 - lat * meia
-		var e1 := centro + dir * d0 + lat * meia
-		Egito._quad(st, e0 + Vector3.UP * y0, e1 + Vector3.UP * y0, e1 + Vector3.UP * y1, e0 + Vector3.UP * y1, dir)
-		var f0 := centro + dir * d1 - lat * meia
-		var f1 := centro + dir * d1 + lat * meia
-		Egito._quad(st, e0 + Vector3.UP * y1, e1 + Vector3.UP * y1, f1 + Vector3.UP * y1, f0 + Vector3.UP * y1, Vector3.UP)
-	var mi := MeshInstance3D.new()
-	mi.mesh = st.commit()
-	mi.material_override = material_pedra(0, 0.55)
-	no.add_child(mi)
-	# Alfardas: blocos inclinados dos dois lados
-	var comp := Vector2(ini - fim, topo - _chao).length()
-	var ang := atan2(topo - _chao, ini - fim)
-	var meio := centro + dir * ((ini + fim) * 0.5) + Vector3.UP * ((topo + _chao) * 0.5 + 0.8)
-	var alfardas: Array[Transform3D] = []
-	for s: float in [-1.0, 1.0]:
-		var b := Basis(lat, Vector3.UP, dir) * Basis(Vector3.RIGHT, ang)
-		alfardas.append(Transform3D(b * Basis.from_scale(Vector3(2.4, 2.2, comp)), meio + lat * s * (meia + 1.2)))
-		var cab := cabeca_serpente(4.2)
-		cab.transform = Transform3D(Basis.looking_at(dir, Vector3.UP), centro + dir * (ini + 1.2) + lat * s * (meia + 1.2) + Vector3.UP * (_chao - 0.2))
-		no.add_child(cab)
-	ComplexoLancamento.criar_multimesh(no, alfardas, material_pedra(2, 0.9))
-	# Colisão da escada: uma rampa inclinada (mortal como o resto)
-	var rampa := Transform3D(Basis(lat, Vector3.UP, dir) * Basis(Vector3.RIGHT, ang) * Basis.from_scale(Vector3(meia * 2.0 + 4.8, 2.0, comp)), meio - Vector3.UP * 1.6)
-	ComplexoLancamento.adicionar_colisoes(corpo, [rampa])
-
-
-## Templo no topo: base, cela com porta escura e colunas, e a crista vazada (cresteria) pintada.
-func _templo(no: Node3D, base: Vector3, mt: float) -> void:
-	var w := minf(mt * 1.2, 26.0)
-	var est := material_pedra(1, 1.0)
-	_caixa(no, Vector3(w, 1.2, w * 0.7), base + Vector3.UP * 0.6, material_pedra(0, 0.6))
-	_caixa(no, Vector3(w * 0.85, 7.0, w * 0.55), base + Vector3.UP * 4.7, est)
-	_caixa(no, Vector3(w * 0.95, 1.4, w * 0.62), base + Vector3.UP * 8.9, material_pedra(2, 0.7))
-	var porta := StandardMaterial3D.new()
-	porta.albedo_color = Color(0.03, 0.025, 0.02)
-	_caixa(no, Vector3(w * 0.22, 4.6, 0.3), base + Vector3(0, 3.5, w * 0.28), porta)
-	for k in 5:
-		var x := lerpf(-w * 0.32, w * 0.32, float(k) / 4.0)
-		_caixa(no, Vector3(w * 0.1, 6.0, 0.4), base + Vector3(x, 12.6, 0), est)
-	_caixa(no, Vector3(w * 0.75, 1.0, 0.6), base + Vector3.UP * 15.9, material_pedra(2, 0.6))
-	var corpo := _corpo_mortal(no)
-	ComplexoLancamento.adicionar_colisoes(corpo, [Transform3D(Basis.from_scale(Vector3(w * 0.9, 16.0, w * 0.6)), base + Vector3.UP * 8.0)])
+	PiramideSelva.montar(no, _corpo_mortal(no), p)
 
 
 ## Colunas da serpente: fuste cilíndrico entalhado com escamas, anéis de jade e a cabeça no alto.
@@ -648,7 +515,7 @@ func _montar_ruinas() -> void:
 	var friso := material_pedra(2, 0.8)
 	for jb in _cfg.get("jogo_de_bola", []):
 		var c := Vector3(float(jb[0]), 0.0, float(jb[1]))
-		c.y = _terreno.altura_em(c.x, c.z)
+		c.y = _terreno.altura_base(c.x, c.z)
 		var giro := Basis(Vector3.UP, deg_to_rad(float(jb[2])))
 		for s: float in [-1.0, 1.0]:
 			_caixa(self, Vector3(14.0, 5.0, 90.0), c + giro * Vector3(s * 22.0, 2.0, 0), pedra, giro)
@@ -666,13 +533,13 @@ func _montar_ruinas() -> void:
 	var estelas: Array[Transform3D] = []
 	for e in _cfg.get("estelas", []):
 		var q := Vector3(float(e[0]), 0.0, float(e[1]))
-		q.y = _terreno.altura_em(q.x, q.z)
+		q.y = _terreno.altura_base(q.x, q.z)
 		estelas.append(Transform3D(Basis(Vector3.UP, float(e[2])) * Basis.from_scale(Vector3(3.0, 9.0, 1.2)), q + Vector3.UP * 4.0))
 	ComplexoLancamento.criar_multimesh(self, estelas, friso)
 	for j in _cfg.get("jaguares", []):
 		var cab := cabeca_jaguar(float(j[3]))
 		var q := Vector3(float(j[0]), 0.0, float(j[1]))
-		q.y = _terreno.altura_em(q.x, q.z) - 0.4
+		q.y = _terreno.altura_base(q.x, q.z) - 0.4
 		cab.transform = Transform3D(Basis(Vector3.UP, deg_to_rad(float(j[2]))), q)
 		add_child(cab)
 
@@ -705,7 +572,7 @@ func _montar_vegetacao() -> void:
 		if absf(x) > Terreno.MEIO_INTERNO - 60.0 or absf(z) > Terreno.MEIO_INTERNO - 60.0:
 			continue
 		var p := Vector2(x, z)
-		var h := _terreno.altura_em(x, z)
+		var h := _terreno.altura_base(x, z)
 		if h < nivel + 1.2 or altura(x, z) > -INF:
 			continue
 		var dentro := x > float(vale[0]) and x < float(vale[2]) and z > float(vale[1]) and z < float(vale[3])
@@ -744,7 +611,10 @@ func _montar_vegetacao() -> void:
 			continue
 		var tinta := Color(1, 1, 1) * rng.randf_range(0.8, 1.12)
 		tinta.g *= rng.randf_range(0.95, 1.1)
-		lista.append([Vector3(x, h - 0.3, z), esc, rng.randf() * TAU, tinta])
+		var giro := rng.randf() * TAU
+		if _na_trilha(p):
+			continue   # depois dos sorteios: o resto da mata fica onde sempre esteve
+		lista.append([Vector3(x, h - 0.3, z), esc, giro, tinta])
 	# Sub-bosque: moitas densas (a copa em miniatura) cobrindo o chão do vale
 	var moitas := []
 	var n_moitas := int(qtd.get("moitas", 26000))
@@ -753,7 +623,7 @@ func _montar_vegetacao() -> void:
 		tentativas += 1
 		var x := rng.randf_range(float(vale[0]), float(vale[2]))
 		var z := rng.randf_range(float(vale[1]), float(vale[3]))
-		var h := _terreno.altura_em(x, z)
+		var h := _terreno.altura_base(x, z)
 		if h < nivel + 1.2 or h > 20.0 or altura(x, z) > -INF:
 			continue
 		var p := Vector2(x, z)
@@ -764,13 +634,19 @@ func _montar_vegetacao() -> void:
 				break
 		if not livre or _estrada_perto(p, h, 6.0):
 			continue
-		moitas.append([Vector3(x, h - 0.6, z), rng.randf_range(0.18, 0.34), rng.randf() * TAU, Color(0.85, 1.0, 0.8) * rng.randf_range(0.75, 1.1)])
+		var moita := [Vector3(x, h - 0.6, z), rng.randf_range(0.18, 0.34), rng.randf() * TAU, Color(0.85, 1.0, 0.8) * rng.randf_range(0.75, 1.1)]
+		if not _na_trilha(p):
+			moitas.append(moita)
+	var antes := get_child_count()
 	Vegetacao.plantar(self, Vegetacao.Tipo.COPA, moitas, 220.0, 950.0, false)
 	Vegetacao.plantar(self, Vegetacao.Tipo.SUMAUMA, listas.gigante, 500.0, 4200.0, true)
 	Vegetacao.plantar(self, Vegetacao.Tipo.COPA, listas.copa, 400.0, 3000.0, true)
 	Vegetacao.plantar(self, Vegetacao.Tipo.PALMEIRA_SELVA, listas.palmeira, 400.0, 2400.0, true)
 	Vegetacao.plantar(self, Vegetacao.Tipo.BANANEIRA, listas.bananeira, 250.0, 900.0, false)
 	Vegetacao.plantar(self, Vegetacao.Tipo.SAMAMBAIA, listas.samambaia, 200.0, 500.0, false)
+	for k in range(antes, get_child_count()):
+		if get_child(k) is MultiMeshInstance3D:
+			_mata.append(get_child(k))
 	if OS.get_environment("TSC_SUB_LOG") != "":
 		print("[SELVA] vegetação: ", {"gigante": listas.gigante.size(), "copa": listas.copa.size(), "palmeira": listas.palmeira.size(), "bananeira": listas.bananeira.size(), "samambaia": listas.samambaia.size()}, " tentativas ", tentativas)
 
@@ -813,8 +689,8 @@ func _estrada_perto(p: Vector2, chao: float, alto: float) -> bool:
 
 
 func _plano(x: float, z: float, limite: float) -> bool:
-	var dx := _terreno.altura_em(x + 6.0, z) - _terreno.altura_em(x - 6.0, z)
-	var dz := _terreno.altura_em(x, z + 6.0) - _terreno.altura_em(x, z - 6.0)
+	var dx := _terreno.altura_base(x + 6.0, z) - _terreno.altura_base(x - 6.0, z)
+	var dz := _terreno.altura_base(x, z + 6.0) - _terreno.altura_base(x, z - 6.0)
 	return absf(dx) + absf(dz) <= limite
 
 
@@ -854,18 +730,130 @@ func _montar_bruma() -> void:
 
 # ------------------------------------------------------------------ etapas
 
-## Troca o que muda por etapa: colunas da serpente no caminho do voo e o vento.
+## Troca o que muda por etapa: colunas da serpente no caminho do voo, a serpente gigante e o vento.
 func preparar_etapa(indice: int, cfg_etapa: Dictionary) -> void:
 	for f in _etapa_no.get_children():
 		f.queue_free()
+	_restaurar_mata()
 	_colunas_etapa.clear()
 	var e: Dictionary = _cfg.get("etapas", {}).get(str(indice + 1), {})
 	for c in e.get("colunas", []):
 		_colunas_etapa.append([Vector2(float(c[0]), float(c[1])), float(c[2]), float(c[3])])
 	_montar_colunas(_etapa_no, _colunas_etapa)
+	if (indice + 1) in Array(_serpente_cfg.get("etapas", [])).map(func(n): return int(n)) and not _trilha_serpente.is_empty():
+		var serpente := SerpenteGigante.new()
+		_etapa_no.add_child(serpente)
+		serpente.montar(_trilha_serpente, _terreno, _serpente_cfg)
+	_mata_da_etapa()
 	_vento_cfg = cfg_etapa.get("vento", {})
 	if _vento_cfg.is_empty():
 		Veiculo.vento = Vector3.ZERO
+
+
+## Mata em cima do chão que a etapa levantou (terra preenchida e montanhas de montanhas.etapas.N): a mata
+## do vale é plantada uma vez só, no chão (Terreno.altura_base), e ali fica enterrada.
+func _mata_da_etapa() -> void:
+	var vale: Array = Config.valor("mapa.subida.vale", [-2100, -1750, 1100, 1000])
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5501
+	var listas := {"gigante": [], "copa": [], "palmeira": [], "moita": []}
+	var metas := {"gigante": 900, "copa": 5200, "palmeira": 900, "moita": 9000}
+	var tentativas := 0
+	var faltam := true
+	while faltam and tentativas < 160000:
+		tentativas += 1
+		var x := rng.randf_range(float(vale[0]), float(vale[2]))
+		var z := rng.randf_range(float(vale[1]), float(vale[3]))
+		if not _terreno.elevado_na_etapa(x, z):
+			if tentativas > 4000 and listas.copa.is_empty():
+				return   # etapa sem chão levantado
+			continue
+		var h := _terreno.altura_em(x, z)
+		var sorteio := rng.randf()
+		var tipo := "moita" if sorteio < 0.5 else ("copa" if sorteio < 0.82 else ("gigante" if sorteio < 0.91 else "palmeira"))
+		var lista: Array = listas[tipo]
+		if lista.size() >= int(metas[tipo]):
+			faltam = false
+			for k in listas:
+				faltam = faltam or (listas[k] as Array).size() < int(metas[k])
+			continue
+		var dx := _terreno.altura_em(x + 6.0, z) - _terreno.altura_em(x - 6.0, z)
+		var dz := _terreno.altura_em(x, z + 6.0) - _terreno.altura_em(x, z - 6.0)
+		if absf(dx) + absf(dz) > (14.0 if tipo == "moita" else 9.0) or _estrada_perto(Vector2(x, z), h, 30.0):
+			continue
+		var esc := rng.randf_range(0.18, 0.34) if tipo == "moita" else rng.randf_range(0.75, 1.25)
+		var tinta := Color(1, 1, 1) * rng.randf_range(0.8, 1.12)
+		lista.append([Vector3(x, h - (0.6 if tipo == "moita" else 0.3), z), esc, rng.randf() * TAU, tinta])
+	Vegetacao.plantar(_etapa_no, Vegetacao.Tipo.COPA, listas.moita, 220.0, 950.0, false)
+	Vegetacao.plantar(_etapa_no, Vegetacao.Tipo.SUMAUMA, listas.gigante, 500.0, 4200.0, true)
+	Vegetacao.plantar(_etapa_no, Vegetacao.Tipo.COPA, listas.copa, 400.0, 3000.0, true)
+	Vegetacao.plantar(_etapa_no, Vegetacao.Tipo.PALMEIRA_SELVA, listas.palmeira, 400.0, 2400.0, true)
+	if OS.get_environment("TSC_SUB_LOG") != "":
+		print("[SELVA] mata da etapa: ", {"gigante": listas.gigante.size(), "copa": listas.copa.size(), "palmeira": listas.palmeira.size(), "moita": listas.moita.size()})
+
+
+## Serpente colossal da etapa (SerpenteCaminho): depende do percurso e do alvo da etapa, por isso é
+## montada depois deles (Partida._iniciar_etapa). A mata por onde ela passa some enquanto a etapa durar.
+func montar_serpente_caminho(indice: int, sub: ComplexoSubida, alvo: Alvo) -> void:
+	_montar_cobras_bote(indice, sub)
+	var cfg: Dictionary = _cfg.get("serpente_caminho", {})
+	if not (indice + 1) in Array(cfg.get("etapas", [])).map(func(n): return int(n)):
+		return
+	var cobra := SerpenteCaminho.new()
+	_etapa_no.add_child(cobra)
+	cobra.montar(sub, alvo, _terreno, cfg)
+	_abrir_mata(cobra.roteiro(), cobra.largura * 0.5 + 9.0)
+
+
+## Cobras que dão o bote (SerpenteBote, pedido do dono 2026-10-05): a da plataforma dos buracos
+## (cobra_arena) e a da toca na montanha colada na pista (cobra_toca), nas etapas da config.
+func _montar_cobras_bote(indice: int, sub: ComplexoSubida) -> void:
+	var na_etapa := func(cfg: Dictionary) -> bool: return (indice + 1) in Array(cfg.get("etapas", [])).map(func(n): return int(n))
+	var arena: Dictionary = _cfg.get("cobra_arena", {})
+	if na_etapa.call(arena) and sub.plataforma:
+		var cobra := SerpenteBote.new()
+		_etapa_no.add_child(cobra)
+		cobra.montar_arena(sub.plataforma, arena)
+	var toca: Dictionary = _cfg.get("cobra_toca", {})
+	if na_etapa.call(toca):
+		var cobra := SerpenteBote.new()
+		_etapa_no.add_child(cobra)
+		cobra.montar_toca(sub, _terreno, toca)
+
+
+var _mata: Array = []          # MultiMeshInstance3D da vegetação
+var _mata_tirada: Array = []   # [MultiMesh, índice, Transform3D] escondidas pela serpente da etapa
+
+
+func _abrir_mata(pontos: PackedVector3Array, raio: float) -> void:
+	var grade := {}
+	for k in range(0, pontos.size(), 3):
+		var q := pontos[k]
+		grade[Vector2i(floori(q.x / 20.0), floori(q.z / 20.0))] = true
+	var zero := Transform3D(Basis.from_scale(Vector3.ONE * 0.0001), Vector3.ZERO)
+	for mmi: MultiMeshInstance3D in _mata:
+		var mm := mmi.multimesh
+		for i in mm.instance_count:
+			var xf := mm.get_instance_transform(i)
+			var c := Vector2i(floori(xf.origin.x / 20.0), floori(xf.origin.z / 20.0))
+			var perto := false
+			for dx in range(-1, 2):
+				for dz in range(-1, 2):
+					perto = perto or grade.has(c + Vector2i(dx, dz))
+			if not perto:
+				continue
+			for k in range(0, pontos.size(), 2):
+				var q := pontos[k]
+				if Vector2(q.x - xf.origin.x, q.z - xf.origin.z).length_squared() < raio * raio and xf.origin.y < q.y + 4.0:
+					_mata_tirada.append([mm, i, xf])
+					mm.set_instance_transform(i, zero)
+					break
+
+
+func _restaurar_mata() -> void:
+	for t: Array in _mata_tirada:
+		(t[0] as MultiMesh).set_instance_transform(t[1], t[2])
+	_mata_tirada.clear()
 
 
 func _physics_process(delta: float) -> void:

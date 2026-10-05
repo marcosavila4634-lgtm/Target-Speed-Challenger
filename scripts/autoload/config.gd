@@ -23,6 +23,25 @@ const CONTROLES := {
 	"reduzir_marcha": [KEY_Q, KEY_A],
 }
 
+## Controle (joystick; nomes no padrão Xbox, valem para qualquer controle que o Windows reconheça).
+## Botões: JOY_BUTTON_*; eixos: [eixo, sentido]. Gatilhos e alavanca são analógicos (acelera e vira aos poucos).
+##   RT acelerar • LT ré / freio • alavanca esquerda ou setas: direção • A ejetor • Y paraquedas
+##   X ou B nitro • RB / LB câmbio (Drag) • LB olhar para trás • seta para cima: próxima câmera • START pausa
+const CONTROLES_JOY := {
+	"acelerar": [[JOY_AXIS_TRIGGER_RIGHT, 1.0]],
+	"freiar": [[JOY_AXIS_TRIGGER_LEFT, 1.0]],
+	"esquerda": [[JOY_AXIS_LEFT_X, -1.0], JOY_BUTTON_DPAD_LEFT],
+	"direita": [[JOY_AXIS_LEFT_X, 1.0], JOY_BUTTON_DPAD_RIGHT],
+	"ejetor": [JOY_BUTTON_A],
+	"paraquedas": [JOY_BUTTON_Y],
+	"nitro": [JOY_BUTTON_X, JOY_BUTTON_B],
+	"proxima_camera": [JOY_BUTTON_DPAD_UP],
+	"olhar_tras": [JOY_BUTTON_LEFT_SHOULDER],
+	"pausa": [JOY_BUTTON_START],
+	"subir_marcha": [JOY_BUTTON_RIGHT_SHOULDER],
+	"reduzir_marcha": [JOY_BUTTON_LEFT_SHOULDER],
+}
+
 const EQUIPES := [
 	{"nome": "AZUL", "cor": Color(0.16, 0.42, 1.0), "direcao": Vector3(0, 0, -1)},
 	{"nome": "AMARELO", "cor": Color(1.0, 0.8, 0.12), "direcao": Vector3(1, 0, 0)},
@@ -103,6 +122,16 @@ func escolher_mapa(id: String) -> void:
 	_sobrepor = m.get("sobrepor", {})
 
 
+## Opção gráfica: o valor do nível de qualidade escolhido no menu (grafico.qualidades.<nível>.<chave>) ou, se o
+## nível não muda essa opção, o de grafico.<chave>.
+func grafico(chave: String, padrao):
+	var nivel: Dictionary = (jogo.get("grafico", {}) as Dictionary).get("qualidades", {}).get(
+		OS.get_environment("TSC_QUALIDADE") if OS.get_environment("TSC_QUALIDADE") != "" else Sessao.qualidade, {})   # TSC_QUALIDADE: teste, sem gravar na preferência do jogador
+	if nivel.has(chave):
+		return nivel[chave]
+	return valor("grafico." + chave, padrao)
+
+
 ## Plataforma conjunta: todas as equipes largam juntas da mesma arena.
 func mapa_arena() -> bool:
 	return mapa_atual().get("tipo", "") == "arena"
@@ -172,3 +201,29 @@ func _registrar_controles() -> void:
 			var ev := InputEventKey.new()
 			ev.physical_keycode = tecla
 			InputMap.action_add_event(acao, ev)
+		# Controle: device -1 = qualquer controle ligado
+		for item in CONTROLES_JOY.get(acao, []):
+			if item is Array:
+				var eixo := InputEventJoypadMotion.new()
+				eixo.device = -1
+				eixo.axis = item[0]
+				eixo.axis_value = item[1]
+				InputMap.action_add_event(acao, eixo)
+			else:
+				var botao := InputEventJoypadButton.new()
+				botao.device = -1
+				botao.button_index = item
+				InputMap.action_add_event(acao, botao)
+		InputMap.action_set_deadzone(acao, 0.2)
+	Input.joy_connection_changed.connect(_controle_mudou)
+	for id in Input.get_connected_joypads():
+		print("[CONTROLE] ligado: ", Input.get_joy_name(id))
+
+
+## Há um controle ligado? (o HUD mostra a ajuda dos botões)
+func tem_controle() -> bool:
+	return not Input.get_connected_joypads().is_empty()
+
+
+func _controle_mudou(id: int, ligado: bool) -> void:
+	print("[CONTROLE] %s: %s" % ["ligado" if ligado else "desligado", Input.get_joy_name(id) if ligado else str(id)])

@@ -3,6 +3,7 @@ const fs = require('fs');
 const { ps, mundo } = require('./cursos.js');
 const { vulcao, V, dirv } = require('./gen.js');
 const desenhar = require('./desenho.js');
+const { extras: platExtras } = require('./plataforma_extras.js');
 const r1 = v => Math.round(v * 10) / 10;
 const pts = t => t.pts.map(p => [r1(p[0]), r1(p[1]), r1(p[2])]);
 const dir4 = h => [Math.round(Math.sin(h * Math.PI / 180)), Math.round(-Math.cos(h * Math.PI / 180))];
@@ -190,6 +191,7 @@ const DESAFIOS = [
   // para contorná-la por ele e voltar; esta vai até depois de as duas pistas se separarem (pedido do dono)
   { T: 'A', mola: '#a2+34', mola_comp: 48, portao: ['#a3+25', 'RECINTO 03'], piso: ['#a3+75', '#a3+115'], re: ['#a3+150', '#a3+172'], de: '#a1+115', para: '#a3+218', lados: [-1] },
   { T: 'C', portao: ['#c3+60', 'RECINTO 12'], piso: ['#c3+105', '#c3+145'], re: ['#c3+185', '#c3+207'], mola: '#c3+245', de: '#c3+20', para: '#c3+395', lados: [-1, 1],
+    pteros: ['#c3+135', '#c3+415'],   // bando de pterossauros soltando ovos por cima da reta dos aceleradores contrários e da mola (pedido do dono, por captura de tela)
     molas: [['A', '#a2+60', -1, 'ilhas'], ['B', '#b4+20', 1]] },   // 'ilhas': no lugar da mola, plataformas redondas desniveladas (pedido do dono)
   { T: 'A', portao: ['#a3+90', 'SETOR 9'], piso: ['#a4+15', '#a4+55'], re: ['#a4+88', '#a4+110'], mola: '#a5+5', de: '#a3+18', para: '#a5+130', lados: [1],
     molas: [['C', '#c2+30', 1]],   // no lugar da avalanche (Zona de Fluxo Piroclástico), que o dono mandou tirar
@@ -286,7 +288,7 @@ const cps = ps.map((p, k) => {
     if (!lista.some(c => c[0] === av[0] && Math.abs(c[1] - m) < 30)) lista.push([av[0], m]);
   }
   // Um checkpoint logo antes de cada looping (quem cai dele volta ali)
-  for (const T of ['A', 'B', 'C']) for (const l of p[T].loops) lista.push([T, Math.round(l[0] - 40)]);
+  for (const T of ['A', 'B', 'C']) for (const l of p[T].loops) lista.push([T, Math.round(l[0] - 100)]);   // 100 m antes: sem aceleradores no laço (pedido do dono), quem ressurge precisa de embalo
   // Logo antes de cada desafio / mola; se cair dentro de uma chicane, vai para antes dela (quem ressurge precisa de reta até o portão)
   for (const c of extras[k].cps || []) {
     let m = c[1];
@@ -464,6 +466,16 @@ ps.forEach((p, k) => {
   const plat = { origem: P.o, frente: dir4(P.h), comprimento: P.comp, largura: P.larg, saida_largura: P.sem_piso ? 18 : 10, sem_piso: !!P.sem_piso, muro_altura: 2.6, grade_altura: 8.5, placa: placas[k], portico_arte: 'res://assets/dino/portao/extinction_day.png',
     entradas: P.sem_piso ? [] : [[P.s, P.xe, 12]], porta_acelerada: !P.sem_piso, buracos: buracos[k](P.s).concat(P.sem_piso ? [] : [[P.xe, 18 * P.s, 5]]).map(b => [Math.round(b[0] * P.comp / 100), Math.round(b[1] * P.larg / 100), b[2]]),
     impulsos: imp_plat(P.s, P.comp, P.xe).slice(0, 3).map(i => [Math.round(i[0]), Math.round(i[1] * P.larg / 100), i[2], i[3]]) };
+  // Pedido do dono (2026-10-04): 12 aceleradores e 10 molas espalhados na plataforma (distribuição diferente em cada
+  // etapa) e pterossauros soltando ovos nas 4 etapas — no poço sem chão da E2 só os pterossauros
+  if (!P.sem_piso) {
+    const ex = platExtras(k, P.s, P.xe, P.comp, P.larg, plat.buracos, plat.impulsos);
+    plat.impulsos = plat.impulsos.concat(ex.impulsos);
+    plat.molas = ex.molas;
+  }
+  arm.pteros_plataforma = { quantidade: 10, intervalo_s: 2.5, efeito_s: 5, envergadura: 11, raio: 4, sem_mira: 4, altura: [15, 27] };
+  // ... e o mesmo bando por cima de um pedaço de estrada (DESAFIOS.pteros: [de, ate] no trecho do desafio)
+  if (DESAFIOS[k].pteros) arm.pteros_estrada = [{ trecho: DESAFIOS[k].T, de: tagm(k, DESAFIOS[k].T, DESAFIOS[k].pteros[0]), ate: tagm(k, DESAFIOS[k].T, DESAFIOS[k].pteros[1]), quantidade: 12, intervalo_s: 4, efeito_s: 5, envergadura: 11, raio: 4, sem_mira: 4, altura: [14, 26] }];
   const pc = {
     _: p.def.nome,
     largada: { origem: L.o, frente: dir4(L.h), comprimento: L.comp, largura: L.larg, saida_largura: 10, muro_altura: 2.6, grade_altura: 7.4, placa: 'EXTINCTION DAY', portico_arte: 'res://assets/dino/portao/extinction_day.png', impulsos: [[52, 0, 0, true]], vagas },
@@ -480,7 +492,7 @@ ps.forEach((p, k) => {
   if (tuneis[k].length) pc.tuneis = tuneis[k];
   // Loopings: [trecho, m da entrada, raio no topo, transição, desvio lateral, aceleradores, velocidade mínima (m/s)]
   const loopings = [];
-  for (const t of [p.A, p.B, p.C]) for (const l of t.loops) loopings.push([t.nome, l[0], l[1], l[2], l[3], 10, 26]);
+  for (const t of [p.A, p.B, p.C]) for (const l of t.loops) loopings.push([t.nome, l[0], l[1], l[2], l[3], 0, 26, 6.5, false]);   // pedido do dono (2026-10-04): 0 aceleradores, fita de 6,5 m (mais estreita que a estrada) e sem a viga de borda
   if (loopings.length) pc.loopings = loopings;
   if (tochas[k]) pc.tochas = true;
   if (asfalto[k]) pc.asfalto = asfalto[k];
@@ -546,7 +558,7 @@ const mapa = {
           objetos,
           _rondas: 'Gigantes caminhando pelo ambiente, por etapa: {etapa: [[x, z, [[espécie, comprimento, raio da volta, velocidade]]]]} (scripts/mundo/ronda_dino.gd, sem colisão).',
           rondas,
-          arvores: { sequoias: 2200, araucarias: 2200, copas: 4200, fetos: 9000, cicas: 5000, samambaias: 26000, perto_estrada: 0.45 },
+          arvores: { sequoias: 2200, colossos: 600, quebradas: 500, araucarias: 2200, copas: 4200, fetos: 9000, cicas: 5000, samambaias: 26000, perto_estrada: 0.45 },
           dinos: { titanossauros: 5, trex: 3, tiranossauros: 2, espinossauros: 3, carnotauros: 3, alossauros: 3, ceratossauros: 3, raptores: 4, pterossauros: 26 },
         },
       },

@@ -8,7 +8,10 @@ extends Node3D
 ## `desvio` m de lado ao longo da volta para a perna de saída não bater na de entrada, e o carro
 ## que entra reto sai reto sem precisar virar o volante. A estrada do percurso passa por baixo em
 ## "S" da entrada até a saída, sem laje (ComplexoSubida._marcar_loopings): quem cai do laço cai no chão.
-## Config (percursos.N.loopings): [trecho, m da entrada, raio, transição, desvio, aceleradores, velocidade mínima].
+## Config (percursos.N.loopings): [trecho, m da entrada, raio, transição, desvio, aceleradores, velocidade mínima,
+## largura da fita (padrão: a da estrada), borda (padrão: sim)]. Pedido do dono (2026-10-04) na E4: sem
+## aceleradores, sem a viga de borda (quem sai de lado cai) e fita mais estreita que a estrada — ela nasce
+## e termina na largura da estrada e afina nos primeiros metros.
 
 const ESPESSURA := 0.7
 const GUIA_ALTURA := 0.55    # viga de borda: segura o carro que encosta de lado
@@ -18,7 +21,9 @@ var pts := PackedVector3Array()    # eixo da fita, a cada ~1 m
 var tan := PackedVector3Array()
 var nrm := PackedVector3Array()    # normal do piso (para dentro do laço)
 var lado := PackedVector3Array()   # da borda esquerda para a direita
-var largura := 10.0
+var largura := 10.0                # da estrada (pontas da fita)
+var largura_laco := 0.0            # da fita no laço (0 = a da estrada)
+var borda := true                  # viga de borda que segura o carro de lado
 var altura := 0.0
 var rumo := Vector3.FORWARD        # direção horizontal da entrada (e da saída)
 var i_entrada := 0                 # amostras da estrada onde a fita começa e termina
@@ -106,12 +111,21 @@ func calcular(sub: ComplexoSubida, i0: int, r: float, lt: float, desvio: float) 
 	_raio += largura
 
 
+## Meia largura da fita na amostra j: a da estrada nas pontas, afinando até a do laço.
+func meia_em(j: int) -> float:
+	if largura_laco <= 0.0:
+		return largura * 0.5
+	var d := float(mini(j, pts.size() - 1 - j)) * _passo
+	return lerpf(largura, largura_laco, smoothstep(4.0, 24.0, d)) * 0.5
+
+
 ## Monta a malha, a colisão, a estrutura e os aceleradores. `impulsos` é a lista do ComplexoSubida
 ## ([centro, tangente, lateral, normal, velocidade, meia largura, looping]).
 func montar(sub: ComplexoSubida, mat_pista: Material, impulsos: Array) -> void:
 	name = "Looping"
 	var n := pts.size() - 1
-	var meia := largura * 0.5
+	var guia_alt := GUIA_ALTURA if borda else 0.0
+	var guia_larg := GUIA_LARGURA if borda else 0.14   # sem borda: só o acabamento de aço rente ao piso
 	var topo := SurfaceTool.new()
 	topo.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var aco := SurfaceTool.new()
@@ -120,10 +134,12 @@ func montar(sub: ComplexoSubida, mat_pista: Material, impulsos: Array) -> void:
 	var s0 := sub.progresso_amostra(i_entrada)
 	for j in range(1, n + 1):
 		var a := j - 1
-		var e0 := pts[a] - lado[a] * meia + nrm[a] * 0.03
-		var d0 := pts[a] + lado[a] * meia + nrm[a] * 0.03
-		var e1 := pts[j] - lado[j] * meia + nrm[j] * 0.03
-		var d1 := pts[j] + lado[j] * meia + nrm[j] * 0.03
+		var m0 := meia_em(a)
+		var m1 := meia_em(j)
+		var e0 := pts[a] - lado[a] * m0 + nrm[a] * 0.03
+		var d0 := pts[a] + lado[a] * m0 + nrm[a] * 0.03
+		var e1 := pts[j] - lado[j] * m1 + nrm[j] * 0.03
+		var d1 := pts[j] + lado[j] * m1 + nrm[j] * 0.03
 		_quad(topo, e0, d0, d1, e1, nrm[a], nrm[j], Vector2(0.0, s0 + a * _passo), Vector2(1.0, s0 + j * _passo))
 		faces.append_array([e0, d0, d1, e0, d1, e1])
 		# Fundo da laje
@@ -133,14 +149,14 @@ func montar(sub: ComplexoSubida, mat_pista: Material, impulsos: Array) -> void:
 		faces.append_array([d0 - f0, e0 - f0, e1 - f1, d0 - f0, e1 - f1, d1 - f1])
 		# Vigas de borda (do fundo da laje até GUIA_ALTURA acima do piso): face de dentro, topo e face de fora
 		for sinal: float in [-1.0, 1.0]:
-			var b0 := pts[a] + lado[a] * sinal * meia
-			var b1 := pts[j] + lado[j] * sinal * meia
+			var b0 := pts[a] + lado[a] * sinal * m0
+			var b1 := pts[j] + lado[j] * sinal * m1
 			var fora0 := lado[a] * sinal
 			var fora1 := lado[j] * sinal
-			var g0 := nrm[a] * GUIA_ALTURA
-			var g1 := nrm[j] * GUIA_ALTURA
-			var o0 := fora0 * GUIA_LARGURA
-			var o1 := fora1 * GUIA_LARGURA
+			var g0 := nrm[a] * guia_alt
+			var g1 := nrm[j] * guia_alt
+			var o0 := fora0 * guia_larg
+			var o1 := fora1 * guia_larg
 			var dentro := [b0, b0 + g0, b1 + g1, b1]
 			var cima := [b0 + g0, b0 + g0 + o0, b1 + g1 + o1, b1 + g1]
 			var fora := [b0 + g0 + o0, b0 + o0 - f0, b1 + o1 - f1, b1 + g1 + o1]
@@ -148,13 +164,16 @@ func montar(sub: ComplexoSubida, mat_pista: Material, impulsos: Array) -> void:
 			var quads := [[dentro, -fora0, -fora1], [cima, nrm[a], nrm[j]], [fora, fora0, fora1], [baixo, -nrm[a], -nrm[j]]]
 			for q: Array in quads:
 				var v: Array = q[0]
+				if not borda and q[0] == dentro:
+					continue   # sem viga não há face de dentro
 				# (face da frente = sentido horário visto de fora)
 				if sinal < 0.0:
 					_quad(aco, v[0], v[1], v[2], v[3], q[1], q[2], Vector2(0.0, a), Vector2(1.0, j))
 				else:
 					_quad(aco, v[3], v[2], v[1], v[0], q[2], q[1], Vector2(0.0, j), Vector2(1.0, a))
-			faces.append_array([dentro[0], dentro[1], dentro[2], dentro[0], dentro[2], dentro[3]])
-			faces.append_array([cima[0], cima[1], cima[2], cima[0], cima[2], cima[3]])
+			if borda:
+				faces.append_array([dentro[0], dentro[1], dentro[2], dentro[0], dentro[2], dentro[3]])
+				faces.append_array([cima[0], cima[1], cima[2], cima[0], cima[2], cima[3]])
 	var mi := MeshInstance3D.new()
 	mi.mesh = topo.commit()
 	mi.material_override = mat_pista
@@ -186,10 +205,10 @@ func montar(sub: ComplexoSubida, mat_pista: Material, impulsos: Array) -> void:
 ## tirantes segurando a parte alta (nada flutua).
 func _estrutura(sub: ComplexoSubida, mat_aco: Material) -> void:
 	var n := pts.size() - 1
-	var meia := largura * 0.5
+	var meia := (largura_laco if largura_laco > 0.0 else largura) * 0.5
 	var costelas: Array[Transform3D] = []
 	for j in range(4, n - 3, 5):
-		var b := Basis(lado[j], nrm[j], -tan[j]) * Basis.from_scale(Vector3(largura + GUIA_LARGURA * 2.0 + 0.5, 0.5, 0.6))
+		var b := Basis(lado[j], nrm[j], -tan[j]) * Basis.from_scale(Vector3(meia_em(j) * 2.0 + (GUIA_LARGURA * 2.0 + 0.5 if borda else 0.3), 0.5, 0.6))
 		costelas.append(Transform3D(b, pts[j] - nrm[j] * (ESPESSURA + 0.25)))
 	# Pilares: onde o fundo da fita olha para baixo e não há outra perna do laço embaixo
 	var terreno := sub._terreno
@@ -222,9 +241,9 @@ func _estrutura(sub: ComplexoSubida, mat_aco: Material) -> void:
 	for dj: int in [-10, -5, 0, 5, 10]:
 		var j := j_topo + dj
 		for sinal: float in [-1.0, 1.0]:
-			var borda := pts[j] + lado[j] * sinal * (meia + GUIA_LARGURA * 0.5) - nrm[j] * ESPESSURA
-			var em_cima := pes[0] + (pes[1] - pes[0]) * clampf((borda - pes[0]).dot(pes[1] - pes[0]) / (pes[1] - pes[0]).length_squared(), 0.0, 1.0)
-			cabos.append(ComplexoLancamento._viga(borda, em_cima, 0.22))
+			var beira := pts[j] + lado[j] * sinal * (meia_em(j) + 0.1) - nrm[j] * ESPESSURA
+			var em_cima := pes[0] + (pes[1] - pes[0]) * clampf((beira - pes[0]).dot(pes[1] - pes[0]) / (pes[1] - pes[0]).length_squared(), 0.0, 1.0)
+			cabos.append(ComplexoLancamento._viga(beira, em_cima, 0.22))
 	# Tirantes: do topo de cada mastro às bordas da meia-volta do lado dele (por fora da pista)
 	for f: float in [0.14, 0.22, 0.3, 0.38]:
 		for k in 2:
@@ -232,7 +251,7 @@ func _estrutura(sub: ComplexoSubida, mat_aco: Material) -> void:
 			var sinal := -1.0 if k == 0 else 1.0
 			if (pts[j] + lado[j] * sinal - pes[k]).length() > (pts[j] - lado[j] * sinal - pes[k]).length():
 				sinal = -sinal
-			cabos.append(ComplexoLancamento._viga(pts[j] + lado[j] * sinal * (meia + GUIA_LARGURA) - nrm[j] * 0.3, pes[k], 0.16))
+			cabos.append(ComplexoLancamento._viga(pts[j] + lado[j] * sinal * (meia_em(j) + 0.15) - nrm[j] * 0.4, pes[k], 0.16))
 	ComplexoLancamento.criar_multimesh(self, costelas, mat_aco)
 	ComplexoLancamento.criar_multimesh(self, trelicas, mat_aco)
 	ComplexoLancamento.criar_multimesh(self, cabos, mat_aco, false)
@@ -260,7 +279,7 @@ func _perna_embaixo(j: int) -> bool:
 func _aceleradores(impulsos: Array) -> void:
 	var n := pts.size() - 1
 	const MEIO_COMP := 3.0
-	var meia := largura * 0.5 - 0.6
+	var meia := (largura_laco if largura_laco > 0.0 else largura) * 0.5 - 0.6
 	for k in n_impulsos:
 		var j := int(round((float(k) + 0.5) / n_impulsos * n))
 		impulsos.append([pts[j], tan[j], lado[j], nrm[j], vel_min, meia, true])
@@ -291,13 +310,25 @@ func amostra_em(p: Vector3, pontas := false) -> int:
 		if d < melhor_d:
 			var q := p - pts[j]
 			var h := q.dot(nrm[j])
-			if h > -1.0 and h < 5.0 and absf(q.dot(lado[j])) < largura * 0.5 + 1.0:
+			if h > -1.0 and h < 5.0 and absf(q.dot(lado[j])) < meia_em(j) + 1.0:
 				melhor_d = d
 				melhor = j
 	# As pontas ainda são estrada comum (a fita está colada nela): só conta depois de subir um pouco
 	if melhor >= 0 and ((melhor < 10 or melhor > pts.size() - 11) if not pontas else melhor < 3):
 		return -1
 	return melhor
+
+
+## Para os bots: ponto de mira de quem vem chegando ao laço, na reta do eixo da fita, até `antes` m antes da
+## entrada (Vector3.INF fora desse corredor). O traçado da estrada faz um "S" por baixo do laço e o bot,
+## olhando o traçado adiante, entrava torto — com a fita estreita e sem borda, caía de lado logo na subida.
+func mira_chegada(p: Vector3, antes := 45.0) -> Vector3:
+	var q := p - pts[0]
+	var ao_longo := q.dot(rumo)
+	if ao_longo < -antes or ao_longo > 4.0 or absf(q.y) > 5.0 or absf(q.dot(lado[0])) > largura * 0.5 + 2.0:
+		return Vector3.INF
+	var a := ao_longo + 16.0
+	return pts[0] + rumo * a if a <= 0.0 else adiante(0, a)
 
 
 ## Ponto do eixo `metros` à frente da amostra j (para os bots mirarem).

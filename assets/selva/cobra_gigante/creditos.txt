@@ -1,0 +1,3 @@
+Modelo usado em scripts/mundo/serpente_gigante.gd (cobra_gigante.glb = "Model 60A - Cyprus Racer Snake" desenrolada por tools/serpents_climb/endireitar_cobra.js; original em assets/MAPA SERPENTE/COBRAS/COBRAGIGANTE):
+This work is based on "Model 60A - Cyprus Racer Snake" (https://sketchfab.com/3d-models/model-60a-cyprus-racer-snake-35b264837a694377b009c6e2d500e7af) by DigitalLife3D (https://sketchfab.com/DigitalLife3D) licensed under CC-BY-NC-4.0 (http://creativecommons.org/licenses/by-nc/4.0/)
+ATENCAO: licenca NAO COMERCIAL (CC-BY-NC). Antes de vender/monetizar o jogo, trocar o modelo ou pedir autorizacao ao autor.

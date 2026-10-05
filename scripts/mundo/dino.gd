@@ -836,16 +836,24 @@ func _montar_vegetacao() -> void:
 	bosque.seed = 41
 	bosque.frequency = 1.0 / 520.0
 	var listas := {}
-	var metas := {
-		Vegetacao.Tipo.SEQUOIA: [int(qtd.get("sequoias", 900)), 70.0, 0.85, 1.25, 0.1, 5000.0, 700.0],
-		Vegetacao.Tipo.ARAUCARIA: [int(qtd.get("araucarias", 1300)), 45.0, 0.85, 1.2, -0.1, 3500.0, 600.0],
-		Vegetacao.Tipo.COPA: [int(qtd.get("copas", 2600)), 22.0, 1.0, 1.6, -0.2, 2400.0, 500.0],
-		Vegetacao.Tipo.FETO: [int(qtd.get("fetos", 4500)), 7.0, 0.9, 1.4, -0.35, 900.0, 300.0],
-		Vegetacao.Tipo.CICA: [int(qtd.get("cicas", 2800)), 3.0, 0.9, 1.5, -0.5, 600.0, 250.0],
-		Vegetacao.Tipo.SAMAMBAIA: [int(qtd.get("samambaias", 12000)), 1.5, 1.0, 2.0, -0.6, 300.0, 150.0],
-	}
-	for tipo in metas:
-		var m: Array = metas[tipo]
+	# [tipo, quantidade, altura nominal (m), escala mín., escala máx., limiar do bosque, alcance, bloco, nome no registro]
+	# (as linhas novas ficam no fim: assim o sorteio das plantas que já existiam não muda de lugar)
+	var metas := [
+		[Vegetacao.Tipo.SEQUOIA, int(qtd.get("sequoias", 900)), 70.0, 0.85, 1.25, 0.1, 5000.0, 700.0, "sequoias"],
+		[Vegetacao.Tipo.ARAUCARIA, int(qtd.get("araucarias", 1300)), 45.0, 0.85, 1.2, -0.1, 3500.0, 600.0, "araucarias"],
+		[Vegetacao.Tipo.COPA, int(qtd.get("copas", 2600)), 22.0, 1.0, 1.6, -0.2, 2400.0, 500.0, "copas"],
+		[Vegetacao.Tipo.FETO, int(qtd.get("fetos", 4500)), 7.0, 0.9, 1.4, -0.35, 900.0, 300.0, "fetos"],
+		[Vegetacao.Tipo.CICA, int(qtd.get("cicas", 2800)), 3.0, 0.9, 1.5, -0.5, 600.0, 250.0, "cicas"],
+		[Vegetacao.Tipo.SAMAMBAIA, int(qtd.get("samambaias", 12000)), 1.5, 1.0, 2.0, -0.6, 300.0, 150.0, "samambaias"],
+		# Pedido do dono (2026-10-04): árvores "muito mais gigantes" — sequoias colossais de 170 a 300 m —
+		# e várias árvores gigantes quebradas (toco em lascas com o tronco tombado), de todos os tamanhos
+		[Vegetacao.Tipo.SEQUOIA, int(qtd.get("colossos", 0)), 70.0, 2.3, 3.2, -0.15, 6000.0, 700.0, "colossos"],
+		[Vegetacao.Tipo.SEQUOIA_QUEBRADA, int(qtd.get("quebradas", 0)), 40.0, 0.9, 2.6, -0.3, 4500.0, 700.0, "quebradas"],
+	]
+	for linha: Array in metas:
+		var tipo: Vegetacao.Tipo = linha[0]
+		var m: Array = linha.slice(1)
+		var quebrada := tipo == Vegetacao.Tipo.SEQUOIA_QUEBRADA
 		var lista := []
 		var tent := 0
 		var perto := float(qtd.get("perto_estrada", 0.4))
@@ -875,12 +883,27 @@ func _montar_vegetacao() -> void:
 			if h > 420.0:
 				continue
 			var esc := rng.randf_range(float(m[2]), float(m[3]))
-			if not livre(p, float(m[1]) * esc) or not plano(x, z, 9.0 if float(m[1]) > 20.0 else 6.0):
+			# (as colossais abrem a copa até ~50 m do tronco: folga maior de plataformas, alvos e caminho do voo)
+			if not livre(p, float(m[1]) * esc, maxf(esc - 1.3, 0.0) * 22.0) or not plano(x, z, 9.0 if float(m[1]) > 20.0 else 6.0):
 				continue
 			var tinta := Color(1, 1, 1) * rng.randf_range(0.82, 1.12)
-			lista.append([Vector3(x, h - 0.4, z), esc, rng.randf() * TAU, tinta])
+			var rot := rng.randf() * TAU
+			if quebrada:
+				# O tronco tombado cai para o +X da planta: o chão tem de acompanhar até a ponta (ela fica
+				# enterrada, nada no ar) e o caminho dele não pode cruzar estrada, lava nem cercado
+				var cai := Vector2(cos(rot), -sin(rot))
+				var serve := true
+				for f: float in [0.35, 0.7, 1.0]:
+					var q := p + cai * Vegetacao.QUEBRADA_ALCANCE * esc * f
+					var hq := _terreno.altura_em(q.x, q.y)
+					if not livre(q, 30.0 * esc * (1.0 - f) + 8.0) or hq < h - 2.5 * esc or hq > h + (1.0 - f) * 14.0 * esc:
+						serve = false
+						break
+				if not serve:
+					continue
+			lista.append([Vector3(x, h - 0.4, z), esc, rot, tinta])
 		Vegetacao.plantar(self, tipo, lista, float(m[6]), float(m[5]), float(m[1]) > 5.0)
-		listas[tipo] = lista.size()
+		listas[linha[8]] = lista.size()
 	if OS.get_environment("TSC_SUB_LOG") != "":
 		print("[DINO] vegetação: ", listas)
 

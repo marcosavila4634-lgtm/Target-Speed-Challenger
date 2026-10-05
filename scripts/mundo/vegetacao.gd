@@ -7,7 +7,7 @@ extends RefCounted
 ## As malhas e texturas são criadas uma vez e compartilhadas; `plantar` distribui em blocos
 ## (MultiMesh por bloco) com alcance de visibilidade, para o custo cair com a distância.
 
-enum Tipo { ZIMBRO, SALVIA, CAPIM, PALMEIRA, SUMAUMA, COPA, PALMEIRA_SELVA, BANANEIRA, SAMAMBAIA, PINHEIRO, SEQUOIA, ARAUCARIA, FETO, CICA, ARAUCARIA_GELO }
+enum Tipo { ZIMBRO, SALVIA, CAPIM, PALMEIRA, SUMAUMA, COPA, PALMEIRA_SELVA, BANANEIRA, SAMAMBAIA, PINHEIRO, SEQUOIA, ARAUCARIA, FETO, CICA, ARAUCARIA_GELO, SEQUOIA_QUEBRADA }
 
 static var _malhas := {}      # Tipo -> Array[ArrayMesh] (variações)
 static var _materiais := {}   # Tipo -> ShaderMaterial
@@ -34,6 +34,7 @@ static func malhas(tipo: Tipo) -> Array:
 				Tipo.FETO: lista.append(_feto(rng))
 				Tipo.CICA: lista.append(_cica(rng))
 				Tipo.ARAUCARIA_GELO: lista.append(_araucaria_gelo(rng))
+				Tipo.SEQUOIA_QUEBRADA: lista.append(_sequoia_quebrada(rng, i))
 		_malhas[tipo] = lista
 	return _malhas[tipo]
 
@@ -119,6 +120,13 @@ static func material(tipo: Tipo) -> ShaderMaterial:
 				m.set_shader_parameter("casca", 0.6)
 				m.set_shader_parameter("rigidez", 55.0)
 				m.set_shader_parameter("vento", 0.3)
+			Tipo.SEQUOIA_QUEBRADA:
+				# A mesma casca da sequoia; os ramos que sobraram na copa caída estão secos
+				m.set_shader_parameter("folhas", _textura_ramo_verde(127, Color(0.13, 0.09, 0.04), Color(0.36, 0.26, 0.1)))
+				m.set_shader_parameter("cor_tronco", Color(0.46, 0.24, 0.14))
+				m.set_shader_parameter("casca", 1.0)
+				m.set_shader_parameter("rigidez", 200.0)
+				m.set_shader_parameter("vento", 0.1)
 		_materiais[tipo] = m
 	return _materiais[tipo]
 
@@ -129,7 +137,13 @@ const BLOCO_SOMBRA := 300.0   # lado máximo (m) dos blocos de plantas que proje
 ## um MultiMeshInstance3D por bloco e variação, visível até `alcance`. Com `sombra`, só projeta sombra até
 ## grafico.sombra_vegetacao_distancia da câmera (as sombras da vegetação eram 2/3 dos triângulos do quadro).
 static func plantar(pai: Node, tipo: Tipo, pontos: Array, bloco: float, alcance: float, sombra: bool) -> void:
-	var d_sombra := float(Config.valor("grafico.sombra_vegetacao_distancia", 450.0))
+	var d_sombra := float(Config.grafico("sombra_vegetacao_distancia", 450.0))
+	# Qualidade gráfica mais baixa planta só uma fração das plantas (sorteio fixo: sempre as mesmas)
+	var fracao := float(Config.grafico("vegetacao", 1.0))
+	if fracao < 0.999:
+		var corte := RandomNumberGenerator.new()
+		corte.seed = 4099 + tipo
+		pontos = pontos.filter(func(_p): return corte.randf() < fracao)
 	if sombra and d_sombra > 0.0:
 		bloco = minf(bloco, BLOCO_SOMBRA)   # bloco grande levaria o corte da sombra para longe (mede-se até o meio dele)
 	var variacoes := malhas(tipo)
@@ -800,6 +814,68 @@ static func _sequoia(rng: RandomNumberGenerator) -> ArrayMesh:
 	for k in 5:
 		var ang := TAU * k / 5.0
 		_ramo(st, Vector3(0.0, altura * 0.95, 0.0), Vector3(cos(ang), 1.8, sin(ang)).normalized(), altura * 0.07, altura * 0.035, 0.05)
+	return st.commit()
+
+
+## Comprimento (na horizontal, a partir do pé) do tronco caído da sequoia quebrada mais comprida: quem
+## planta confere o chão até aí (a ponta fica enterrada; não pode ficar no ar nem cair numa estrada).
+const QUEBRADA_ALCANCE := 58.0
+
+## Sequoia gigante QUEBRADA (pedido do dono para o Extinction Day): o toco de pé, com as sapopemas e a
+## quebra em lascas pontudas, e o resto da árvore tombado — ainda preso no alto do toco, descendo até
+## enterrar a ponta no chão (cai para o +X da planta), com tocos de galho e uns ramos secos na copa.
+## A variação 2 é só o toco, alto, com lascas compridas (a árvore foi embora).
+static func _sequoia_quebrada(rng: RandomNumberGenerator, variacao: int) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var so_toco := variacao == 2
+	var h := rng.randf_range(26.0, 40.0) if so_toco else rng.randf_range(13.0, 24.0)
+	var r_base := rng.randf_range(3.8, 4.8)
+	var r_q := r_base * 0.68
+	_tronco(st, Vector3.ZERO, Vector3.UP * h, r_base, r_q, 0.55)
+	# Lascas da quebra: pontas de madeira em volta da borda, mais altas de um lado (o lado que rasgou por último)
+	var lascas := 13
+	var giro := rng.randf() * TAU
+	for k in lascas:
+		var ang := TAU * k / lascas + rng.randf_range(-0.15, 0.15)
+		var n := Vector3(cos(ang), 0.0, sin(ang))
+		var alta := 0.5 + 0.5 * cos(ang - giro)
+		var comp := (rng.randf_range(1.5, 4.0) + alta * rng.randf_range(3.0, 8.0)) * (1.6 if so_toco else 1.0)
+		var r_l := r_q * rng.randf_range(0.2, 0.34)
+		_galho(st, Vector3.UP * (h - 1.5) + n * (r_q - r_l * 0.9), Vector3.UP * (h + comp) + n * (r_q - r_l * 0.4) * rng.randf_range(0.7, 1.15), r_l, 0.04)
+	# Miolo da quebra, mais baixo e irregular
+	for k in 5:
+		var ang := rng.randf() * TAU
+		var n := Vector3(cos(ang), 0.0, sin(ang)) * r_q * rng.randf_range(0.1, 0.5)
+		_galho(st, Vector3.UP * (h - 1.0) + n, Vector3.UP * (h + rng.randf_range(0.8, 3.0)) + n * 1.1, r_q * 0.3, 0.05)
+	if so_toco:
+		return st.commit()
+	# O tronco tombado: do alto do toco até o chão, com a ponta enterrada
+	var alcance := rng.randf_range(42.0, QUEBRADA_ALCANCE)
+	var a := Vector3(r_q * 0.35, h - 0.8, 0.0)
+	var b := Vector3(alcance, -3.5, rng.randf_range(-3.0, 3.0))
+	var meio := a.lerp(b, 0.55)
+	_tronco(st, a, meio, r_q * 0.95, r_q * 0.62)
+	_tronco(st, meio, b, r_q * 0.62, r_q * 0.3)
+	var eixo := (b - a).normalized()
+	var lado := eixo.cross(Vector3.UP).normalized()
+	# Lascas na ponta de cima do tronco tombado (a outra metade da quebra)
+	for k in 7:
+		var ang := TAU * k / 7.0
+		var n := (lado * cos(ang) + lado.cross(eixo) * sin(ang)) * r_q * 0.6
+		_galho(st, a + n + eixo * 1.0, a + n * 0.8 - eixo * rng.randf_range(2.0, 6.0), r_q * 0.25, 0.04)
+	# Tocos de galho quebrado ao longo dele e, perto da ponta, os ramos secos que sobraram da copa
+	for k in 9:
+		var t := rng.randf_range(0.3, 0.95)
+		var p := a.lerp(b, t)
+		var ang := rng.randf_range(-1.3, 1.3)
+		var dir := (lado * sin(ang) * (1.0 if rng.randf() < 0.5 else -1.0) + Vector3.UP * cos(ang)).normalized()
+		var r_g := lerpf(r_q * 0.62, r_q * 0.3, t)
+		var comp := rng.randf_range(3.0, 9.0)
+		_galho(st, p + dir * r_g * 0.6, p + dir * (r_g + comp), rng.randf_range(0.35, 0.6), 0.14)
+		if t > 0.55:
+			for rolagem: float in [-0.7, 0.7]:
+				_ramo(st, p + dir * (r_g + comp * 0.5), (dir + eixo * 0.6).normalized(), comp * 1.3, comp * 0.6, 0.3, rolagem)
 	return st.commit()
 
 

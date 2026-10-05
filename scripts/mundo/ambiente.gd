@@ -10,6 +10,13 @@ var env: Environment
 var ceu_mat: ShaderMaterial
 
 
+## Opção gráfica: grafico.<chave> do jogo.json, ou a variável de ambiente `teste` (para medir sem editar o arquivo).
+func _grafico(chave: String, teste: String, padrao: float) -> float:
+	if OS.get_environment(teste) != "":
+		return float(OS.get_environment(teste))
+	return float(Config.grafico(chave, padrao))
+
+
 func _ready() -> void:
 	var ceu_mat := ShaderMaterial.new()
 	ceu_mat.shader = load("res://shaders/ceu.gdshader")
@@ -58,7 +65,7 @@ func _ready() -> void:
 	env.glow_intensity = 0.6
 	env.glow_bloom = 0.05
 	env.glow_hdr_threshold = 1.1
-	env.ssao_enabled = true
+	env.ssao_enabled = bool(_grafico("ssao", "TSC_SSAO", 1))
 	env.ssao_radius = 3.0
 	env.ssao_intensity = 1.8
 	env.ssao_detail = 0.8
@@ -152,7 +159,15 @@ func _ready() -> void:
 	sol.shadow_enabled = true
 	sol.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 	# Sol baixo: paredões projetam sombras longas; a sombra alcança longe e as divisões favorecem o perto
-	sol.directional_shadow_max_distance = float(Config.valor("grafico.sombra_distancia", 1500))
+	sol.directional_shadow_max_distance = _grafico("sombra_distancia", "TSC_SOMBRA_DIST", 1500)
+	# Qualidade (grafico.* no jogo.json; os padrões são os de sempre): tamanho do mapa de sombras do sol e
+	# escala da imagem 3D (1 = nativa; menos = desenha menor e amplia com FSR — alivia a placa de vídeo).
+	# (A suavização de bordas — MSAA — fica no project.godot: trocá-la com o jogo aberto fechou o jogo na RX 5700 XT.)
+	var vp := get_viewport()
+	RenderingServer.directional_shadow_atlas_set_size(int(_grafico("sombra_mapa", "TSC_SOMBRA_MAPA", 8192)), true)
+	var escala := _grafico("escala_3d", "TSC_ESCALA", 1.0)
+	vp.scaling_3d_scale = escala
+	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if escala < 0.999 else Viewport.SCALING_3D_MODE_BILINEAR
 	sol.directional_shadow_split_1 = 0.04
 	sol.directional_shadow_split_2 = 0.14
 	sol.directional_shadow_split_3 = 0.4

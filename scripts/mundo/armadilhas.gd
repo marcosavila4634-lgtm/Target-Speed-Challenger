@@ -8,7 +8,8 @@ extends Node3D
 ##   de cima desce e fecha a estrada inteira;
 ## - pedras: pedras redondas entalhadas rolando ladeira abaixo (contra quem sobe), numa faixa de cada vez;
 ## - jatos: bocas de serpente na beirada soltando jatos d'água que empurram o carro para fora.
-## Lâmina, lança, mandíbula e pedra são mortais (grupo "mortal"); o jato só empurra.
+## Lâmina, lança, mandíbula e pedra são mortais (grupo "mortal"); o jato só empurra. As estruturas paradas
+## das armadilhas (pilares, molduras, pórticos) NÃO explodem o carro: são parede comum (ver _corpo_mortal).
 ## Para os bots: portao_adiante/livre_entre (quando cada faixa fica livre) e pedras_adiante.
 
 const FAIXA := 2.6          # meio de cada faixa (m do eixo)
@@ -21,6 +22,8 @@ var gelo := false
 var _placas: Array = []      # zonas de gelo fino: {corpos, xf, estado, t_ev, area, p0, tan, passo, tempo, volta}
 var _terreno: Terreno
 var _t := 0.0
+var _passo := 0
+var _dt_passo := 0.0
 var _portoes: Array = []     # {id, tipo, i, s, comp, fase, periodo, ...}
 var _zonas_pedra: Array = []
 var _jatos: Array = []
@@ -71,6 +74,9 @@ func _base(i: int) -> Basis:
 	return Basis(sub.lateral_em(i), Vector3.UP, -th)
 
 
+## Corpo de colisão de uma armadilha. Pedido do dono (2026-10-04): só a peça que se MEXE explode o carro
+## (a que cai, balança, esmaga, morde — `animado`); pilares, molduras e pórticos (corpo parado) são
+## parede comum: o carro bate e fica.
 func _corpo_mortal(pai: Node, animado := false) -> PhysicsBody3D:
 	var corpo: PhysicsBody3D
 	if animado:
@@ -82,7 +88,8 @@ func _corpo_mortal(pai: Node, animado := false) -> PhysicsBody3D:
 	corpo.collision_layer = 1
 	corpo.collision_mask = 0
 	corpo.add_to_group("estrutura")
-	corpo.add_to_group("mortal")
+	if animado:
+		corpo.add_to_group("mortal")
 	pai.add_child(corpo)
 	return corpo
 
@@ -729,6 +736,14 @@ func _perigo_jato(g: Dictionary, _lado: int, t: float) -> bool:
 # ------------------------------------------------------------------ animação
 
 func _physics_process(delta: float) -> void:
+	# As armadilhas andam a cada 2 passos de física (60 vezes por segundo, como o cérebro dos bots): a 120
+	# eram o 2º script mais caro do jogo (~3 ms por quadro) sem diferença visível
+	_dt_passo += delta
+	_passo += 1
+	if _passo % 2 != 0:
+		return
+	delta = _dt_passo
+	_dt_passo = 0.0
 	_t += delta
 	_atualizar()
 	_atualizar_placas()

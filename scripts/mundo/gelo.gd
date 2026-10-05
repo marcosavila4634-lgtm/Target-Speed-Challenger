@@ -1783,7 +1783,7 @@ func _plano(x: float, z: float, limite: float) -> bool:
 
 ## Bancos de neblina fria baixa sobre o vale e o lago.
 func _montar_bruma() -> void:
-	if not bool(Config.valor("grafico.bruma", true)):
+	if not bool(Config.grafico("bruma", true)):
 		return
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 919

@@ -327,6 +327,8 @@ func _iniciar_etapa(indice: int) -> void:
 			if pt.veiculo:
 				pt.veiculo.farois(noite)
 	alvo.configurar(_cfg_etapa())
+	if terreno.selva and complexos[0] is ComplexoSubida:
+		terreno.selva.montar_serpente_caminho(indice, complexos[0], alvo)   # Serpent's Climb E1: serpente colossal até o ninho (o alvo)
 	_semaforos(0)
 	# Arena e Climb to Death: vagas sorteadas a cada etapa entre todos, equipes misturadas
 	var vagas_arena := {}
@@ -552,6 +554,7 @@ func _censo_malhas() -> void:
 
 ## Diagnóstico (TSC_TRAVADAS=1): imprime cada quadro lento, o que aconteceu logo antes e quantos
 ## pipelines de shader o Godot compilou nele (compilação na hora = travada da 1ª vez que algo aparece).
+var _perfil_feito := false
 func _monitor_travadas() -> void:
 	var agora := Time.get_ticks_usec()
 	var ms := (agora - _t_quadro) / 1000.0
@@ -570,6 +573,29 @@ func _monitor_travadas() -> void:
 	_t_resumo += ms
 	_n_resumo += 1
 	_fis_resumo = maxf(_fis_resumo, Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
+	# TSC_SEM="dinos_parque,fauna,...": desliga o _process/_physics_process dos nós cujos scripts têm esses nomes
+	# (para medir quanto cada sistema custa por quadro). TSC_SEM_FIS: idem só para o _physics_process.
+	if fase == Fase.ATIVA and not _perfil_feito and (OS.get_environment("TSC_SEM") != "" or OS.get_environment("TSC_SEM_FIS") != ""):
+		_perfil_feito = true
+		var nomes := OS.get_environment("TSC_SEM").split(",", false)
+		var nomes_f := OS.get_environment("TSC_SEM_FIS").split(",", false)
+		var pilha: Array[Node] = [get_tree().root]
+		var n := 0
+		while not pilha.is_empty():
+			var no: Node = pilha.pop_back()
+			pilha.append_array(no.get_children())
+			var sc := no.get_script() as Script
+			if sc == null:
+				continue
+			var base := sc.resource_path.get_file().get_basename()
+			if base in nomes:
+				no.set_process(false)
+				no.set_physics_process(false)
+				n += 1
+			elif base in nomes_f:
+				no.set_physics_process(false)
+				n += 1
+		print("[PERFIL] desligados: ", n, " nós")
 	if _t_resumo > 2000.0 and fase == Fase.ATIVA:
 		print("[RESUMO] %d fps  física pior=%.1f ms  processo=%.1f ms  objetos=%d" % [roundi(_n_resumo * 1000.0 / _t_resumo), _fis_resumo,
 			Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))])
@@ -1097,7 +1123,7 @@ var _invertido := false   # yeti pendurado no teto
 func _avisar_gelo() -> void:
 	var v: Veiculo = jogador.veiculo
 	var agora := not v.eliminado and v.aderencia_piso < 0.9
-	if agora and not _no_gelo and not v.gelado():
+	if agora and not _no_gelo and not v.gelado() and not v.com_ovo():
 		hud.mensagem("GELO — O CARRO ESCORREGA", Color(0.55, 0.9, 1.0), 1.8)
 	_no_gelo = agora
 	var gelado := not v.eliminado and v.gelado()
@@ -1106,7 +1132,10 @@ func _avisar_gelo() -> void:
 	_gelado = gelado
 	var inv := not v.eliminado and v.direcao_invertida()
 	if inv and not _invertido:
-		hud.mensagem("YETI NO TETO — DIREÇÃO INVERTIDA!", Color(0.75, 0.9, 1.0), 2.5)
+		if v.com_ovo():
+			hud.mensagem("OVO NO CARRO — ESCORREGANDO E DIREÇÃO INVERTIDA!", Color(1.0, 0.85, 0.3), 2.5)
+		else:
+			hud.mensagem("YETI NO TETO — DIREÇÃO INVERTIDA!", Color(0.75, 0.9, 1.0), 2.5)
 	_invertido = inv
 
 
@@ -1294,6 +1323,17 @@ func _vista_debug(vista: String) -> void:
 			"selva_largada": [sub.largada.pa(35.0, 0.0, sub.largada.piso_y), sub.largada.pa(-40.0, -60.0, sub.largada.piso_y + 45.0)],
 			"selva_plataforma": [sub.plataforma.pa(50.0, 0.0, sub.plataforma.piso_y), sub.plataforma.pa(130.0, -90.0, sub.plataforma.piso_y + 60.0)],
 			"selva_capa": [Vector3(-1250, 70, -350), Vector3(-820, 120, -80)],
+			# Portão principal (PortaoSelva): de dentro, de fora, de lado e detalhes de perto
+			"selva_portao": [sub.largada.pa(70.0, 0.0, sub.largada.piso_y + 17.0), sub.largada.pa(22.0, 0.0, sub.largada.piso_y + 10.0)],
+			"selva_portao_fora": [sub.largada.pa(70.0, 0.0, sub.largada.piso_y + 17.0), sub.largada.pa(116.0, 0.0, sub.largada.piso_y + 9.0)],
+			"selva_cerca": [sub.largada.pa(35.0, -45.0, sub.largada.piso_y + 6.0), sub.largada.pa(20.0, -16.0, sub.largada.piso_y + 6.0)],
+			"selva_cerca_fora": [sub.largada.pa(35.0, -45.0, sub.largada.piso_y + 6.0), sub.largada.pa(30.0, -85.0, sub.largada.piso_y + 12.0)],
+			"selva_cerca_perto": [sub.largada.pa(40.0, -45.0, sub.largada.piso_y + 6.0), sub.largada.pa(38.0, -32.0, sub.largada.piso_y + 5.0)],
+			"selva_portao_vao": [sub.largada.pa(70.5, 5.5, sub.largada.piso_y + 9.0), sub.largada.pa(60.0, -3.5, sub.largada.piso_y + 3.0)],
+			"selva_portao_lado": [sub.largada.pa(70.0, 0.0, sub.largada.piso_y + 16.0), sub.largada.pa(104.0, 34.0, sub.largada.piso_y + 14.0)],
+			"selva_portao_cabeca": [sub.largada.pa(70.0, 0.0, sub.largada.piso_y + 24.5), sub.largada.pa(90.0, 6.0, sub.largada.piso_y + 22.0)],
+			"selva_portao_guerreiro": [sub.largada.pa(70.0, -12.0, sub.largada.piso_y + 12.0), sub.largada.pa(88.0, -9.0, sub.largada.piso_y + 11.0)],
+			"selva_portao_letreiro": [sub.largada.pa(70.0, 0.0, sub.largada.piso_y + 29.0), sub.largada.pa(96.0, -4.0, sub.largada.piso_y + 27.0)],
 		}
 		if vista == "selva_aves" and terreno.selva and terreno.selva.has_node("Fauna"):
 			# Perto do primeiro bando de araras, acompanhando o voo
@@ -1301,6 +1341,45 @@ func _vista_debug(vista: String) -> void:
 			var xf: Transform3D = (fauna._especies[0].mm as MultiMesh).get_instance_transform(0)
 			var c := xf.origin
 			camera.podio(c, c + xf.basis.z.normalized() * 9.0 + xf.basis.x.normalized() * 5.0 + Vector3.UP * 2.5)
+			return
+		if vista.begins_with("selva_caminho"):
+			# Serpente colossal da E1 (SerpenteCaminho): selva_caminho = a cabeça de perto; _alto = a curva do trecho A
+			# de cima; _lado = a ponte de lado; _pista = de trás da cabeça; _ninho = o alvo. TSC_SERPENTE_S põe a
+			# cabeça num ponto do roteiro.
+			var sc := terreno.selva.get_node_or_null("Etapa/SerpenteCaminho") as SerpenteCaminho
+			if sc:
+				var cb := sc.cabeca()
+				var pc: Vector3 = cb[0]
+				var rc: Vector3 = cb[1]
+				var lc := Vector3(-rc.z, 0.0, rc.x).normalized()
+				match vista:
+					"selva_caminho_alto": camera.podio(Vector3(-1380, 20, 560), Vector3(-1385, 560, 600))
+					"selva_caminho_lado": camera.podio(Vector3(-1330, 30, 560), Vector3(-1080, 120, 760))
+					"selva_caminho_pista": camera.podio(pc + Vector3.UP * 2.0, pc - rc * 45.0 + Vector3.UP * 16.0 + lc * 8.0)
+					"selva_caminho_travessia":
+						var pt := sc.ponto(sc.marca_s("travessia%s" % OS.get_environment("TSC_TRAVESSIA") if OS.get_environment("TSC_TRAVESSIA") != "" else "travessia3"))
+						if OS.get_environment("TSC_PILOTO") != "":
+							camera.podio(Vector3(-1250.0, pt.y + 1.0, pt.z), Vector3(-1250.0, pt.y + 3.5, pt.z + 38.0))   # na pista, chegando (os carros andam para -z)
+						else:
+							camera.podio(pt, pt + Vector3(55, 22, -35))
+					"selva_caminho_ninho": camera.podio(alvo.centro_base, alvo.centro_base + Vector3(70, 35, -60))
+					_: camera.podio(pc + Vector3.UP * 2.0, pc + rc * 30.0 + lc * 18.0 + Vector3.UP * 10.0)
+			return
+		if vista.begins_with("selva_cobra"):
+			# Serpente gigante da etapa: de perto, pela frente (selva_cobra), de lado (selva_cobra_lado)
+			# ou a trilha toda de cima (selva_cobra_alto). TSC_SERPENTE_S escolhe onde ela começa.
+			var cobra := terreno.selva.get_node_or_null("Etapa/SerpenteGigante") as SerpenteGigante
+			if cobra:
+				var cb := cobra.cabeca()
+				var p0: Vector3 = cb[0]
+				var rumo: Vector3 = cb[1]
+				var lado_c := Vector3(-rumo.z, 0.0, rumo.x)
+				if vista == "selva_cobra_alto":
+					camera.podio(Vector3(-1570, 6, 660), Vector3(-1570, 520, 700))
+				elif vista == "selva_cobra_lado":
+					camera.podio(p0 - rumo * 45.0, p0 - rumo * 30.0 + lado_c * 95.0 + Vector3.UP * 38.0)
+				else:
+					camera.podio(p0 + Vector3.UP * 3.0, p0 + rumo * 34.0 + lado_c * 16.0 + Vector3.UP * 9.0)
 			return
 		if vista.begins_with("selva_armadilha"):
 			# TSC_CAM_VISTA=selva_armadilhaN: de lado, perto da N-ésima armadilha do percurso (1 = primeira)
@@ -1473,6 +1552,8 @@ func _vista_debug(vista: String) -> void:
 				var pos := OS.get_environment("TSC_CAM_POS").split_floats(",")
 				var mira := OS.get_environment("TSC_CAM_ALVO").split_floats(",")
 				camera.podio(Vector3(mira[0], mira[1], mira[2]), Vector3(pos[0], pos[1], pos[2]))
+				if OS.get_environment("TSC_CAM_FOV") != "":
+					camera.cam.fov = float(OS.get_environment("TSC_CAM_FOV"))   # a câmera livre (F3) usa 70
 			"subida_alvo":   # alvo de lado
 				camera.podio(alvo.centro_base, alvo.centro_base + Vector3(70.0, 12.0, -25.0))
 			"subida_largada":
@@ -1599,6 +1680,7 @@ func _vista_dino(vista: String, sub: ComplexoSubida) -> void:
 		"dino_vulcao": [cv + Vector3.UP * 300.0, cv + Vector3(1300, 420, 1200)],
 		"dino_cratera": [cv + Vector3.UP * 440.0, cv + Vector3(260, 720, 240)],
 		"dino_alvo": [a, a + sub.lateral * 70.0 - sub.frente * 60.0 + Vector3.UP * 28.0],
+		"dino_heli": [a + Vector3.UP * 40.0, a + sub.lateral * 42.0 - sub.frente * 30.0 + Vector3.UP * 34.0],   # helicóptero do alvo de perto
 		"dino_alvo_longe": [a, a - sub.frente * 330.0 + sub.lateral * 120.0 + Vector3.UP * 150.0],
 		"dino_voo": [a + Vector3.UP * 20.0, fim - sub.frente * 30.0 + Vector3.UP * 28.0 + sub.lateral * 14.0],
 		"dino_voo_lado": [meio, meio + sub.lateral * 620.0 + Vector3.UP * 330.0],
@@ -1611,6 +1693,13 @@ func _vista_dino(vista: String, sub: ComplexoSubida) -> void:
 		"dino_portao_arm": [sub.amostra(sub.indice_trecho("A", 890.0)) + Vector3.UP * 6.0, sub.amostra(sub.indice_trecho("A", 862.0)) + Vector3.UP * 4.0 + sub.lateral_em(sub.indice_trecho("A", 862.0)) * 3.0],
 		"dino_portico_plat": [sub.plataforma.pa(sub.plataforma.comprimento, 0.0, sub.plataforma.piso_y + 7.0), sub.plataforma.pa(sub.plataforma.comprimento + 34.0, 5.0, sub.plataforma.piso_y + 6.0)],
 		"dino_portico": [sub.largada.pa(sub.largada.comprimento, 0.0, sub.largada.piso_y + 9.5), sub.largada.pa(sub.largada.comprimento - 30.0, 7.0, sub.largada.piso_y + 3.0)],
+		# Pterossauros da plataforma: o bando visto do piso, e um de perto (TSC_PTERO_FIXO=1 deixa o primeiro parado no meio)
+		"dino_pteros": [sub.plataforma.pa(55.0, 0.0, sub.plataforma.piso_y + 20.0), sub.plataforma.pa(6.0, -34.0, sub.plataforma.piso_y + 3.0)],
+		"dino_ptero_perto": [sub.plataforma.pa(50.0, 0.0, sub.plataforma.piso_y + 7.0), sub.plataforma.pa(63.0, 9.0, sub.plataforma.piso_y + 9.5)],
+		"dino_ptero_frente": [sub.plataforma.pa(50.0, 0.0, sub.plataforma.piso_y + 7.0), sub.plataforma.pa(51.0, 16.0, sub.plataforma.piso_y + 6.0)],
+		# Pterossauros da estrada (E2, reta do trecho C): da pista olhando a subida, e de cima
+		"dino_pteros_estrada": [sub.amostra(sub.indice_trecho("C", 800.0)) + Vector3.UP * 11.0, sub.amostra(sub.indice_trecho("C", 705.0)) + Vector3.UP * 3.0 + sub.lateral_em(sub.indice_trecho("C", 705.0)) * 3.0],
+		"dino_pteros_estrada_alto": [sub.amostra(sub.indice_trecho("C", 790.0)), sub.amostra(sub.indice_trecho("C", 660.0)) + Vector3.UP * 60.0 + sub.lateral_em(sub.indice_trecho("C", 660.0)) * 40.0],
 		"dino_plataforma": [sub.plataforma.pa(50.0, 0.0, sub.plataforma.piso_y), sub.plataforma.pa(130.0, -90.0, sub.plataforma.piso_y + 60.0)],
 		# Cercado do tiranossauro (travessia da E4, C 435): de cima em 3/4, da estrada e de perto do portão
 		"dino_cercado": [sub.amostra(maxi(sub.indice_trecho("C", 435.0), 0)) + Vector3.UP * 3.0, sub.amostra(maxi(sub.indice_trecho("C", 435.0), 0)) - sub.tangente_em(maxi(sub.indice_trecho("C", 435.0), 0)) * 46.0 + sub.lateral_em(maxi(sub.indice_trecho("C", 435.0), 0)) * 44.0 + Vector3.UP * 30.0],
@@ -1698,8 +1787,8 @@ func _capturas(delta: float) -> void:
 		_t_ativa = 0.0
 		# Fotos com nome de vista do Frozen Peak (gelo_...): cada foto usa a própria vista
 		var primeira := str(_fotos[0]).split(":")[0]
-		_vista_debug(primeira if primeira.begins_with("gelo") or primeira.begins_with("dino") else OS.get_environment("TSC_CAM_VISTA"))
-	if str(_fotos[0]).begins_with("gelo") or str(_fotos[0]).begins_with("dino"):
+		_vista_debug(primeira if primeira.begins_with("gelo") or primeira.begins_with("dino") or primeira.begins_with("selva") else OS.get_environment("TSC_CAM_VISTA"))
+	if str(_fotos[0]).begins_with("gelo") or str(_fotos[0]).begins_with("dino") or str(_fotos[0]).begins_with("selva"):
 		_vista_debug(str(_fotos[0]).split(":")[0])   # reaplica a cada quadro (a contagem troca a câmera)
 	_t_ativa += delta
 	var alvo_t := float(str(_fotos[0]).split(":")[1])
@@ -1717,7 +1806,7 @@ func _capturas(delta: float) -> void:
 				print("[MARCA] x=%.0f z=%.0f -> px %.1f %.1f" % [w.x, w.z, px.x, px.y])
 		if _fotos.is_empty():
 			get_tree().quit()
-		elif str(_fotos[0]).begins_with("gelo") or str(_fotos[0]).begins_with("dino"):
+		elif str(_fotos[0]).begins_with("gelo") or str(_fotos[0]).begins_with("dino") or str(_fotos[0]).begins_with("selva"):
 			_vista_debug(str(_fotos[0]).split(":")[0])
 
 

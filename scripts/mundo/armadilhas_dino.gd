@@ -18,6 +18,11 @@ extends Armadilhas
 ##   cratera em chamas na faixa por alguns segundos;
 ## - avalanche: nuvem de cinza e rocha em brasa que desce o trecho atrás dos carros; quem estiver
 ##   dentro dela é engolido. Volta em ciclos.
+## - pteros_plataforma: bando de pterossauros voando por cima da plataforma dos buracos e soltando ovos
+##   ao acaso; o ovo que acerta deixa o carro escorregando e com a direção invertida (pteros_ovos.gd).
+## - pteros_estrada: o mesmo bando por cima de um pedaço de estrada ([{trecho, de, ate, ...}]).
+
+const PTEROS := preload("res://scripts/mundo/pteros_ovos.gd")
 
 var _rocha: ShaderMaterial
 var _estouros: Array = []
@@ -61,6 +66,17 @@ func montar(p_sub: ComplexoSubida, cfg: Dictionary, terreno: Terreno) -> void:
 		_montar_meteoro(item, cfg.get("meteoro", {}))
 	for item in cfg.get("avalanches", []):
 		_montar_avalanche(item, cfg.get("avalanche", {}))
+	if cfg.has("pteros_plataforma") and sub.plataforma and OS.get_environment("TSC_SEM_PTEROS") == "":   # TSC_SEM_PTEROS: medir o custo deles
+		var pteros: Node3D = PTEROS.new()
+		pteros.name = "PterosOvos"
+		add_child(pteros)
+		pteros.montar(sub.plataforma, cfg.pteros_plataforma)
+	if OS.get_environment("TSC_SEM_PTEROS") == "":
+		for item: Dictionary in cfg.get("pteros_estrada", []):
+			var bando: Node3D = PTEROS.new()
+			bando.name = "PterosEstrada"
+			add_child(bando, true)
+			bando.montar_estrada(sub, terreno, item)
 	_portoes.sort_custom(func(a, b): return a.s < b.s)
 	for k in _portoes.size():
 		_portoes[k].id = k
@@ -219,12 +235,8 @@ func _montar_raptores(item: Array, cfg: Dictionary) -> void:
 		_bloco(no, Vector3(3.2, 2.0, 1.6), Transform3D(b * Basis(Vector3.UP, 0.4 * s), pe + lat * s * 1.8 + b.z * 1.6 + Vector3.UP * 0.6))
 		if not tunel:
 			_ao_chao(no, pe - Vector3.UP * 1.4, 3.6, colunas)
-			# Cerca elétrica arrebentada atrás (fugiram do recinto)
-			var poste: Array[Transform3D] = []
-			for z: float in [-5.0, 5.0]:
-				# (em cima da laje da toca: a 3,2 m para fora e ±5 m ficavam no ar, sem nada embaixo)
-				poste.append(Transform3D(b * Basis.from_scale(Vector3(0.35, 6.0, 0.35)), pe + lat * s * 2.2 + b.z * z * 0.44 + Vector3.UP * 3.0))
-			ComplexoLancamento.criar_multimesh(no, poste, Gelo.material(Gelo.Mat.ACO))
+			# (os dois postes de 6 m da "cerca arrebentada" atrás de cada bicho saíram a pedido do dono, 2026-10-04:
+			# pilares soltos ao lado da pista, sem cerca nenhuma — em todas as etapas)
 	ComplexoLancamento.criar_multimesh(no, colunas, _rocha)
 	# Pedido do dono (2026-10-03): no lugar dos raptores que saltavam de um lado para o outro, um
 	# dinossauro em cada beirada que VOMITA uma gosma verde na faixa do lado dele, um de cada vez.
@@ -751,7 +763,7 @@ func _montar_mordida(item: Array, cfg: Dictionary) -> void:
 		"c": c, "lat": lat, "lado": lado, "meia": meia, "comp_t": comp, "bicho": d, "corpo": corpo, "lampadas": lampadas, "total": true,
 		"recuo": meia + 9.0 + comp * 0.5, "avanco": meia - 0.5 - comp * 0.5, "tan": -b.z, "presa": null, "presa_t": 0.0, "atraso": 0.0,
 		"segura": float(cfg.get("segura_s", 3.0)), "alt": float(d.get("altura", 5.0)), "presa_de": c,
-		"boca_y": float(cfg.get("boca_y", -comp * 0.1)), "boca_z": float(cfg.get("boca_z", comp * 0.085))})
+		"boca_y": float(cfg.get("boca_y", -comp * BOCA_Y)), "boca_z": float(cfg.get("boca_z", comp * BOCA_Z))})
 	if OS.get_environment("TSC_BOCA_TESTE") != "":
 		# Conferência: bola verde onde o carro fica preso e o bicho parado no bote
 		var marca := MeshInstance3D.new()
@@ -808,6 +820,19 @@ func _perigo_mordida(g: Dictionary, t: float) -> bool:
 	return float(r[0]) - float(g.comp_t) * 0.5 < float(g.meia) + 1.5
 
 
+## Corpo do bicho em `p`, inclinado/sacudido por `giro` EM VOLTA DOS PÉS. Girando em volta da origem (o meio do
+## corpo, uns 2 m atrás dos pés) eles saíam do chão quando ele levantava a cabeça com o carro na boca.
+func _inclinado(base: Basis, p: Vector3, bicho: Dictionary, giro: Basis) -> Transform3D:
+	var pes := Vector3(0.0, 0.0, float(bicho.get("pes_z", 0.0)))
+	return Transform3D(base, p) * Transform3D(giro, pes - giro * pes)
+
+
+## Meio da boca a partir da dobradiça da mandíbula, em fração do comprimento: para baixo e para a frente.
+## (Eram 0,1 e 0,085 com o bicho andando 13° de focinho para baixo: nivelado, com isso o carro ficava na frente
+## do focinho, fora da boca — reclamação do dono. Conferir com TSC_BOCA_TESTE=1: caixa verde do tamanho do carro.)
+const BOCA_Y := 0.045
+const BOCA_Z := 0.058
+
 ## Boca do T-Rex: [meio da boca (entre as mandíbulas), base do corpo girada junto com a cabeça]. O ponto é
 ## marcado uma vez com o bicho de cabeça neutra (à frente e abaixo da dobradiça da mandíbula, na POSE — o
 ## descanso do esqueleto deste modelo não bate com a pose) e guardado no referencial do osso da cabeça:
@@ -853,7 +878,7 @@ func _animar_mordida(g: Dictionary) -> void:
 	var u_seg := clampf(float(g.presa_t) / 0.5, 0.0, 1.0) if presa != null else (1.0 if g.has("marca") else 0.0)
 	var inclina := -0.3 * float(r[2]) * (1.0 - u_seg) + 0.22 * u_seg
 	var sacode := sin(_t * 17.0) * 0.16 * u_seg
-	var xf := Transform3D(Basis.looking_at(frente, Vector3.UP) * Basis(Vector3.UP, sacode) * Basis(Vector3.RIGHT, inclina), p)
+	var xf := _inclinado(Basis.looking_at(frente, Vector3.UP), p, g.bicho, Basis(Vector3.UP, sacode) * Basis(Vector3.RIGHT, inclina))
 	(g.corpo as AnimatableBody3D).global_transform = xf
 	# Passada presa ao chão (os pés não patinam mais), boca e pescoço pelo bote
 	var boca := 1.55 + 0.08 * sin(_t * 20.0) if presa != null or g.has("marca") else float(r[1])
@@ -1712,7 +1737,17 @@ func _montar_manada(item: Array, cfg: Dictionary) -> void:
 		"periodo": (travessia + vira) * 2.0, "travessia": travessia, "vira": vira, "c": c, "lat": lat, "lado": float(item[3]) if item.size() > 3 else 1.0,
 		"meia": meia, "comp_t": comp, "pernas": pernas, "bicho": d, "corpo": corpo, "longe": longe, "total": false, "ataca": especie != "titanossauro",
 		"tan": -plano.z, "presa": null, "presa_t": 0.0, "atraso": 0.0, "segura": float(cfg.get("segura_s", 3.0)), "alt": alt, "presa_de": c,
-		"boca_y": float(cfg.get("boca_y", -comp * 0.1)), "boca_z": float(cfg.get("boca_z", comp * 0.085))})
+		"boca_y": float(cfg.get("boca_y", -comp * BOCA_Y)), "boca_z": float(cfg.get("boca_z", comp * BOCA_Z))})
+	if OS.get_environment("TSC_BOCA_TESTE") != "" and especie != "titanossauro":
+		# Conferência: caixa verde do tamanho do carro onde ele fica preso; o bicho para no meio da pista, segurando
+		var marca := MeshInstance3D.new()
+		var caixa_m := BoxMesh.new()
+		caixa_m.size = Vector3(2.1, 1.3, 4.6)
+		marca.mesh = caixa_m
+		marca.material_override = _brilho(Color(0.2, 1.0, 0.2), 3.0)
+		no.add_child(marca)
+		_portoes[-1]["marca"] = marca
+		print("[BOCA] travessia em %s lat %s" % [str(c), str(lat)])
 
 
 ## [x do meio do bicho (lateral), sentido para onde anda (+1/-1 na lateral), girando 0..1, andando]
@@ -1756,6 +1791,8 @@ func _animar_manada(g: Dictionary) -> void:
 		g.atraso = float(g.atraso) + dt   # para de andar enquanto segura o carro
 		g.presa_t = float(g.presa_t) + dt
 	var r := _manada(g, _t - float(g.get("atraso", 0.0)))
+	if g.has("marca") and _t > 4.0:
+		r = _manada(g, float(g.travessia) * 0.5 - float(g.fase))   # TSC_BOCA_TESTE: parado no meio da pista
 	var lat: Vector3 = g.lat
 	var sentido: float = r[1]
 	var frente := lat * sentido
@@ -1773,12 +1810,15 @@ func _animar_manada(g: Dictionary) -> void:
 	# ele atravessado na boca, sacode por `segura` s e só então ele explode e volta ao checkpoint
 	var comp: float = g.comp_t
 	var alt: float = g.alt
-	var u_seg := clampf(float(g.presa_t) / 0.5, 0.0, 1.0) if presa != null else 0.0
+	var u_seg := clampf(float(g.presa_t) / 0.5, 0.0, 1.0) if presa != null else (1.0 if g.has("marca") and _t > 6.0 else 0.0)
 	var bote := pow(maxf(sin(_t * 2.1), 0.0), 2.0) * (1.0 - u_seg)
-	var corpo_xf := Transform3D(xf.basis * Basis(Vector3.UP, sin(_t * 17.0) * 0.16 * u_seg) * Basis(Vector3.RIGHT, 0.22 * u_seg), p)
+	var corpo_xf := _inclinado(xf.basis, p, g.bicho, Basis(Vector3.UP, sin(_t * 17.0) * 0.16 * u_seg) * Basis(Vector3.RIGHT, 0.22 * u_seg))
 	(g.corpo as AnimatableBody3D).global_transform = corpo_xf
-	var boca := 1.55 + 0.08 * sin(_t * 20.0) if presa != null else 0.55 + 0.45 * sin(_t * 4.2)
+	var boca := 1.55 + 0.08 * sin(_t * 20.0) if presa != null or u_seg > 0.0 else 0.55 + 0.45 * sin(_t * 4.2)
 	DinosParque.andar(g.bicho, xf, dt, 1.0, boca, bote)
+	if g.has("marca"):
+		var bt_m := _boca_trex(g, corpo_xf, p)
+		(g.marca as Node3D).global_transform = Transform3D((bt_m[1] as Basis) * Basis(Vector3.UP, PI * 0.5), (bt_m[0] as Vector3) + (bt_m[1] as Basis).y * 0.65)
 	if not g.has("boca_local") and bote < 0.05 and presa == null:
 		_boca_trex(g, corpo_xf, p, true)   # cabeça neutra: marca o ponto da boca no osso
 	if presa == null and vira <= 0.0:
@@ -2494,10 +2534,28 @@ func _montar_portao(item: Array, cfg: Dictionary) -> void:
 			dob.append(Transform3D(Basis.from_scale(Vector3(0.5, 1.3, 0.5)), Vector3(-0.05, alt_f * fy, 0.0)))
 			pecas.append(Transform3D(Basis.from_scale(Vector3(1.3, 0.8, 0.7)), Vector3(0.6, alt_f * fy, 0.0)))
 		pecas.append(Transform3D(Basis.from_scale(Vector3(0.9, 1.0, 0.9)), Vector3(larg_f - 0.75, y_meio, 0.0)))
+		# Espetos (pedido do dono, por captura: "para fazer sentido o carro morrer quando colide"): cinco réguas de
+		# aço atravessando o painel de baixo, na altura do carro, cada uma com uma fileira de pontas nas duas faces —
+		# maiores na face que recebe quem chega (a mesma que fica virada para a pista com a folha aberta)
+		var pontas: Array[Transform3D] = []
+		const PONTA_FRENTE := 0.85
+		const PONTA_TRAS := 0.6
+		var face_frente := -s
+		for fila in 5:
+			var y := 0.95 + fila * 0.75
+			pecas.append(Transform3D(Basis.from_scale(Vector3(larg_f - 1.0, 0.34, 0.7)), Vector3(larg_f * 0.5, y, 0.0)))
+			var n_p := 7 - fila % 2
+			for k in n_p:
+				var x := lerpf(1.0, larg_f - 0.75, (k + 0.5 * (fila % 2)) / 6.0)
+				for face: float in [-1.0, 1.0]:
+					var comp_p := PONTA_FRENTE if face == face_frente else PONTA_TRAS
+					pontas.append(Transform3D(Basis(Vector3.RIGHT, face * PI * 0.5) * Basis.from_scale(Vector3(0.42, comp_p, 0.42)), Vector3(x, y, face * (0.35 + comp_p * 0.5))))
 		ComplexoLancamento.criar_multimesh(corpo, pecas, aco)
 		ComplexoLancamento.criar_multimesh(corpo, barras, aco_escuro)
 		_instancias_de(corpo, rebite, reb, aco)
 		_instancias_de(corpo, tubo, dob, aco_escuro)
+		_instancias_de(corpo, espeto, pontas, _mat_ouro)   # aço claro: as pontas brilham à luz das tochas
+		_forma_caixa(corpo, Vector3(larg_f - 1.2, 3.6, 0.7 + PONTA_FRENTE + PONTA_TRAS), Transform3D(Basis.IDENTITY, Vector3(larg_f * 0.5, 2.45, face_frente * (PONTA_FRENTE - PONTA_TRAS) * 0.5)))
 		for face: float in [-1.0, 1.0]:
 			(_lampada(corpo, Vector3(larg_f - 0.75, y_meio, face * 0.48), 0.16) as StandardMaterial3D).emission = Color(1.0, 0.08, 0.04)
 		_forma_caixa(corpo, Vector3(larg_f, alt_f, 0.6), Transform3D(Basis.IDENTITY, Vector3(larg_f * 0.5, alt_f * 0.5, 0.0)))

@@ -668,6 +668,14 @@ static func _helicoptero(alvo: Alvo, etapa: Dictionary) -> void:
 		var fora := Vector3(cos(a), 0.0, sin(a))
 		paineis.append(Transform3D(Basis.looking_at(fora, Vector3.UP) * Basis.from_scale(Vector3(TAU * r_col / 18.0 * 1.1, alto, 0.6)), fora * r_col + Vector3.UP * alto * 0.5))
 	ComplexoLancamento.adicionar_colisoes(grades, paineis)
+	# ... e a própria rede, na forma dela (pedido do dono: quem acerta não pode cair de dentro). Os painéis ficam
+	# na barriga, a 13,6 m; o fundo tem 11 m de raio — entre um e outro a rede desce inclinada e ali não havia
+	# nada: o carro escorregava pelo vão em volta do fundo e caía
+	var forma_rede := (mi.mesh as ArrayMesh).create_trimesh_shape()
+	forma_rede.backface_collision = true
+	var cs_rede := CollisionShape3D.new()
+	cs_rede.shape = forma_rede
+	grades.add_child(cs_rede)
 	# Corda grossa na boca e no fundo, e os cabos da boca até o gancho do helicóptero
 	var cordas: Array[Transform3D] = []
 	var r_boca := _raio_rede(raio, alto, alto)
@@ -677,6 +685,7 @@ static func _helicoptero(alvo: Alvo, etapa: Dictionary) -> void:
 		cordas.append(ComplexoLancamento._viga(Vector3(cos(a0) * r_boca, alto, sin(a0) * r_boca), Vector3(cos(a1) * r_boca, alto, sin(a1) * r_boca), 0.4))
 		cordas.append(ComplexoLancamento._viga(Vector3(cos(a0) * raio, 0.0, sin(a0) * raio), Vector3(cos(a1) * raio, 0.0, sin(a1) * raio), 0.3))
 	var gancho := Vector3(0, altura_heli - 3.6, 0)
+	var cabos_col: Array[Transform3D] = []
 	for k in 10:
 		var a := TAU * k / 10.0
 		var p := Vector3(cos(a) * r_boca, alto, sin(a) * r_boca)
@@ -684,78 +693,90 @@ static func _helicoptero(alvo: Alvo, etapa: Dictionary) -> void:
 		var meio := p.lerp(gancho, 0.45) + Vector3(cos(a), 0.0, sin(a)) * 1.6
 		cordas.append(ComplexoLancamento._viga(p, meio, 0.2))
 		cordas.append(ComplexoLancamento._viga(meio, gancho, 0.2))
+		# Os cabos têm colisão (pedido do dono): quem bate neles não entra — só passa quem acerta o vão entre dois
+		# (7,7 m na boca, fechando para cima até o gancho)
+		cabos_col.append(ComplexoLancamento._viga(p, meio, 0.55))
+		cabos_col.append(ComplexoLancamento._viga(meio, gancho, 0.55))
+	ComplexoLancamento.adicionar_colisoes(grades, cabos_col)
 	ComplexoLancamento.criar_multimesh(alvo, cordas, corda)
 	# Helicóptero (não gira com a rede: vira para onde voa — ver atualizar_heli)
 	var heli := Node3D.new()
 	heli.name = "Helicoptero"
 	heli.position = Vector3(0, altura_heli, 0)
 	alvo.add_child(heli)
-	var casco := ComplexoLancamento._material_metal(Color(0.3, 0.42, 0.28), 0.3, 0.5)   # verde militar
-	var escuro := ComplexoLancamento._material_metal(Color(0.03, 0.03, 0.035), 0.3, 0.3)
-	var corpo := MeshInstance3D.new()
-	var esf := SphereMesh.new()
-	esf.radius = 1.0
-	esf.height = 2.0
-	corpo.mesh = esf
-	corpo.material_override = casco
-	corpo.scale = Vector3(2.6, 2.5, 7.0)
-	heli.add_child(corpo)
-	var vidro := MeshInstance3D.new()
-	vidro.mesh = esf
-	vidro.material_override = escuro
-	vidro.scale = Vector3(2.3, 1.7, 2.6)
-	vidro.position = Vector3(0, 0.5, -4.6)
-	heli.add_child(vidro)
-	var pecas: Array[Transform3D] = []
-	pecas.append(ComplexoLancamento._viga(Vector3(0, 1.0, 4.5), Vector3(0, 2.2, 15.0), 1.1))          # cauda
-	pecas.append(Transform3D(Basis.from_scale(Vector3(0.3, 4.2, 2.0)), Vector3(0, 3.6, 15.2)))        # deriva
-	pecas.append(Transform3D(Basis.from_scale(Vector3(4.6, 0.25, 1.4)), Vector3(0, 2.0, 13.0)))       # estabilizador
-	pecas.append(Transform3D(Basis.from_scale(Vector3(1.6, 1.5, 3.4)), Vector3(0, 2.8, 0.3)))         # carenagem do motor
-	pecas.append(Transform3D(Basis.from_scale(Vector3(0.5, 1.6, 0.5)), Vector3(0, 3.9, 0.0)))         # mastro
-	ComplexoLancamento.criar_multimesh(heli, pecas, casco)
-	var esquis: Array[Transform3D] = []
-	for sx: float in [-1.0, 1.0]:
-		esquis.append(ComplexoLancamento._viga(Vector3(sx * 2.4, -3.4, -4.5), Vector3(sx * 2.4, -3.4, 4.0), 0.3))
-		for z: float in [-2.6, 2.2]:
-			esquis.append(ComplexoLancamento._viga(Vector3(sx * 1.6, -2.0, z), Vector3(sx * 2.4, -3.4, z), 0.22))
-	esquis.append(Transform3D(Basis.from_scale(Vector3(1.4, 1.2, 1.4)), Vector3(0, -3.0, 0)))          # gancho de carga
-	ComplexoLancamento.criar_multimesh(heli, esquis, escuro)
-	# Rotores: giram a cada quadro desenhado (girador.gd), com um disco translúcido de "borrão" por cima
-	var girador: Script = load("res://scripts/efeitos/girador.gd")
-	var borrao := StandardMaterial3D.new()
-	borrao.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	borrao.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	borrao.albedo_color = Color(0.05, 0.05, 0.06, 0.22)
-	borrao.cull_mode = BaseMaterial3D.CULL_DISABLED
-	var rotor := Node3D.new()
-	rotor.set_script(girador)
-	rotor.set("velocidade", 34.0)
-	rotor.position = Vector3(0, 4.8, 0)
-	heli.add_child(rotor)
-	var pas: Array[Transform3D] = []
-	for k in 4:
-		pas.append(Transform3D(Basis(Vector3.UP, TAU * k / 4.0) * Basis.from_scale(Vector3(0.9, 0.12, 12.5)), Basis(Vector3.UP, TAU * k / 4.0) * Vector3(0, 0, 6.6)))
-	ComplexoLancamento.criar_multimesh(rotor, pas, escuro, false)
-	var disco_r := MeshInstance3D.new()
-	var cil := CylinderMesh.new()
-	cil.top_radius = 12.9
-	cil.bottom_radius = 12.9
-	cil.height = 0.05
-	cil.radial_segments = 48
-	disco_r.mesh = cil
-	disco_r.material_override = borrao
-	disco_r.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	rotor.add_child(disco_r)
-	var rotor_cauda := Node3D.new()
-	rotor_cauda.set_script(girador)
-	rotor_cauda.set("eixo", Vector3.RIGHT)
-	rotor_cauda.set("velocidade", 60.0)
-	rotor_cauda.position = Vector3(0.45, 3.8, 15.3)
-	heli.add_child(rotor_cauda)
-	var pas_c: Array[Transform3D] = []
-	for k in 2:
-		pas_c.append(Transform3D(Basis(Vector3.RIGHT, PI * k / 2.0) * Basis.from_scale(Vector3(0.08, 4.4, 0.4)), Vector3.ZERO))
-	ComplexoLancamento.criar_multimesh(rotor_cauda, pas_c, escuro, false)
+	# O helicóptero é o CH-47 Chinook que o dono pôs na pasta (pedido dele, 2026-10-04); sem o arquivo, o de caixas
+	var raio_rotor := _chinook(heli)
+	var com_modelo := raio_rotor > 0.0
+	if com_modelo:
+		# Gancho de carga embaixo da barriga, onde os cabos da rede prendem
+		ComplexoLancamento.criar_multimesh(heli, [Transform3D(Basis.from_scale(Vector3(1.4, 1.2, 1.4)), Vector3(0, -3.0, 0))] as Array[Transform3D], ComplexoLancamento._material_metal(Color(0.03, 0.03, 0.035), 0.3, 0.3))
+	if not com_modelo:
+		var casco := ComplexoLancamento._material_metal(Color(0.3, 0.42, 0.28), 0.3, 0.5)   # verde militar
+		var escuro := ComplexoLancamento._material_metal(Color(0.03, 0.03, 0.035), 0.3, 0.3)
+		var corpo := MeshInstance3D.new()
+		var esf := SphereMesh.new()
+		esf.radius = 1.0
+		esf.height = 2.0
+		corpo.mesh = esf
+		corpo.material_override = casco
+		corpo.scale = Vector3(2.6, 2.5, 7.0)
+		heli.add_child(corpo)
+		var vidro := MeshInstance3D.new()
+		vidro.mesh = esf
+		vidro.material_override = escuro
+		vidro.scale = Vector3(2.3, 1.7, 2.6)
+		vidro.position = Vector3(0, 0.5, -4.6)
+		heli.add_child(vidro)
+		var pecas: Array[Transform3D] = []
+		pecas.append(ComplexoLancamento._viga(Vector3(0, 1.0, 4.5), Vector3(0, 2.2, 15.0), 1.1))          # cauda
+		pecas.append(Transform3D(Basis.from_scale(Vector3(0.3, 4.2, 2.0)), Vector3(0, 3.6, 15.2)))        # deriva
+		pecas.append(Transform3D(Basis.from_scale(Vector3(4.6, 0.25, 1.4)), Vector3(0, 2.0, 13.0)))       # estabilizador
+		pecas.append(Transform3D(Basis.from_scale(Vector3(1.6, 1.5, 3.4)), Vector3(0, 2.8, 0.3)))         # carenagem do motor
+		pecas.append(Transform3D(Basis.from_scale(Vector3(0.5, 1.6, 0.5)), Vector3(0, 3.9, 0.0)))         # mastro
+		ComplexoLancamento.criar_multimesh(heli, pecas, casco)
+		var esquis: Array[Transform3D] = []
+		for sx: float in [-1.0, 1.0]:
+			esquis.append(ComplexoLancamento._viga(Vector3(sx * 2.4, -3.4, -4.5), Vector3(sx * 2.4, -3.4, 4.0), 0.3))
+			for z: float in [-2.6, 2.2]:
+				esquis.append(ComplexoLancamento._viga(Vector3(sx * 1.6, -2.0, z), Vector3(sx * 2.4, -3.4, z), 0.22))
+		esquis.append(Transform3D(Basis.from_scale(Vector3(1.4, 1.2, 1.4)), Vector3(0, -3.0, 0)))          # gancho de carga
+		ComplexoLancamento.criar_multimesh(heli, esquis, escuro)
+		# Rotores: giram a cada quadro desenhado (girador.gd), com um disco translúcido de "borrão" por cima
+		var girador: Script = load("res://scripts/efeitos/girador.gd")
+		var borrao := StandardMaterial3D.new()
+		borrao.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		borrao.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		borrao.albedo_color = Color(0.05, 0.05, 0.06, 0.22)
+		borrao.cull_mode = BaseMaterial3D.CULL_DISABLED
+		var rotor := Node3D.new()
+		rotor.set_script(girador)
+		rotor.set("velocidade", 34.0)
+		rotor.position = Vector3(0, 4.8, 0)
+		heli.add_child(rotor)
+		var pas: Array[Transform3D] = []
+		for k in 4:
+			pas.append(Transform3D(Basis(Vector3.UP, TAU * k / 4.0) * Basis.from_scale(Vector3(0.9, 0.12, 12.5)), Basis(Vector3.UP, TAU * k / 4.0) * Vector3(0, 0, 6.6)))
+		ComplexoLancamento.criar_multimesh(rotor, pas, escuro, false)
+		var disco_r := MeshInstance3D.new()
+		var cil := CylinderMesh.new()
+		cil.top_radius = 12.9
+		cil.bottom_radius = 12.9
+		cil.height = 0.05
+		cil.radial_segments = 48
+		disco_r.mesh = cil
+		disco_r.material_override = borrao
+		disco_r.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		rotor.add_child(disco_r)
+		var rotor_cauda := Node3D.new()
+		rotor_cauda.set_script(girador)
+		rotor_cauda.set("eixo", Vector3.RIGHT)
+		rotor_cauda.set("velocidade", 60.0)
+		rotor_cauda.position = Vector3(0.45, 3.8, 15.3)
+		heli.add_child(rotor_cauda)
+		var pas_c: Array[Transform3D] = []
+		for k in 2:
+			pas_c.append(Transform3D(Basis(Vector3.RIGHT, PI * k / 2.0) * Basis.from_scale(Vector3(0.08, 4.4, 0.4)), Vector3.ZERO))
+		ComplexoLancamento.criar_multimesh(rotor_cauda, pas_c, escuro, false)
 	# Bater no helicóptero ou no rotor explode o carro (cilindro do tamanho do disco do rotor + a cauda)
 	var mortal := StaticBody3D.new()
 	mortal.collision_layer = 1
@@ -776,6 +797,11 @@ static func _helicoptero(alvo: Alvo, etapa: Dictionary) -> void:
 	forma_c.height = 4.0
 	cs_c.shape = forma_c
 	cs_c.position = Vector3(0, altura_heli + 2.5, 0)
+	if com_modelo:
+		# Chinook: dois rotores, um em cada ponta — o disco cobre os dois em qualquer rumo, na altura deles
+		forma_c.radius = CHINOOK_COMP * 0.42 + raio_rotor
+		forma_c.height = 3.5
+		cs_c.position = Vector3(0, altura_heli + 3.4, 0)
 	mortal.add_child(cs_c)
 	# Luzes de navegação, luz no casco e o holofote na barriga apontado para a rede
 	var luzes: Array[Transform3D] = [Transform3D(Basis.from_scale(Vector3.ONE * 0.5), Vector3(-2.7, 0, 0))]
@@ -800,6 +826,101 @@ static func _helicoptero(alvo: Alvo, etapa: Dictionary) -> void:
 	alvo.add_child(holofote)
 	alvo.dino_estado["heli"] = {"no": heli}
 	alvo.dino_estado["altura_heli"] = altura_heli
+
+
+const CHINOOK := "res://assets/dino/helicoptero/chinook.glb"
+const CHINOOK_COMP := 24.0   # comprimento da fuselagem (m)
+
+## Monta em `heli` (frente = -Z) o CH-47 Chinook de assets/dino/helicoptero (CC-BY, ver creditos.txt): mede o
+## modelo, põe a fuselagem com CHINOOK_COMP m centrada no nó e a barriga logo acima do gancho, e solta os dois
+## rotores (as peças chatas) em pivôs que giram em sentidos contrários, cada um com o seu disco de borrão.
+## Devolve o raio do rotor em metros (0 = o arquivo não está no projeto).
+static func _chinook(heli: Node3D) -> float:
+	if not ResourceLoader.exists(CHINOOK):
+		return 0.0
+	var modelo: Node3D = (load(CHINOOK) as PackedScene).instantiate()
+	var giro := Node3D.new()
+	giro.name = "Chinook"
+	giro.add_child(modelo)
+	heli.add_child(giro)
+	var corpo := AABB()
+	var tem_corpo := false
+	var chatas: Array = []   # [malha, transformação até o modelo, caixa]
+	for no in modelo.find_children("*", "MeshInstance3D", true, false):
+		var mi := no as MeshInstance3D
+		var xf := DinosParque._xf_ate(mi, modelo)
+		var cx := xf * mi.get_aabb()
+		if cx.size.y < 0.08 * maxf(cx.size.x, cx.size.z):
+			chatas.append([mi, xf, cx])
+		else:
+			corpo = cx if not tem_corpo else corpo.merge(cx)
+			tem_corpo = true
+	if not tem_corpo or corpo.size.z < 0.01:
+		return 0.0
+	var esc := CHINOOK_COMP / corpo.size.z
+	var meio_z := corpo.get_center().z
+	# Os dois rotores: o da frente e o de trás (o da frente é o mais baixo)
+	var grupos := [[], []]
+	for c: Array in chatas:
+		grupos[0 if (c[2] as AABB).get_center().z < meio_z else 1].append(c)
+	var y_rotor := [0.0, 0.0]
+	var raio := 0.0
+	var girador: Script = load("res://scripts/efeitos/girador.gd")
+	var borrao := StandardMaterial3D.new()
+	borrao.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	borrao.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	borrao.albedo_color = Color(0.05, 0.05, 0.06, 0.2)
+	borrao.cull_mode = BaseMaterial3D.CULL_DISABLED
+	for k in 2:
+		var grupo: Array = grupos[k]
+		if grupo.is_empty():
+			continue
+		# Eixo do rotor: o meio dos vértices das pás (são iguais e espalhadas em volta do cubo)
+		var soma := Vector3.ZERO
+		var qtd := 0
+		var cx_g: AABB = grupo[0][2]
+		for c: Array in grupo:
+			cx_g = cx_g.merge(c[2])
+			var malha := (c[0] as MeshInstance3D).mesh
+			for sup in malha.get_surface_count():
+				var vs: PackedVector3Array = malha.surface_get_arrays(sup)[Mesh.ARRAY_VERTEX]
+				for v in vs:
+					soma += (c[1] as Transform3D) * v
+				qtd += vs.size()
+		var cubo := soma / maxf(qtd, 1.0)
+		cubo.y = cx_g.get_center().y
+		y_rotor[k] = cubo.y
+		var r_modelo := maxf(maxf(cx_g.end.x - cubo.x, cubo.x - cx_g.position.x), maxf(cx_g.end.z - cubo.z, cubo.z - cx_g.position.z))
+		raio = maxf(raio, r_modelo * esc)
+		var pivo := Node3D.new()
+		pivo.name = "Rotor%d" % k
+		pivo.set_script(girador)
+		pivo.set("velocidade", 30.0 if k == 0 else -30.0)
+		pivo.position = cubo
+		modelo.add_child(pivo)
+		for c: Array in grupo:
+			var mi := c[0] as MeshInstance3D
+			mi.get_parent().remove_child(mi)
+			pivo.add_child(mi)
+			mi.transform = Transform3D(Basis.IDENTITY, -cubo) * (c[1] as Transform3D)
+		var disco := MeshInstance3D.new()
+		var cil := CylinderMesh.new()
+		cil.top_radius = r_modelo
+		cil.bottom_radius = r_modelo
+		cil.height = 0.05 / esc
+		cil.radial_segments = 48
+		disco.mesh = cil
+		disco.material_override = borrao
+		disco.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		pivo.add_child(disco)
+	# Frente para -Z: o rotor da frente é o mais baixo dos dois
+	var vira := 0.0
+	if not (grupos[0] as Array).is_empty() and not (grupos[1] as Array).is_empty() and float(y_rotor[1]) < float(y_rotor[0]):
+		vira = PI   # o mais baixo está do lado +Z
+	var base := Basis(Vector3.UP, vira) * Basis.from_scale(Vector3.ONE * esc)
+	# Fuselagem centrada no nó; as rodas ficam 4,4 m abaixo dele (a barriga logo acima do gancho da rede)
+	giro.transform = Transform3D(base, -(base * Vector3(corpo.get_center().x, corpo.position.y, meio_z)) + Vector3(0.0, -4.4, 0.0))
+	return raio
 
 
 ## Helicóptero: vira o nariz para onde está voando, com uma inclinação à frente.

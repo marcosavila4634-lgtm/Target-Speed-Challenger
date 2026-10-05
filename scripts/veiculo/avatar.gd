@@ -553,6 +553,10 @@ func _process(delta: float) -> void:
 		return
 	if veiculo == null or not veiculo.visible:
 		return
+	# O piloto só é visto de perto (dentro do carro): longe da câmera não gasta tempo mexendo os braços
+	var cam := get_viewport().get_camera_3d()
+	if cam and cam.global_position.distance_squared_to(veiculo.global_position) > 70.0 * 70.0:
+		return
 	var alvo := clampf(float(veiculo.get("_direcao_suave")) * ROTACAO_MAX_VOLANTE, -ROTACAO_MAX_VOLANTE, ROTACAO_MAX_VOLANTE)
 	if veiculo.travado:
 		alvo = clampf(float(veiculo.entrada.direcao) * ROTACAO_MAX_VOLANTE, -ROTACAO_MAX_VOLANTE, ROTACAO_MAX_VOLANTE)

@@ -18,8 +18,19 @@ func montar(terreno: Terreno, lista: Array) -> void:
 	_mover(0.0)
 
 
+var _dt := 0.0
+var _quadro := 0
 func _process(delta: float) -> void:
-	_mover(delta)
+	# De longe a ronda anda a cada 3 quadros (além de 400 m da câmera) ou para de mexer as patas (além de
+	# 1500 m, onde nem aparece): a pose dos ossos destes gigantes custava ~0,6 ms por quadro o tempo todo
+	_dt += delta
+	_quadro += 1
+	var cam := get_viewport().get_camera_3d()
+	var dist := cam.global_position.distance_to(global_position) if cam else 0.0
+	if dist > 1500.0 or (dist > 400.0 and _quadro % 3 != 0):
+		return
+	_mover(_dt)
+	_dt = 0.0
 
 
 func _mover(delta: float) -> void:

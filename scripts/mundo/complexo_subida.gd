@@ -511,7 +511,7 @@ func _marcar_estreitos_gelo_vaos() -> void:
 
 
 ## Loopings (percursos.N.loopings: [trecho, m da entrada, raio, transição, desvio, aceleradores,
-## velocidade mínima]): calcula a fita de cada um e tira a laje da estrada embaixo dele — o traçado
+## velocidade mínima, largura da fita, borda]): calcula a fita de cada um e tira a laje da estrada embaixo dele — o traçado
 ## passa por baixo em "S" só para o progresso e os bots; o piso é a fita (classe Looping).
 func _marcar_loopings() -> void:
 	# Depois de cada mola ejetora a pista fica mais larga (zona de pouso de quem caiu girando)
@@ -532,6 +532,10 @@ func _marcar_loopings() -> void:
 		var lp := Looping.new()
 		lp.n_impulsos = int(lc[5])
 		lp.vel_min = float(lc[6])
+		if lc.size() > 7:
+			lp.largura_laco = float(lc[7])
+		if lc.size() > 8:
+			lp.borda = bool(lc[8])
 		lp.calcular(self, i0, float(lc[2]), float(lc[3]), float(lc[4]))
 		for i in range(i0, lp.i_saida + 1):
 			if _s[i] - _s[i0] > CORTE and _s[lp.i_saida] - _s[i] > CORTE:
@@ -548,6 +552,15 @@ func looping_em(p: Vector3, pontas := false) -> Looping:
 		if lp.amostra_em(p, pontas) >= 0:
 			return lp
 	return null
+
+
+## Para os bots: mira de quem está na reta de chegada de um looping (Looping.mira_chegada); Vector3.INF se não está.
+func looping_chegando(p: Vector3) -> Vector3:
+	for lp in _loopings:
+		var m := lp.mira_chegada(p)
+		if m != Vector3.INF:
+			return m
+	return Vector3.INF
 
 
 ## Há um looping começando até `metros` à frente da amostra i (ou o carro ainda está saindo de um)?
@@ -674,8 +687,13 @@ func _malha_estrada() -> void:
 			_no.add_child(cg)
 
 
+## Pilares da estrada principal: [Vector3(x, topo, z), meia largura, amostra] (SerpenteCaminho sobe neles).
+var pilares: Array = []
+
+
 ## Pilares de concreto até o chão a cada ~22 m, com viga de apoio embaixo da estrada.
 func _pilares(terreno: Terreno) -> void:
+	pilares.clear()
 	var colunas: Array[Transform3D] = []
 	var vigas: Array[Transform3D] = []
 	var i := 0
@@ -697,8 +715,11 @@ func _pilares(terreno: Terreno) -> void:
 			var b := Basis.looking_at(Vector3(_tan[i].x, 0.0, _tan[i].z).normalized(), Vector3.UP)
 			var lado := 2.6 if topo - chao < 60.0 else 3.6
 			colunas.append(Transform3D(b * Basis.from_scale(Vector3(lado, topo - chao + 2.0, lado)), Vector3(p.x, (topo + chao - 2.0) * 0.5, p.z)))
+			pilares.append([Vector3(p.x, topo, p.z), lado * 0.5, i])
 			vigas.append(Transform3D(b * Basis.from_scale(Vector3(_larg[i] - 1.0, 1.0, 2.2)), Vector3(p.x, topo + 0.3, p.z)))
 		i += 22
+	if OS.get_environment("TSC_SUB_LOG") != "":
+		print("[SUB] pilares (x, z): ", colunas.map(func(c: Transform3D): return Vector2(c.origin.x, c.origin.z).snapped(Vector2.ONE * 0.1)))
 	var mat := _material_pilar()
 	criar_multimesh(_no, colunas, mat)
 	criar_multimesh(_no, vigas, _material_viga())
@@ -807,6 +828,14 @@ func _tochas() -> void:
 	ferro.metallic = 0.6
 	ferro.roughness = 0.55
 	criar_multimesh(_no, cestos, ferro)
+	# As tochas têm colisão (pedido do dono: dava para atravessá-las): poste e braseiro, parede comum
+	var solido := StaticBody3D.new()
+	solido.collision_layer = 1
+	solido.collision_mask = 0
+	solido.add_to_group("estrutura")
+	_no.add_child(solido)
+	adicionar_colisoes(solido, postes)
+	adicionar_colisoes(solido, cestos)
 	criar_multimesh(_no, brasas, _material_luz(Color(1.0, 0.32, 0.05), 5.0), false)
 	if chamas.is_empty():
 		return

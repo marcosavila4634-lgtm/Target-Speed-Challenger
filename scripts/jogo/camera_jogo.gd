@@ -316,6 +316,12 @@ func _process(delta: float) -> void:
 	if modo == Modo.DRONE:
 		_processar_drone(delta)
 		return
+	# Controle: a alavanca direita gira a câmera, como o mouse
+	var olhar := Vector2(Input.get_joy_axis(0, JOY_AXIS_RIGHT_X), Input.get_joy_axis(0, JOY_AXIS_RIGHT_Y))
+	if olhar.length() > 0.25:
+		_yaw_extra -= olhar.x * delta * 2.4
+		_arfagem = clampf(_arfagem - olhar.y * delta * 1.6, -1.25, 0.45)
+		_ocioso = 0.0
 	if modo == Modo.CINEMATICA:
 		_t_cine += delta
 		var a := _t_cine * 0.22 + 0.6

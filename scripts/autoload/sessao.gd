@@ -13,6 +13,8 @@ var tempo_por_mapa := {}
 var jogadores_por_equipe := 1
 ## Nível dos bots: facil, medio, alto ou pro (jogo.json bots.niveis).
 var nivel_bots := "medio"
+## Qualidade gráfica (grafico.qualidades do jogo.json): baixo, medio, alto ou ultra (ultra = o jogo como sempre foi).
+var qualidade := "ultra"
 var mapa_id := ""
 ## Pista do Drag Racing (jogo.json → drag.pistas).
 var drag_pista_id := ""
@@ -98,6 +100,7 @@ func carregar() -> void:
 		tempo_segundos = int(d.get("tempo_segundos", tempo_segundos))
 		jogadores_por_equipe = int(d.get("jogadores_por_equipe", jogadores_por_equipe))
 		nivel_bots = str(d.get("nivel_bots", nivel_bots))
+		qualidade = str(d.get("qualidade", qualidade))
 		mapa_id = d.get("mapa_id", mapa_id)
 		drag_pista_id = str(d.get("drag_pista_id", drag_pista_id))
 		modo_jogo = str(d.get("modo_jogo", modo_jogo))
@@ -118,6 +121,7 @@ func salvar() -> void:
 			"tempo_segundos": tempo_segundos,
 			"jogadores_por_equipe": jogadores_por_equipe,
 			"nivel_bots": nivel_bots,
+			"qualidade": qualidade,
 			"mapa_id": mapa_id,
 			"drag_pista_id": drag_pista_id,
 			"modo_jogo": modo_jogo,

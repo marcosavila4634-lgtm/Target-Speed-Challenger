@@ -42,7 +42,7 @@ static func criar(especie: String, comprimento := 0.0) -> Dictionary:
 	raiz.name = especie
 	var d := {"raiz": raiz, "esq": null, "anim": null, "pernas": [], "cauda": [], "pescoco": [], "cabeca": -1, "mandibula": -1,
 		"quad": bool(e[4]), "comp": comprimento if comprimento > 0.0 else float(e[1]), "passada": float(e[3]), "especie": especie,
-		"quadril": 0.0, "passo": 0.0, "anda": 0.0, "xf_ant": null}
+		"quadril": 0.0, "passo": 0.0, "anda": 0.0, "xf_ant": null, "pes_ossos": PackedInt32Array()}
 	d.quadril = float(d.comp) * 0.2
 	if _cenas[e[0]] == null:
 		return d
@@ -94,6 +94,7 @@ static func criar(especie: String, comprimento := 0.0) -> Dictionary:
 	var frente := Vector3.ZERO
 	var cima := Vector3.UP
 	var juntas: Array[Vector3] = []
+	var pes_idx := PackedInt32Array()   # ossos de pé, tornozelo e dedos (ver pose: o mais baixo fica no chão)
 	if esq:
 		var xf_e := xf_r if tem_r else _xf_ate(esq, modelo)
 		var cab := Vector3.INF
@@ -122,6 +123,7 @@ static func criar(especie: String, comprimento := 0.0) -> Dictionary:
 				n_pes += 1
 			if ("foot" in nome or "ankle" in nome or "toe" in nome) and not "end" in nome:
 				pes_lista.append(q)
+				pes_idx.append(b)
 				if "_fl_" in nome or "_fr_" in nome:
 					pes_frente.append(q)
 				else:
@@ -168,6 +170,13 @@ static func criar(especie: String, comprimento := 0.0) -> Dictionary:
 	# Cima (pés → quadril) manda; a frente é a direção cauda → cabeça deitada nesse plano (pescoço
 	# erguido do titanossauro não pode inclinar o corpo)
 	cima = cima.normalized()
+	# "Pés → quadril" só diz para que lado fica o alto: nos bípedes o osso do quadril fica ATRÁS dos pés
+	# (tiranossauro 13°, carnotauro 17°, T-Rex 6°) e, com essa linha como vertical, eles andavam de focinho
+	# para baixo e cauda para o alto, com os pés fora do chão (reclamação do dono: "caminhando errado,
+	# flutuando"). O arquivo vem alinhado a um eixo: vale o eixo do modelo mais perto dessa linha.
+	for eixo: Vector3 in [Vector3.UP, Vector3.DOWN, Vector3.RIGHT, Vector3.LEFT, Vector3.BACK, Vector3.FORWARD]:
+		if cima.dot(eixo) > 0.9:
+			cima = eixo
 	frente = (frente - cima * frente.dot(cima))
 	if frente.length() < 0.01:
 		frente = Vector3.FORWARD - cima * cima.z
@@ -226,6 +235,17 @@ static func criar(especie: String, comprimento := 0.0) -> Dictionary:
 		chao_y -= (mx.z - mn.z) * 0.012
 	d.erase("_pes")
 	giro.position = -Vector3(meio_x, chao_y, (mn.z + mx.z) * 0.5) * esc
+	# Para a passada (pose): a cada quadro o pé mais baixo volta para o chão — do osso até o referencial da raiz
+	if esq and not pes_idx.is_empty():
+		d.pes_ossos = pes_idx
+		d["pes_xf"] = giro.transform * (xf_r if tem_r else _xf_ate(esq, modelo))
+		d["pes_folga"] = (mx.z - mn.z) * 0.012 * esc   # a sola fica um pouco abaixo da junta
+		d["giro_y0"] = giro.position.y
+		# Onde os pés ficam ao longo do corpo (z na raiz): é em volta deles que o corpo inclina (ver Armadilhas)
+		var z_pes := 0.0
+		for b in pes_idx:
+			z_pes += (d.pes_xf * esq.get_bone_global_rest(b).origin).z / pes_idx.size()
+		d["pes_z"] = z_pes
 	aabb = AABB(mn, mx - mn)
 	d["altura"] = aabb.size.y * esc
 	d["giro"] = giro
@@ -254,8 +274,10 @@ static func criar(especie: String, comprimento := 0.0) -> Dictionary:
 		if "_fl_" in n or "_fr_" in n:
 			frente_tras = "f"
 		var nivel := -1
-		if "ankle" in n or "foot" in n:
+		if "ankle" in n:
 			nivel = 2
+		elif "foot" in n:
+			nivel = 3   # pé depois do tornozelo: fica como está (se a perna não tiver tornozelo, vira 2 logo abaixo)
 		elif "upleg" in n or "thigh" in n or "leg1" in n:
 			nivel = 0
 		elif "shin" in n or "leg2" in n or ("leg" in n and lado_l != ""):
@@ -274,6 +296,9 @@ static func criar(especie: String, comprimento := 0.0) -> Dictionary:
 			d.mandibula = b
 			d["mand_eixo"] = conv.call(b, lado_m)
 			d["mand_rest"] = esq.get_bone_rest(b).basis.get_rotation_quaternion()
+	for p: Dictionary in d.pernas:
+		if int(p.nivel) == 3 and not d.pernas.any(func(o: Dictionary) -> bool: return int(o.nivel) == 2 and o.lado == p.lado and o.ft == p.ft):
+			p.nivel = 2
 	# Altura do quadril (m): dela sai quanto chão o bicho cobre a cada ciclo da passada (ver andar)
 	var hq := 0.0
 	var nq := 0
@@ -312,11 +337,15 @@ static func pose(d: Dictionary, fase: float, intensidade := 1.0, boca := 0.0, bo
 		if d.quad and p.ft == "f":
 			f += PI   # quadrúpede: diagonais juntas
 		var ang := 0.0
+		var coxa := sin(f) * amp
+		# O joelho só dobra com o pé no ar (perna indo para a frente); no chão a perna fica esticada
+		var joelho := -maxf(0.0, cos(f)) * amp * 1.2
 		match int(p.nivel):
-			0: ang = sin(f) * amp
-			# O joelho só dobra com o pé no ar (perna indo para a frente); no chão a perna fica esticada
-			1: ang = -maxf(0.0, cos(f)) * amp * 1.2
-			2: ang = maxf(0.0, sin(f - 0.6)) * amp * 0.8
+			0: ang = coxa
+			1: ang = joelho
+			# O tornozelo desfaz o giro da perna: o pé de apoio fica CHATO no chão a passada inteira (antes ele
+			# girava junto e pisava de ponta, enrolado); no ar, a ponta cai um pouco
+			2: ang = -(coxa + joelho) * (1.0 - 0.4 * maxf(0.0, cos(f)))
 		esq.set_bone_pose_rotation(p.b, p.rest * Quaternion(p.eixo, ang))
 	var k := 0
 	for c: Dictionary in d.cauda:
@@ -332,6 +361,16 @@ static func pose(d: Dictionary, fase: float, intensidade := 1.0, boca := 0.0, bo
 		esq.set_bone_pose_rotation(d.cabeca, d.cabeca_rest * Quaternion(d.cabeca_eixo_l, bote * 0.25 + sin(fase) * 0.03 * intensidade))
 	if d.mandibula >= 0:
 		esq.set_bone_pose_rotation(d.mandibula, d.mand_rest * Quaternion(d.mand_eixo, -boca * 0.55))
+	# Pés no chão (pedido do dono: "precisa caminhar perfeitamente no chão"): a perna balança em volta do quadril
+	# e, com o corpo sempre na mesma altura, o pé de apoio saía do chão nas pontas da passada. O corpo desce
+	# (e sobe) o que falta para a junta mais baixa dos pés ficar onde fica com o bicho parado.
+	var ossos: PackedInt32Array = d.pes_ossos
+	if not ossos.is_empty():
+		var xf_p: Transform3D = d.pes_xf
+		var baixo := INF
+		for b in ossos:
+			baixo = minf(baixo, (xf_p * esq.get_bone_global_pose(b).origin).y)
+		(d.giro as Node3D).position.y = float(d.giro_y0) - (baixo - float(d.pes_folga))
 
 
 ## Passada presa ao chão: a fase avança pelo que o bicho andou (e girou) desde a última chamada, e não
@@ -492,8 +531,10 @@ func preparar_etapa(_indice: int) -> void:
 	pass
 
 
+var _quadro := 0
 func _process(delta: float) -> void:
 	_t += delta
+	_quadro += 1
 	var cam := get_viewport().get_camera_3d()
 	var pc := cam.global_position if cam else Vector3.ZERO
 	for b: Dictionary in _bichos:
@@ -521,7 +562,14 @@ func _process(delta: float) -> void:
 		p.y = (hf + ht) * 0.5 - 0.15
 		var xf := Transform3D(Basis.looking_at(Vector3(dir.x * meia * 2.0, hf - ht, dir.z * meia * 2.0).normalized(), Vector3.UP), p)
 		raiz.transform = xf
-		andar(d, xf, delta, 1.0, 0.15 + 0.15 * sin(_t * 0.7 + float(b.fase)))
+		# A passada (pose de dezenas de ossos) custa caro: de perto a cada quadro, de 350 a 900 m a cada 3
+		# quadros (cada bicho num quadro diferente) e além disso o bicho só desliza — não dá para ver as patas
+		var dist := p.distance_to(pc)
+		b.dt = float(b.get("dt", 0.0)) + delta
+		if dist > 900.0 or (dist > 350.0 and (_quadro + int(float(b.fase) * 100.0)) % 3 != 0):
+			continue
+		andar(d, xf, float(b.dt), 1.0, 0.15 + 0.15 * sin(_t * 0.7 + float(b.fase)))
+		b.dt = 0.0
 	if not _ptero.is_empty():
 		var mm: MultiMesh = _ptero.mm
 		var aves: Array = _ptero.aves

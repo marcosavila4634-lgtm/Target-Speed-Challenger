@@ -63,6 +63,11 @@ var _gosma_ini := 0.0
 var _gosma_ativa := false
 var _invertido_ate := 0.0      # yeti pendurado no teto (Frozen Peak): direção invertida até este instante
 var _invertido_ini := 0.0
+var _ovo_ate := 0.0            # ovo de pterossauro (Extinction Day): pneus sem aderência e direção invertida até este instante
+var _ovo_ini := 0.0
+var _ovo_ativo := false
+var _ovo_fx: Array[GPUParticles3D] = []   # pingos de gema e de clara caindo do carro
+var _ovo_pele: Array = []      # gema na lataria enquanto dura o efeito: [[MeshInstance3D (cópia da malha), ShaderMaterial]]
 var _gelado_ate := 0.0         # cuspe de gelo das focas (Frozen Peak): direção travada, sem freio nem motor, escorregando
 var _dir_gelada := 0.0
 var _gelo_pele: Array = []      # crosta de gelo na lataria: [[MeshInstance3D (cópia da malha), ShaderMaterial]]
@@ -152,6 +157,8 @@ var _cfg := {}
 func _ready() -> void:
 	if OS.get_environment("TSC_GOSMA") != "":
 		gosma.call_deferred(600.0)   # conferência: todos os carros sujos de gosma
+	if OS.get_environment("TSC_OVO_CARRO") != "":
+		ovo.call_deferred(600.0)   # conferência: todos os carros melados de ovo
 	add_to_group("veiculo")
 	g = ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)
 	mass = float(dados.get("massa", 1000))
@@ -886,6 +893,7 @@ func ressurgir(t: Transform3D, duracao: float) -> void:
 	no_alvo_agora = false
 	_gelado_ate = 0.0
 	_invertido_ate = 0.0
+	_ovo_ate = 0.0
 	_impulso_espera = relogio + 1.0
 	for r in rodas:
 		r.compressao = 0.0
@@ -927,7 +935,14 @@ func devorar() -> void:
 	eliminar("mordida")
 
 
-## Gosma verde (dinossauro cuspidor do Extinction Day): o carro anda muito devagar por `segundos`.
+## Melado de gosma (cuspe de dinossauro) ou de ovo de pterossauro: enquanto dura, o paraquedas não abre
+## (pedido do dono, 2026-10-04). O que já estava aberto continua aberto.
+func paraquedas_melado() -> bool:
+	return relogio < _gosma_ate or relogio < _ovo_ate
+
+
+## Gosma verde (dinossauro cuspidor do Extinction Day): o carro anda muito devagar por `segundos`
+## e o paraquedas não abre.
 func gosma(segundos: float) -> void:
 	_gosma_ate = maxf(_gosma_ate, relogio + segundos)
 	if _gosma_fx == null:
@@ -1107,6 +1122,116 @@ func gelado() -> bool:
 	return relogio < _gelado_ate
 
 
+## Ovo de pterossauro (plataforma dos buracos do Extinction Day): por `segundos` os pneus quase não
+## seguram — o carro escorrega como no gelo — e a direção fica invertida, como com o yeti no teto.
+## A lataria fica melada de gema (a mesma película da gosma, em amarelo).
+func ovo(segundos: float) -> void:
+	if relogio >= _ovo_ate:
+		_ovo_ini = relogio
+	_ovo_ate = maxf(_ovo_ate, relogio + segundos)
+	yeti(segundos)
+	if _ovo_pele.is_empty():
+		# A mesma animação da gosma dos cuspidores (pedido do dono), nas cores do ovo: pingos de gema e
+		# de clara caindo do carro e a película escorrendo pela lataria
+		for cor: Color in [Color(0.98, 0.7, 0.06), Color(0.97, 0.96, 0.9)]:
+			var fx := GPUParticles3D.new()
+			fx.amount = 14
+			fx.lifetime = 0.8
+			fx.local_coords = false
+			var pm := ParticleProcessMaterial.new()
+			pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+			pm.emission_box_extents = Vector3(caixa_corpo.size.x * 0.5, 0.1, caixa_corpo.size.z * 0.45)
+			pm.direction = Vector3.DOWN
+			pm.spread = 4.0
+			pm.initial_velocity_min = 0.2
+			pm.initial_velocity_max = 0.8
+			pm.scale_min = 0.6
+			pm.scale_max = 1.3
+			fx.process_material = pm
+			var gota := SphereMesh.new()
+			gota.radius = 0.035
+			gota.height = 0.3
+			gota.radial_segments = 10
+			gota.rings = 5
+			var mg := StandardMaterial3D.new()
+			mg.albedo_color = cor
+			mg.roughness = 0.08
+			mg.emission_enabled = true
+			mg.emission = cor
+			mg.emission_energy_multiplier = 0.3
+			gota.material = mg
+			fx.draw_pass_1 = gota
+			fx.position = Vector3(caixa_corpo.get_center().x, caixa_corpo.position.y + caixa_corpo.size.y * 0.35, caixa_corpo.get_center().z)
+			add_child(fx)
+			_ovo_fx.append(fx)
+		var sh: Shader = load("res://shaders/gosma_carro.gdshader")
+		var inv := global_transform.affine_inverse()
+		for no_m in modelo.find_children("*", "MeshInstance3D", true, false):
+			var mi := no_m as MeshInstance3D
+			if mi.get_parent() is MeshInstance3D and mi.material_override is ShaderMaterial:
+				continue   # película de outro efeito (gosma, gelo)
+			var mat_s := ShaderMaterial.new()
+			mat_s.shader = sh
+			mat_s.set_shader_parameter("para_carro", inv * mi.global_transform)
+			mat_s.set_shader_parameter("caixa_centro", caixa_corpo.get_center())
+			mat_s.set_shader_parameter("caixa_meia", caixa_corpo.size * 0.5)
+			# Clara branca com manchas de gema amarela
+			mat_s.set_shader_parameter("manchas", 1.0)
+			mat_s.set_shader_parameter("cor_fina", Color(0.96, 0.95, 0.88))
+			mat_s.set_shader_parameter("cor_grossa", Color(0.98, 0.7, 0.06))
+			mat_s.set_shader_parameter("cor_beira", Color(1.0, 1.0, 0.96))
+			var pele := MeshInstance3D.new()
+			pele.mesh = mi.mesh
+			pele.layers = 1
+			pele.material_override = mat_s
+			pele.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			pele.visible = false
+			mi.add_child(pele)
+			_ovo_pele.append([pele, mat_s])
+	if not _ovo_ativo:
+		_ovo_ativo = true
+		for par: Array in _ovo_pele:
+			if is_instance_valid(par[0]):
+				(par[0] as MeshInstance3D).visible = true
+	for fx: GPUParticles3D in _ovo_fx:
+		fx.emitting = true
+	_atualizar_ovo()
+
+
+## Gema na lataria: escorre nos primeiros instantes, afina no fim do efeito e sai.
+func _atualizar_ovo() -> void:
+	if not _ovo_ativo:
+		return
+	var acabou := relogio >= _ovo_ate
+	var avanco := clampf((relogio - _ovo_ini) / 1.0, 0.0, 1.0)
+	var some := 1.0 - clampf((_ovo_ate - relogio) / 0.8, 0.0, 1.0)
+	for par: Array in _ovo_pele:
+		if not is_instance_valid(par[0]):
+			continue
+		if acabou:
+			(par[0] as MeshInstance3D).visible = false
+		else:
+			(par[1] as ShaderMaterial).set_shader_parameter("avanco", avanco)
+			(par[1] as ShaderMaterial).set_shader_parameter("some", some)
+	if acabou:
+		_ovo_ativo = false
+		for fx: GPUParticles3D in _ovo_fx:
+			fx.emitting = false
+
+
+## Encostar na serpente gigante (Serpent's Climb, pedido do dono): por `segundos` os pneus quase não
+## seguram e a direção fica invertida — o mesmo efeito do ovo, sem a gema na lataria.
+func escorregar(segundos: float) -> void:
+	if relogio >= _ovo_ate:
+		_ovo_ini = relogio
+	_ovo_ate = maxf(_ovo_ate, relogio + segundos)
+	yeti(segundos)
+
+
+func com_ovo() -> bool:
+	return relogio < _ovo_ate
+
+
 func com_gosma() -> bool:
 	return relogio < _gosma_ate
 
@@ -1265,6 +1390,9 @@ func _integrate_forces(s: PhysicsDirectBodyState3D) -> void:
 		if gelado:
 			ader_piso *= 0.12   # pneus congelados: o carro desliza
 			ader_min = minf(ader_min, ader_piso)
+		if relogio < _ovo_ate:
+			ader_piso *= float(_cfg.get("ovo_aderencia", 0.3))   # melado de ovo: escorrega como no gelo vivo
+			ader_min = minf(ader_min, ader_piso)
 		var limite := f_susp * aderencia * ader_piso
 		if _com_diag:
 			var eixo := "f" if r.dianteira else "t"
@@ -1336,7 +1464,7 @@ func _integrate_forces(s: PhysicsDirectBodyState3D) -> void:
 		_pedido_paraquedas = false
 		if paraquedas_aberto:
 			fechar_paraquedas()
-		elif rodas_no_chao == 0 and tempo_no_ar > 0.1 and relogio >= pq_bloqueado_ate:
+		elif rodas_no_chao == 0 and tempo_no_ar > 0.1 and relogio >= pq_bloqueado_ate and not paraquedas_melado():
 			paraquedas_aberto = true
 			paraquedas_ja_aberto = true
 			if not telemetria.has("paraquedas_tempo"):
@@ -1499,6 +1627,7 @@ func _physics_process(delta: float) -> void:
 	recarga_ejetor = maxf(recarga_ejetor - delta, 0.0)
 	_atualizar_gosma()
 	_atualizar_gelo()
+	_atualizar_ovo()
 	_atualizar_rodas(delta)
 	if freeze:
 		return

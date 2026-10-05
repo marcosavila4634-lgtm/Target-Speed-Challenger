@@ -13,6 +13,11 @@ uniform vec3 caixa_meia = vec3(1.0);
 uniform float avanco = 1.0;       // 0 = acabou de ser atingido, 1 = já escorreu tudo
 uniform float some = 0.0;         // 0..1: a gosma afina e vai embora no fim do efeito
 uniform float luz = 0.3;          // um mínimo de luz própria (as etapas são à noite)
+// Cores (padrão: gosma verde). Veiculo.ovo troca pelas da gema do ovo de pterossauro
+uniform vec3 cor_fina = vec3(0.36, 0.6, 0.05);
+uniform vec3 cor_grossa = vec3(0.08, 0.24, 0.01);
+uniform vec3 cor_beira = vec3(0.55, 0.88, 0.15);
+uniform float manchas = 0.0;      // 1 = duas cores em manchas separadas (ovo: gema amarela boiando na clara branca)
 
 varying vec3 p_carro;
 varying vec3 n_carro;
@@ -69,8 +74,12 @@ void fragment() {
 	vec3 grad = sign(det) * (dFdx(e) * r1 + dFdy(e) * r2);
 	NORMAL = normalize(abs(det) * NORMAL - 0.09 * grad);
 	float beira = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 2.0);
-	vec3 cor = mix(vec3(0.36, 0.6, 0.05), vec3(0.08, 0.24, 0.01), smoothstep(0.15, 0.8, e));
-	cor = mix(cor, vec3(0.55, 0.88, 0.15), beira * 0.6);
+	vec3 cor = mix(cor_fina, cor_grossa, smoothstep(0.15, 0.8, e));
+	if (manchas > 0.5) {
+		float gema = smoothstep(0.5, 0.58, ruido(p_carro * 2.4 + 31.0) * 0.75 + ruido(p_carro * 6.0 + 7.0) * 0.25);
+		cor = mix(cor_fina, cor_grossa, gema);
+	}
+	cor = mix(cor, cor_beira, beira * 0.6);
 	ALBEDO = cor;
 	ROUGHNESS = 0.07;
 	SPECULAR = 0.9;

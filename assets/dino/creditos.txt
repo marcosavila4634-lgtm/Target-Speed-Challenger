@@ -37,3 +37,9 @@ licença A CONFIRMAR na página do modelo.
 
 portao/*.png (boca_do_vulcao, extinction_day, placa_tsc_dino_park, placa_tiranossauro_rex)
 Artes do dono do projeto.
+
+pterossauro/pterossauro.glb (só o bicho, sem a ilha do cenário; animação de voo do autor, um ciclo de 258 quadros)
+Crédito: This work is based on "Flying Pterodactyl Dinosaur Soars Over Island" (https://sketchfab.com/3d-models/flying-pterodactyl-dinosaur-soars-over-island-da9af2e809fb4c97825a015302198469) by LasquetiSpice (https://sketchfab.com/LasquetiSpice) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+helicoptero/chinook.glb (helicóptero do alvo da etapa 4; versão com texturas de 1024)
+Crédito: This work is based on "Boeing CH-47 Chinook Military Transport Aircraft" (https://sketchfab.com/3d-models/boeing-ch-47-chinook-military-transport-aircraft-cdac73e931f6482e86960a326fef73bf) by Muhamad Mirza Arrafi (https://sketchfab.com/nazidefenseforceofficial) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

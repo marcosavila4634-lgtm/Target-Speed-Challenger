@@ -324,9 +324,10 @@ func _atualizar_equipamentos(v: Veiculo) -> void:
 	_ejetor.text = "⏏  EJETOR — " + ej
 	_ejetor.add_theme_color_override("font_color", cor_ej)
 
-	var pq := "ABERTO" if v.paraquedas_aberto else "FECHADO"
+	var melado := v.paraquedas_melado() and not v.paraquedas_aberto   # gosma ou ovo: não abre
+	var pq := "ABERTO" if v.paraquedas_aberto else ("MELADO" if melado else "FECHADO")
 	_paraquedas.text = "☂  PARAQUEDAS — " + pq
-	_paraquedas.add_theme_color_override("font_color", Estilo.OK if v.paraquedas_aberto else Estilo.TEXTO)
+	_paraquedas.add_theme_color_override("font_color", Estilo.OK if v.paraquedas_aberto else (Estilo.PERIGO if melado else Estilo.TEXTO))
 
 	var total: float = v._cfg.nitro_duracao
 	var ni := "PRONTO"
@@ -603,6 +604,8 @@ func pausa(mostrar: bool) -> void:
 	v.add_child(t)
 	var ajuda := Estilo.rotulo("W / S — acelerar e ré (não há freio: a ré segura o carro)  (no ar: inclinar • no paraquedas: acelerar e sustentar)\nA / D — direção  (no alvo: alterne A e D rapidamente para frear)\nESPAÇO — ejetor (com roda apoiada, antes de abrir o paraquedas)\nE — abrir / fechar paraquedas\nSHIFT — nitro (uma carga por etapa)\nMOUSE — câmera (rodinha: zoom)   •   C (segurar) — olhar para trás   •   TAB — trocar câmera de espectador", 19, Estilo.TEXTO_FRACO)
 	v.add_child(ajuda)
+	if Config.tem_controle():
+		v.add_child(Estilo.rotulo("CONTROLE:  RT — acelerar   •   LT — ré   •   alavanca esquerda / setas — direção   •   A — ejetor   •   Y — paraquedas\nX ou B — nitro   •   alavanca direita — câmera   •   LB (segurar) — olhar para trás   •   seta para cima — trocar câmera   •   START — pausa", 19, Estilo.TEXTO_FRACO))
 	for par in [["CONTINUAR", pedido_continuar], ["MENU PRINCIPAL", pedido_menu]]:
 		var b := Button.new()
 		b.text = par[0]
@@ -615,4 +618,7 @@ func pausa(mostrar: bool) -> void:
 	p.set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
 	p.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	p.grow_vertical = Control.GROW_DIRECTION_BOTH
-	(v.get_child(2) as Button).grab_focus()
+	for c in v.get_children():
+		if c is Button:
+			(c as Button).grab_focus()   # o controle navega pelo menu a partir daqui
+			break

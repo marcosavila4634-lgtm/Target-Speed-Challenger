@@ -581,6 +581,29 @@ static func montar_arte(pai: Node3D, caminho: String, folhas: Array, tochas: Arr
 	return alt
 
 
+## Caixas de colisão das folhas do portão de uma arte montada com montar_arte (mesmos parâmetros): uma
+## caixa por folha, aberta no mesmo ângulo (o dono atravessava as folhas com o carro: "devem ter colisão").
+static func colisao_folhas(caminho: String, folhas: Array, c: Vector3, para_fora: Vector3, larg: float, y0: float, verso := false, esp := 3.0) -> Array[Transform3D]:
+	var caixas: Array[Transform3D] = []
+	var tx := texturas_arte(caminho, folhas)
+	if tx.is_empty():
+		return caixas
+	var dir := Basis.looking_at(-para_fora, Vector3.UP).x
+	var alt := larg / float(tx[3])
+	var inchar := larg * 0.03
+	for k in folhas.size():
+		var r: Rect2 = folhas[k]
+		var lf := r.size.x * larg
+		var s := -1.0 if r.get_center().x < 0.5 else 1.0
+		var u_dob := r.position.x if s < 0.0 else r.end.x
+		var dobradica := c + dir * ((u_dob - 0.5) * larg) + para_fora * ((esp if verso else 1.0) + inchar * 0.5) + Vector3.UP * (y0 + alt * (1.0 - r.position.y - r.size.y * 0.5))
+		var ang := deg_to_rad(64.0)
+		var eixo_x := (dir * cos(ang) - para_fora * sin(ang) * s).normalized()
+		var base := Basis(eixo_x, Vector3.UP, eixo_x.cross(Vector3.UP))
+		caixas.append(Transform3D(base * Basis.from_scale(Vector3(lf, r.size.y * alt, 0.5)), dobradica - eixo_x * s * lf * 0.5))
+	return caixas
+
+
 ## Caixas de colisão de uma arte montada com montar_arte (mesmos parâmetros): a silhueta recortada da arte
 ## vira colunas de caixas — onde a arte é vazada (vão do pórtico, recortes da placa) não há colisão.
 static func colisao_arte(caminho: String, folhas: Array, c: Vector3, para_fora: Vector3, larg: float, y0: float, verso := false, esp := 3.0) -> Array[Transform3D]:
@@ -639,6 +662,13 @@ func _montar_portal(c: Vector3, para_fora: Vector3, meia: float, mortal: StaticB
 				c + dir * s * larg * float(deg[0]) + Vector3.UP * ((topo_t + base_t) * 0.5) - para_fora * 0.9))
 	ComplexoLancamento.criar_multimesh(self, torres, _terreno._mat_terreno)
 	ComplexoLancamento.adicionar_colisoes(mortal, torres)
+	# As folhas do portão têm colisão (parede comum, não explode)
+	var folhas_c := StaticBody3D.new()
+	folhas_c.collision_layer = 1
+	folhas_c.collision_mask = 0
+	folhas_c.add_to_group("estrutura")
+	add_child(folhas_c)
+	ComplexoLancamento.adicionar_colisoes(folhas_c, colisao_folhas(PORTAL_IMAGEM, PORTAL_FOLHAS, c, para_fora, larg, y0))
 	# Ombro de montanha embaixo e em volta do pórtico (pedido do dono: a parte de baixo ficava no ar, sem
 	# sustentação): a encosta avança até passar dos pilares e desce irregular até o terreno
 	var ruido := FastNoiseLite.new()

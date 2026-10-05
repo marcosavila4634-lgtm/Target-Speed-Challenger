@@ -48,6 +48,8 @@ func _ready() -> void:
 	_selecionar(_indice)
 	_selecionar_avatar(_indice_av)
 	if OS.get_environment("TSC_FOTO_MENU") != "":
+		if OS.get_environment("TSC_FOTO_CONFIG") != "":
+			_abrir_configuracao()   # conferência: foto da janela de configuração
 		if OS.get_environment("TSC_FOTO_TUNING") != "":
 			_abrir_tuning()
 			if OS.get_environment("TSC_FOTO_TUNING") == "drag":
@@ -882,6 +884,17 @@ func _abrir_configuracao() -> void:
 	nivel.selected = maxi(ids.find(Sessao.nivel_bots), 0)
 	nivel.item_selected.connect(func(i): Sessao.nivel_bots = ids[i])
 	grade.add_child(nivel)
+	# Qualidade gráfica (pedido do dono): BAIXO, MÉDIO, ALTO ou ULTRA — vale a partir da próxima partida
+	grade.add_child(Estilo.rotulo("Qualidade gráfica", 21))
+	var qual := OptionButton.new()
+	var ids_q := ["baixo", "medio", "alto", "ultra"]
+	for id in ids_q:
+		qual.add_item(str(Config.valor("grafico.qualidades." + id + ".nome", id.to_upper())))
+	qual.selected = maxi(ids_q.find(Sessao.qualidade), 0)
+	qual.item_selected.connect(func(i):
+		Sessao.qualidade = ids_q[i]
+		Sessao.salvar())
+	grade.add_child(qual)
 	v.add_child(HSeparator.new())
 	v.add_child(Estilo.rotulo("ÁUDIO", 22, Estilo.TEXTO_FRACO, 600))
 	v.add_child(Audio.painel_volumes())

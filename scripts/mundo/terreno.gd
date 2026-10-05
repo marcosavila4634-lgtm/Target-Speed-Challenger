@@ -8,7 +8,7 @@ const MEIO_INTERNO := 3400.0
 const N_INTERNO := 513
 const MEIO_EXTERNO := 14000.0
 const N_EXTERNO := 257
-const VERSAO_CACHE := 22
+const VERSAO_CACHE := 23
 
 var perfil: PerfilRampa
 var distancia_saida: float
@@ -52,6 +52,11 @@ var _sub_barreiras_cfg: Dictionary = {}
 ## Montanhas desenhadas pelo dono (mapa.subida.montanhas): cápsulas [a, b, raio_a, raio_b, altura]
 var _sub_fixas: Array = []       # em todas as etapas
 var _sub_montanhas: Array = []   # só da etapa atual (no lugar das cristas sorteadas)
+## Terra preenchida da etapa (montanhas.etapas.N.preencher, pedido do dono no Serpent's Climb E1): dentro
+## do vale e fora do contorno, o chão sobe à altura das montanhas (platô). O contorno passa pelo eixo das
+## cápsulas da etapa, que fazem a encosta virada para a pista; o rio continua cavando o cânion dele.
+var _preencher := PackedVector2Array()
+var _preencher_altura := 0.0
 ## Túnel-atalho da etapa (montanhas.etapas.N.tunel): o terreno é cavado ao longo dele (o túnel em si
 ## é estrutura, ver TunelAtalho). A malha tem um ponto a cada ~13 m, então a vala é bem mais larga
 ## que o túnel: a interpolação não pode subir dentro dele (tocar o terreno explode o carro).
@@ -192,7 +197,7 @@ func gerar(p_perfil: PerfilRampa) -> void:
 		_criar_vegetacao_vale()
 	if _modo_subida:
 		_criar_vegetacao_subida()
-	if Config.valor("grafico.bruma", true):
+	if Config.grafico("bruma", true):
 		_criar_bruma()
 
 
@@ -457,9 +462,17 @@ func _altura_subida(x: float, z: float) -> float:
 			if c.size() > 5 and c[5]:
 				h = maxf(h, _duna(p, c))   # duna: encosta lisa de areia, sem degraus
 				continue
-			var de := _dentro_esporao(p, c) + 14.0 * nd
+			# Cápsula lisa (toca da cobra 3 do Serpent's Climb): sem ruído na borda (parede no
+			# lugar exato, colada na pista) e face própria (c[6] > 0: quase vertical)
+			var liso: bool = c.size() > 7 and c[7]
+			var de := _dentro_esporao(p, c) + (0.0 if liso else 14.0 * nd)
 			if de > 0.0:
-				h = maxf(h, float(c[4]) * _perfil_esporao(p, c, de, face) + 6.0 + 20.0 * _ruido_planalto.get_noise_2d(x * 3.0, z * 3.0))
+				var face_c: float = c[6] if c.size() > 6 and c[6] > 0.0 else face
+				# (o topo da lisa ondula mais, só a parede fica no lugar: senão parecia uma caixa)
+				var topo := _ruido_planalto.get_noise_2d(x * 3.0, z * 3.0) * 20.0 if not liso else (_ruido_planalto.get_noise_2d(x * 6.0, z * 6.0) * 45.0 + _ruido_detalhe.get_noise_2d(x * 2.0, z * 2.0) * 20.0) * smoothstep(10.0, 40.0, de)
+				h = maxf(h, float(c[4]) * _perfil_esporao(p, c, de, face_c) + 6.0 + topo)
+	if _preencher.size() > 2 and elevado_preenchido(x, z):
+		h = maxf(h, _preencher_altura + 6.0 + 20.0 * _ruido_planalto.get_noise_2d(x * 3.0, z * 3.0))
 	if not _sub_tunel.is_empty():
 		h = _cavar_tunel(Vector2(x, z), h)
 	if _modo_egito:
@@ -584,12 +597,66 @@ func _cavar_tunel(p: Vector2, h: float) -> float:
 	return minf(h, estrada - 4.0)
 
 
-## Cápsulas do json ({a, b, raio: [ra, rb], altura}) no formato de _dentro_esporao + altura.
+## Dentro do vale e fora do contorno da terra preenchida da etapa (até folga m para dentro do contorno
+## também conta).
+func elevado_preenchido(x: float, z: float, folga := 0.0) -> bool:
+	if _preencher.size() < 3 or x < _sub_vale[0] - 20.0 or x > _sub_vale[2] + 20.0 or z < _sub_vale[1] - 20.0 or z > _sub_vale[3] + 20.0:
+		return false
+	var p := Vector2(x, z)
+	if not Geometry2D.is_point_in_polygon(p, _preencher):
+		return true
+	if folga <= 0.0:
+		return false
+	var n := _preencher.size()
+	for i in n:
+		var q := Geometry2D.get_closest_point_to_segment(p, _preencher[i], _preencher[(i + 1) % n])
+		if q.distance_to(p) < folga:
+			return true
+	return false
+
+
+## A etapa levantou o chão aqui (terra preenchida ou dentro de uma montanha da etapa, com folga m de
+## encosta)? A selva planta a mata da etapa nesses lugares.
+func elevado_na_etapa(x: float, z: float, folga := 25.0) -> bool:
+	if elevado_preenchido(x, z):
+		return true
+	var p := Vector2(x, z)
+	for c: Array in _sub_montanhas:
+		if _dentro_esporao(p, c) > folga:
+			return true
+	return false
+
+
+## Altura do chão sem as montanhas desta etapa (montanhas.etapas.N.capsulas). A mata e as ruínas da selva
+## são postas uma vez só, com o terreno da etapa 1: medidas daqui, ficam no chão em todas as etapas (o que
+## cai dentro de uma montanha da etapa só fica enterrado nela).
+func altura_base(x: float, z: float) -> float:
+	var p := Vector2(x, z)
+	var perto := _preencher.size() > 2 and elevado_preenchido(x, z, 40.0)
+	for c: Array in _sub_montanhas:
+		perto = perto or _dentro_esporao(p, c) > -40.0
+	if not perto:
+		return altura_em(x, z)
+	var guardadas := _sub_montanhas
+	var contorno := _preencher
+	_sub_montanhas = []
+	_preencher = PackedVector2Array()
+	var h := _altura_procedural(x, z)
+	_sub_montanhas = guardadas
+	_preencher = contorno
+	if selva:
+		h = maxf(h, selva.altura(x, z))
+	return h
+
+
+## Cápsulas do json ({a, b, raio: [ra, rb], altura; opcionais duna, face, liso}) no formato de
+## _dentro_esporao + altura: [a, b, ra, rb, altura, duna, face (0 = a do mapa), liso].
 static func _capsulas(lista: Array) -> Array:
 	var r := []
 	for c: Dictionary in lista:
 		r.append([Vector2(float(c.a[0]), float(c.a[1])), Vector2(float(c.b[0]), float(c.b[1])),
-			float(c.raio[0]), float(c.raio[1]), float(c.get("altura", 320)), bool(c.get("duna", false))])
+			float(c.raio[0]), float(c.raio[1]), float(c.get("altura", 320)), bool(c.get("duna", false)),
+			float(c.get("face", 0)), bool(c.get("liso", false))])
 	return r
 
 
@@ -625,6 +692,11 @@ func _sortear_barreiras(etapa: int) -> void:
 	# Etapa com arranjo desenhado pelo dono: as montanhas dele no lugar das cristas sorteadas
 	var desenho: Dictionary = Config.valor("mapa.subida.montanhas.etapas.%d" % (etapa + 1), {})
 	_sub_montanhas = _capsulas(desenho.get("capsulas", []))
+	var pr: Dictionary = desenho.get("preencher", {})
+	_preencher.clear()
+	for q in pr.get("contorno", []):
+		_preencher.append(Vector2(float(q[0]), float(q[1])))
+	_preencher_altura = float(pr.get("altura", 200))
 	_sub_tunel = desenho.get("tunel", {})
 	_sub_paredao = desenho.get("paredao", {})
 	_sub_estrada_extra = desenho.get("estrada_extra", {})
@@ -720,6 +792,8 @@ func _area_barreiras() -> Array[Rect2]:
 		lista.append(Rect2(b.a, Vector2.ZERO).expand(fim).grow(esp))
 	for c: Array in _sub_montanhas:
 		lista.append(Rect2(c[0], Vector2.ZERO).expand(c[1]).grow(maxf(c[2], c[3]) + 40.0))
+	if _preencher.size() > 2:
+		lista.append(Rect2(_sub_vale[0], _sub_vale[1], _sub_vale[2] - _sub_vale[0], _sub_vale[3] - _sub_vale[1]).grow(20.0))
 	if not _sub_tunel.is_empty():
 		var e := Vector2(float(_sub_tunel.entrada[0]), float(_sub_tunel.entrada[1]))
 		var s := Vector2(float(_sub_tunel.saida[0]), float(_sub_tunel.saida[1]))
