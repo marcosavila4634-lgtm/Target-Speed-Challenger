@@ -403,6 +403,9 @@ func _perigo_lanca(g: Dictionary, lado: int, t: float) -> bool:
 # ------------------------------------------------------------------ boca da serpente
 
 func _montar_serpente(item: Array, cfg: Dictionary) -> void:
+	if CabecaPedra.carregar():
+		_montar_cabeca_pedra(item, cfg)
+		return
 	var i := sub.indice_trecho(str(item[0]), float(item[1]))
 	var periodo := float(item[3]) if item.size() > 3 else float(cfg.get("periodo", 6.0))
 	var comp := 16.0
@@ -584,7 +587,53 @@ func _montar_serpente(item: Array, cfg: Dictionary) -> void:
 		"corpo": corpo, "centro": c, "base": b, "olhos": olhos, "total": true})
 
 
-## Altura (m acima do asfalto) do céu da boca da serpente no instante t: 0,2 fechada, 11 aberta.
+## Cabeça de pedra da arte do dono (CabecaPedra): a boca começa na amostra i e o túnel segue a estrada. A
+## cabeça é reta: o eixo vai da frente até o fim do corredor e ela cresce (escala k) até a estrada inteira,
+## com a curva, caber entre os meios-fios; se a estrada afunda no meio, a cabeça desce junto.
+func _montar_cabeca_pedra(item: Array, cfg: Dictionary) -> void:
+	var i := sub.indice_trecho(str(item[0]), float(item[1]))
+	var periodo := float(item[3]) if item.size() > 3 else float(cfg.get("periodo", 6.0))
+	var med := CabecaPedra.medidas()   # [meia do túnel, meia do meio-fio, comprimento, comprimento do teto, céu]
+	var k := maxf(1.0, (sub.largura_em(i) * 0.5 + 0.3) / float(med[1]))
+	var p0 := sub.amostra(i)
+	var x := Vector3.RIGHT
+	var y := Vector3.UP
+	var z := Vector3.BACK
+	var i_fim := i
+	var abaixo := 0.0
+	for passada in 3:
+		i_fim = sub.indice_adiante(i, float(med[2]) * k)
+		z = (p0 - sub.amostra(i_fim)).normalized()   # para quem chega
+		var lat := sub.lateral_em(i)
+		x = (lat - z * lat.dot(z)).normalized()
+		y = z.cross(x).normalized()
+		var desvio := 0.0
+		abaixo = 0.0
+		for j in range(i, i_fim + 1):
+			var d := sub.amostra(j) - p0
+			desvio = maxf(desvio, absf(d.dot(x)) + sub.largura_em(j) * 0.5)
+			abaixo = maxf(abaixo, -d.dot(y))
+		k = maxf(k, (desvio + 0.3) / float(med[1]))
+	var origem := p0 - y * maxf(abaixo - 0.25, 0.0)
+	var chao := INF
+	for sx: float in [-1.0, 0.0, 1.0]:
+		for sz: float in [0.0, -0.5, -1.0]:
+			var q := origem + x * sx * 16.0 * k + z * sz * float(med[2]) * k
+			chao = minf(chao, _terreno.altura_em(q.x, q.z))
+	var no := Node3D.new()
+	no.name = "Serpente%d" % _portoes.size()
+	add_child(no)
+	var cab := CabecaPedra.new()
+	no.add_child(cab)
+	cab.montar(Transform3D(Basis(x, y, z), origem), k, chao)
+	if OS.get_environment("TSC_SUB_LOG") != "":
+		print("[CABECA] em %s, frente %s, escala %.2f, desce %.1f m, chão %.0f m abaixo" % [str(origem.snapped(Vector3.ONE)), str(z.snapped(Vector3.ONE * 0.01)), k, maxf(abaixo - 0.25, 0.0), origem.y - chao])
+	_portoes.append({"tipo": "serpente", "i": i, "s": sub.progresso_amostra(i), "comp": float(med[3]) * k, "fase": float(item[2]) if item.size() > 2 else 0.0,
+		"periodo": periodo, "fecha": float(cfg.get("fecha_s", 0.35)), "fechada": float(cfg.get("fechada_s", 1.4)), "abre": float(cfg.get("abre_s", 1.0)),
+		"cabeca": cab, "aberta_h": cab.aberta, "olhos": cab.olhos, "total": true})
+
+
+## Altura (m acima do asfalto) do céu da boca da serpente no instante t: 0,25 fechada, aberta_h (11) aberta.
 func _boca(g: Dictionary, t: float) -> float:
 	var f := fposmod(t + float(g.fase), float(g.periodo))
 	var fecha: float = g.fecha
@@ -597,7 +646,7 @@ func _boca(g: Dictionary, t: float) -> float:
 		aberta = 0.0
 	elif f < fecha + fechada + abre:
 		aberta = smoothstep(fecha + fechada, fecha + fechada + abre, f)
-	return lerpf(0.25, 11.0, aberta)
+	return lerpf(0.25, float(g.get("aberta_h", 11.0)), aberta)
 
 
 func _perigo_serpente(g: Dictionary, _lado: int, t: float) -> bool:
@@ -864,11 +913,14 @@ func _atualizar() -> void:
 				mat.set_shader_parameter("aviso_dir", 1.0 if _extensao_lanca(g, 1, _t + 0.8) > 0.0 or _extensao_lanca(g, 1, _t) > 0.0 else 0.0)
 			"serpente":
 				var h := _boca(g, _t)
-				var giro := clampf((h - 0.25) / 10.75, 0.0, 1.0) * float(g.get("giro", 0.22))
-				var b: Basis = g.base
-				# A cabeça desce inteira e levanta o focinho quando abre
-				(g.corpo as AnimatableBody3D).global_transform = Transform3D(b * Basis(Vector3.RIGHT, -giro), g.centro + Vector3.UP * h)
-				var perigo := _boca(g, _t + 1.0) < 2.6 or h < 10.9
+				if g.has("cabeca"):
+					(g.cabeca as CabecaPedra).animar(h)
+				else:
+					var giro := clampf((h - 0.25) / 10.75, 0.0, 1.0) * float(g.get("giro", 0.22))
+					var b: Basis = g.base
+					# A cabeça desce inteira e levanta o focinho quando abre
+					(g.corpo as AnimatableBody3D).global_transform = Transform3D(b * Basis(Vector3.RIGHT, -giro), g.centro + Vector3.UP * h)
+				var perigo := _boca(g, _t + 1.0) < 2.6 or h < float(g.get("aberta_h", 11.0)) - 0.1
 				for m: StandardMaterial3D in g.olhos:
 					m.emission = Color(1.0, 0.08, 0.04) if perigo else Color(0.25, 1.0, 0.35)
 				if g.has("esmagador"):
