@@ -1,0 +1,6 @@
+Modelo usado em scripts/mundo/serpente_gigante.gd (todas as cobras do Serpent's Climb).
+cobra.glb = a pele marrom de "Snake attack Animations (Multiple)" desenrolada por tools/serpents_climb/endireitar_cobra_ossos.gd
+(original em assets/MAPA SERPENTE/COBRAS/snake_attack_animations_multiple.zip).
+
+This work is based on "Snake attack Animations (Multiple)" (https://sketchfab.com/3d-models/snake-attack-animations-multiple-83c4290cd4b648fd942d4bbc2280a3f6) by Imagigoo (https://sketchfab.com/Imagigoo) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Licenca CC-BY 4.0: uso comercial permitido, basta manter o credito ao autor.

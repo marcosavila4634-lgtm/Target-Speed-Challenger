@@ -769,7 +769,13 @@ func alternar_paraquedas() -> void:
 
 
 func ejetor_disponivel() -> bool:
-	return not ejetor_bloqueado() and recarga_ejetor <= 0.0 and rodas_no_chao > 0
+	return not ejetor_bloqueado() and recarga_ejetor <= 0.0 and apoiado()
+
+
+## Com o que pular: uma roda no chão ou, quase parado, a carroceria apoiada (pendurado numa beirada com as
+## rodas no vazio: pedido do dono, o ejetor tira o carro dali)
+func apoiado() -> bool:
+	return rodas_no_chao > 0 or (contato_corpo and linear_velocity.length() < 3.0)
 
 
 ## Bloqueado até o fim da etapa (não é só recarga). Com regras.ejetor_sempre, abrir o
@@ -1705,7 +1711,7 @@ func _physics_process(delta: float) -> void:
 	# parado por 4 s, volta no último checkpoint. Também quando fica PRESO de pé — de bico ou de traseira no
 	# chão, encostado num muro, com menos de duas rodas apoiadas e parado (pedido do dono)
 	var tombado := global_transform.basis.y.y < TOMBADO_Y and linear_velocity.length() < 3.0
-	var preso_de_pe := rodas_no_chao < 2 and global_transform.basis.y.y < 0.8 and linear_velocity.length() < 1.2 and angular_velocity.length() < 1.0 and not paraquedas_aberto and not preso
+	var preso_de_pe := rodas_no_chao < 2 and (global_transform.basis.y.y < 0.8 or contato_corpo) and linear_velocity.length() < 1.2 and angular_velocity.length() < 1.0 and not paraquedas_aberto and not preso
 	if (tombado or preso_de_pe) and not travado:
 		_de_cabeca_t += delta
 		if _de_cabeca_t >= DE_CABECA_S:

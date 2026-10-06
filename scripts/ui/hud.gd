@@ -318,7 +318,7 @@ func _atualizar_equipamentos(v: Veiculo) -> void:
 	elif v.recarga_ejetor > 0.0:
 		ej = "RECARGA %ds" % ceili(v.recarga_ejetor) if v.recarga_ejetor > 1.0 else "RECARGA"
 		cor_ej = Color(1.0, 0.8, 0.3)
-	elif v.rodas_no_chao == 0:
+	elif not v.apoiado():
 		ej = "NO AR"
 		cor_ej = Estilo.TEXTO_FRACO
 	_ejetor.text = "⏏  EJETOR — " + ej

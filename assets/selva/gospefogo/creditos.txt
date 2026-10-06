@@ -1,0 +1,5 @@
+Estátua que cospe fogo do Serpent's Climb (scripts/mundo/montanha_armadilha.gd, montar_fogo).
+estatua.res + estatua_cor.jpg = "Statue 3D textured mesh model" juntado, de pé e reduzido por tools/serpents_climb/estatua_fogo.gd
+(original em assets/MAPA SERPENTE/GOSPEFOGO/statue_3d_textured_mesh_model.glb).
+
+This work is based on "Statue 3D textured mesh model" (https://sketchfab.com/3d-models/statue-3d-textured-mesh-model-ebf385f829f3446e95e6af42eb064180) by Aleksandr (https://sketchfab.com/pas_007007) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
