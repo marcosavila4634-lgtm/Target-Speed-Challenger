@@ -628,7 +628,7 @@ func _montar_cabeca_pedra(item: Array, cfg: Dictionary) -> void:
 	cab.montar(Transform3D(Basis(x, y, z), origem), k, chao)
 	if OS.get_environment("TSC_SUB_LOG") != "":
 		print("[CABECA] em %s, frente %s, escala %.2f, desce %.1f m, chão %.0f m abaixo" % [str(origem.snapped(Vector3.ONE)), str(z.snapped(Vector3.ONE * 0.01)), k, maxf(abaixo - 0.25, 0.0), origem.y - chao])
-	_portoes.append({"tipo": "serpente", "i": i, "s": sub.progresso_amostra(i), "comp": float(med[3]) * k, "fase": float(item[2]) if item.size() > 2 else 0.0,
+	_portoes.append({"tipo": "serpente", "i": i, "s": sub.progresso_amostra(i), "comp": 12.0 * k, "fase": float(item[2]) if item.size() > 2 else 0.0,
 		"periodo": periodo, "fecha": float(cfg.get("fecha_s", 0.35)), "fechada": float(cfg.get("fechada_s", 1.4)), "abre": float(cfg.get("abre_s", 1.0)),
 		"cabeca": cab, "aberta_h": cab.aberta, "olhos": cab.olhos, "total": true})
 

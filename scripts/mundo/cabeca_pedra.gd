@@ -4,8 +4,10 @@ extends Node3D
 ## 2026-10-06), igual às artes dele (assets/MAPA SERPENTE/cabeçadepedra). A escultura em relevo é gerada por
 ## tools/serpents_climb/cabeca_pedra.gd (movel.res = tudo o que morde; base.res = maxilar de baixo); aqui ela
 ## é posta na estrada: o maxilar de baixo é um pedestal da mesma pedra que desce até o chão (pilares quando a
-## pista é alta) e a cabeça inteira desce sobre a estrada e volta. Só o focinho e as presas matam (o que
-## esmaga); bochechas, paredes do túnel, nuca e discos descem juntos mas são parede comum.
+## pista é alta). A mordida é de mandíbula: só o focinho (com olhos, presas e o penacho) gira em volta do eixo
+## dos discos (a junta da boca na arte) até a beira do céu da boca encostar na pista; nuca, discos, corredor e
+## bochechas ficam parados (o topo das bochechas acompanha a parte de baixo do focinho: nada atravessa nada).
+## Só o focinho e as presas matam.
 ## Local: origem no pé do focinho, no nível da pista; x = direita, y = cima, z = para quem chega.
 
 const PASTA := "res://assets/selva/cabeca_pedra/"
@@ -16,9 +18,9 @@ static var _base: ArrayMesh
 static var _mat: ShaderMaterial
 
 var k := 1.0                 # escala (a boca se ajusta à largura da estrada)
-var aberta := 12.0           # altura do céu da boca aberta (m)
+var aberta := 14.45          # beira do céu da boca, aberta (m acima da pista)
 var olhos: Array = []        # materiais das lâmpadas dos olhos (verde/vermelho)
-var _corpos: Array = []      # [mortal, móvel]
+var _corpos: Array = []      # o que gira (focinho)
 var _xf := Transform3D.IDENTITY
 
 
@@ -72,7 +74,7 @@ func montar(xf: Transform3D, escala: float, chao_y: float) -> void:
 	_xf = xf
 	transform = xf
 	k = escala
-	aberta = float(_movel.get_meta("ceu")) * k
+	aberta = float(_movel.get_meta("labio")) * k
 	var xb := float(_movel.get_meta("x_base"))
 	var zf := float(_movel.get_meta("z_fim")) - 1.0
 	var zl := float(_movel.get_meta("z_labio"))
@@ -96,7 +98,18 @@ func montar(xf: Transform3D, escala: float, chao_y: float) -> void:
 	add_child(parado)
 	var caixas: Array = []   # [centro, tamanho] na escala 1
 	caixas.append([Vector3(0, (yb - 1.0) * 0.5, (zl + zf) * 0.5), Vector3(xb * 2.0, -1.0 - yb, zl - zf)])
+	# Corredor, nuca, bloco de trás e discos (parados), bochechas pelo perfil
+	var perfil: Array = _movel.get_meta("bochecha")
 	for sx: float in [-1.0, 1.0]:
+		for c: Array in [[Vector3(7.5, 4.5, -25.5), Vector3(3.0, 9.0, 13.0)], [Vector3(11.5, 11.8, -22.0), Vector3(5.0, 23.6, 6.0)],
+				[Vector3(11.2, 4.5, -28.5), Vector3(4.4, 9.0, 7.0)], [Vector3(14.6, 5.0, -27.5), Vector3(2.4, 8.0, 8.0)]]:
+			var pc: Vector3 = c[0]
+			caixas.append([Vector3(pc.x * sx, pc.y, pc.z), c[1]])
+		for q in range(0, perfil.size() - 1, 2):
+			var a: Vector2 = perfil[q]
+			var b: Vector2 = perfil[mini(q + 2, perfil.size() - 1)]
+			var topo := minf(a.y, b.y)
+			caixas.append([Vector3(sx * 9.5, topo * 0.5, (a.x + b.x) * 0.5), Vector3(7.0, topo, absf(b.x - a.x))])
 		caixas.append([Vector3(sx * 12.2, (yb + 2.0) * 0.5, (zl - 11.0) * 0.5), Vector3(7.6, 2.0 - yb, zl + 11.0)])
 		caixas.append([Vector3(sx * 12.2, (yb + 3.7) * 0.5, (-11.0 + zf) * 0.5), Vector3(7.6, 3.7 - yb, -11.0 - zf)])
 		caixas.append([Vector3(sx * 6.8, (yb + 0.4) * 0.5, (-4.8 + zf) * 0.5), Vector3(3.2, 0.4 - yb, -4.8 - zf)])
@@ -119,9 +132,9 @@ func montar(xf: Transform3D, escala: float, chao_y: float) -> void:
 				pm.basis = xf.basis.inverse() * Basis.IDENTITY   # de pé no mundo
 				add_child(pm)
 				_forma(parado, pm.position, Vector3(PILAR, alto, PILAR), pm.basis)
-	# ---- a parte que morde: dois corpos que descem juntos
+	# ---- a parte que morde: o focinho, girando nos discos
 	var mortal := _corpo(true)
-	var movel := _corpo(false)
+	var movel := mortal
 	var vis := MeshInstance3D.new()
 	vis.mesh = _movel
 	vis.material_override = _mat
@@ -131,13 +144,6 @@ func montar(xf: Transform3D, escala: float, chao_y: float) -> void:
 	for c: Array in [[Vector3(0, 18.95, -13.5), Vector3(20.6, 13.9, 11.0)], [Vector3(0, 19.55, -3.9), Vector3(20.6, 12.7, 8.2)],
 			[Vector3(-5.0, 12.1, -1.0), Vector3(1.8, 4.6, 1.8)], [Vector3(5.0, 12.1, -1.0), Vector3(1.8, 4.6, 1.8)]]:
 		_forma(mortal, (c[0] as Vector3) * k, (c[1] as Vector3) * k)
-	# Parede comum: bochechas, paredes do corredor, nuca, bloco de trás e discos
-	for sx: float in [-1.0, 1.0]:
-		for c: Array in [[Vector3(9.5, 6.0, -14.8), Vector3(7.0, 12.0, 8.4)], [Vector3(7.5, 4.5, -25.5), Vector3(3.0, 9.0, 13.0)],
-				[Vector3(11.5, 11.8, -22.0), Vector3(5.0, 23.6, 6.0)], [Vector3(11.2, 4.5, -28.5), Vector3(4.4, 9.0, 7.0)],
-				[Vector3(14.6, 5.0, -27.5), Vector3(2.4, 8.0, 8.0)]]:
-			var p: Vector3 = c[0]
-			_forma(movel, Vector3(p.x * sx, p.y, p.z) * k, (c[1] as Vector3) * k)
 	# Olhos: lâmpadas de aviso (verdes: dá para passar; vermelhas: vai morder)
 	for p: Vector3 in _movel.get_meta("olhos"):
 		var mat := StandardMaterial3D.new()
@@ -154,14 +160,14 @@ func montar(xf: Transform3D, escala: float, chao_y: float) -> void:
 		mi.position = p * k
 		movel.add_child(mi)
 		olhos.append(mat)
-	# Luz quente dentro do túnel (as lâmpadas da arte)
+	# Luz quente dentro do túnel (as lâmpadas da arte; a do fundo fica no corredor parado)
 	for p: Vector3 in [Vector3(0, 9.5, -5.0), Vector3(0, 9.0, -14.0), Vector3(0, 7.0, -25.0)]:
 		var luz := OmniLight3D.new()
 		luz.light_color = Color(1.0, 0.62, 0.3)
 		luz.light_energy = 2.2
 		luz.omni_range = 15.0 * k
 		luz.position = p * k
-		movel.add_child(luz)
+		(movel if p.z > -20.0 else self as Node).add_child(luz)
 	animar(aberta)
 
 
@@ -178,10 +184,16 @@ func _corpo(mata: bool) -> AnimatableBody3D:
 	return a
 
 
-## Céu da boca a `h` m da pista (aberta = `aberta`): a cabeça inteira desce pelo próprio "cima".
+## Beira do céu da boca a `h` m da pista (aberta = `aberta`): o focinho gira em volta do eixo dos discos.
 func animar(h: float) -> void:
+	var pv: Vector2 = _movel.get_meta("pivo")   # (y, z)
+	var dy := float(_movel.get_meta("labio")) - pv.x
+	var dz := -pv.y
+	var th := acos(clampf((h / k - pv.x) / Vector2(dy, dz).length(), -1.0, 1.0)) - atan2(dz, dy)
+	var b := Basis(Vector3.RIGHT, maxf(th, 0.0))
+	var piv := Vector3(0.0, pv.x, pv.y) * k
 	for c: AnimatableBody3D in _corpos:
-		c.position = Vector3.UP * (h - aberta)
+		c.transform = Transform3D(b, piv - b * piv)
 
 
 static func _forma(corpo: Node, centro: Vector3, tam: Vector3, b := Basis.IDENTITY) -> void:

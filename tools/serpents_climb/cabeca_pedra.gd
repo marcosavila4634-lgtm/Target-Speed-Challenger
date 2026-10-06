@@ -102,6 +102,58 @@ static func SV(y: float) -> float:
 	return 995.0 - y / S2
 
 
+## Mandíbula: o focinho gira em volta do eixo dos discos (y, z) — na arte eles ficam na junta da boca.
+const PIVO := Vector2(5.0, -27.5)
+const FECHADA := 0.25        # céu da boca na beira da frente, fechada (m acima da pista)
+
+
+## Ângulo (rad, focinho para a frente e para baixo) com a beira da frente do céu a h m da pista.
+static func theta_em(h: float) -> float:
+	var dy := LABIO - PIVO.x
+	var dz := 0.0 - PIVO.y
+	return acos(clampf((h - PIVO.x) / Vector2(dy, dz).length(), -1.0, 1.0)) - atan2(dz, dy)
+
+
+static func theta_fechada() -> float:
+	return theta_em(FECHADA)
+
+
+## Ponto (y, z) do focinho girado de th em volta do eixo dos discos.
+static func girar(y: float, z: float, th: float) -> Vector2:
+	var dy := y - PIVO.x
+	var dz := z - PIVO.y
+	return Vector2(PIVO.x + dy * cos(th) - dz * sin(th), PIVO.y + dy * sin(th) + dz * cos(th))
+
+
+## Topo das bochechas [(z, y)] de Z_FOC a Z_BOCHECHA: abaixo de onde passa a parte de baixo do focinho (céu e
+## a quina de trás) em qualquer ângulo da mordida, com 0,4 m de folga.
+static func perfil_bochecha() -> Array:
+	var n := 34
+	var mins := []
+	for q in n + 1:
+		mins.append(INF)
+	var thc := theta_fechada()
+	for a in 61:
+		var th := thc * a / 60.0
+		var z := Z_FOC
+		while z <= 0.01:
+			var p := girar(ceu_em(z), z, th)
+			var q := roundi((p.y - Z_FOC) / (Z_BOCHECHA - Z_FOC) * n)
+			if q >= 0 and q <= n:
+				mins[q] = minf(mins[q], p.x)
+			z += 0.1
+		for y in range(int(CEU), int(TOPO) + 1):   # a face de trás do focinho também varre por cima
+			var p := girar(float(y), Z_FOC, th)
+			var q := roundi((p.y - Z_FOC) / (Z_BOCHECHA - Z_FOC) * n)
+			if q >= 0 and q <= n:
+				mins[q] = minf(mins[q], p.x)
+	var perfil := []
+	for q in n + 1:
+		var y: float = mins[q] if mins[q] < INF else CEU
+		perfil.append(Vector2(lerpf(Z_FOC, Z_BOCHECHA, float(q) / n), maxf(y - 0.4, 1.0)))
+	return perfil
+
+
 ## Altura do céu da boca em z (rampa da beira do maxilar até o céu plano).
 static func ceu_em(z: float) -> float:
 	return lerpf(LABIO, CEU, clampf(-z / -Z_RAMPA, 0.0, 1.0))
@@ -503,30 +555,71 @@ func _movel() -> void:
 			var y := SY(v)
 			return z <= 0.0 and z >= Z_FOC and y >= ceu_em(z) + 0.05 and y <= TOPO
 		_relevo("lado", LADO, Rect2(90, 258, SU(Z_FOC) - 90.0, 400), 4.0, mapa_l, Vector3(sx, 0, 0), masc_l, _alt_lado)
-	# ---- presas e dentes
+	# ---- presas e dentes (as grandes um pouco para fora: fechada, a boca cruza por fora do lábio de baixo)
 	for sx: float in lados:
-		_cone(Vector3(sx * 5.0, ceu_em(-1.2) + 0.35, -1.2), Vector3(0, -1, 0.1), 4.6, 1.1)
-		_cone(Vector3(sx * 7.3, ceu_em(-1.7) + 0.3, -1.7), Vector3(-sx * 0.05, -1, 0.1), 2.7, 0.65)
+		_cone(Vector3(sx * 6.0, ceu_em(-1.2) + 0.35, -1.2), Vector3(0, -1, 0.1), 4.6, 1.1)
+		_cone(Vector3(sx * 7.6, ceu_em(-1.7) + 0.3, -1.7), Vector3(-sx * 0.05, -1, 0.1), 2.7, 0.65)
 		for k in 5:
 			var z := -3.2 - k * 1.6
 			_cone(Vector3(sx * 5.5, ceu_em(z) + 0.2, z), Vector3(0, -1, 0.05), 1.5, 0.42, 8)
-	# ---- bochechas (colunas de glifos dos lados da boca)
+	# ---- penacho: duas fileiras de pranchas em leque, inclinadas para trás
+	# Na arte de frente o leque cerca a cara (pranchas largas e grossas, ~9 de cada lado, a de baixo quase
+	# deitada); de lado elas vão para trás. Fileira da frente mais curta, a de trás entre elas e mais longa.
+	for fileira in 2:
+		var n_p := 10 if fileira == 0 else 9
+		var a0 := -14.0 if fileira == 0 else -2.5
+		var passo := 23.1
+		var incl := deg_to_rad(30.0 if fileira == 0 else 40.0)
+		for k in n_p:
+			var a := deg_to_rad(a0 + passo * k)
+			var radial := Vector3(cos(a), sin(a), 0.0)
+			var cima := clampf(sin(a), 0.0, 1.0)
+			var raiz := Vector3(cos(a) * 8.6, 17.2 + sin(a) * 7.4, lerpf(-15.0, -8.0, cima) - fileira * 3.2)
+			var d := radial * cos(incl) + Vector3.FORWARD * sin(incl)
+			var l := (12.0 if fileira == 0 else 14.0) + 1.5
+			_prancha(raiz - d * 1.5, d, Vector3(-sin(a), cos(a), 0.0), l, 4.3 if fileira == 0 else 4.7, 1.5)
+	var olhos := [Vector3(FX(365.0), FY(358.0), 0.85), Vector3(FX(889.0), FY(358.0), 0.85),
+		Vector3(-(X_FOC + 0.95), SY(400.0), SZ(480.0)), Vector3(X_FOC + 0.95, SY(400.0), SZ(480.0))]
+	_salvar("movel", {"olhos": olhos, "pivo": PIVO, "labio": LABIO, "fechada": theta_fechada(), "bochecha": perfil_bochecha(), "ceu": CEU, "x_in": X_IN, "z_foc": Z_FOC, "z_fim": Z_FIM, "x_base": X_BASE,
+		"z_labio": Z_LABIO_BAIXO, "y_base": Y_BASE, "x_meio_fio": X_MEIO_FIO})
+
+
+# ------------------------------------------------------------------ maxilar de baixo (parado)
+
+func _base() -> void:
+	_novo()
+	var lados := [-1.0, 1.0]
+	# ---- bochechas: cunha parada dos lados da boca; o topo acompanha (com folga) a parte de baixo do focinho
+	# em qualquer ponto da mordida, então ela fica baixa na frente e sobe até o corredor (como na arte de lado)
+	var perfil := perfil_bochecha()
 	for sx: float in lados:
 		var x0 := sx * X_IN
 		var x1 := sx * X_BOCHECHA
-		var lo := Vector3(minf(x0, x1), 0.0, Z_FOC)
-		var hi := Vector3(maxf(x0, x1), CEU, Z_BOCHECHA - 0.02)
-		_caixa(lo, hi, {("+x" if sx < 0 else "-x"): INTERNA, ("-x" if sx < 0 else "+x"): BLOCOS, "+z": PEDRA, "-z": BLOCOS}, Vector2(5.0, 6.0))   # -z: a saída do túnel, acima das paredes do corredor
-		_caixa(Vector3(minf(sx * X_FOC, x1), CEU, Z_FOC), Vector3(maxf(sx * X_FOC, x1), CEU + 0.02, Z_BOCHECHA), {"+y": PEDRA}, Vector2(3.0, 3.0))
+		var xi := minf(x0, x1)
+		var xo := maxf(x0, x1)
+		for q in perfil.size() - 1:
+			var a: Vector2 = perfil[q]       # (z, topo)
+			var b: Vector2 = perfil[q + 1]
+			_quad(Vector3(xi, a.y, a.x), Vector3(xo, a.y, a.x), Vector3(xo, b.y, b.x), Vector3(xi, b.y, b.x),
+				Vector2(xi / 3.0, a.x / 3.0), Vector2(xo / 3.0, a.x / 3.0), Vector2(xo / 3.0, b.x / 3.0), Vector2(xi / 3.0, b.x / 3.0), PEDRA, Vector3.UP)
+			for lado_x: float in [x0, x1]:
+				var t := INTERNA if lado_x == x0 else BLOCOS
+				var lad := Vector2(9.0, 12.3) if t == INTERNA else Vector2(5.0, 6.0)
+				var nn := Vector3(signf(lado_x - (x0 + x1) * 0.5), 0, 0)
+				_quad(Vector3(lado_x, 0.0, a.x), Vector3(lado_x, 0.0, b.x), Vector3(lado_x, b.y, b.x), Vector3(lado_x, a.y, a.x),
+					Vector2(-a.x / lad.x, 1.0), Vector2(-b.x / lad.x, 1.0), Vector2(-b.x / lad.x, 1.0 - b.y / lad.y), Vector2(-a.x / lad.x, 1.0 - a.y / lad.y), t, nn)
+		var topo_f: float = (perfil[perfil.size() - 1] as Vector2).y
+		_caixa(Vector3(xi, 0.0, Z_FOC), Vector3(xo, (perfil[0] as Vector2).y, Z_FOC + 0.02), {"-z": BLOCOS}, Vector2(5.0, 6.0))
+		_caixa(Vector3(xi, 0.0, Z_BOCHECHA - 0.02), Vector3(xo, topo_f, Z_BOCHECHA), {"+z": BLOCOS}, Vector2(5.0, 6.0))
 		var mapa_b := func(u: float, v: float, h: float) -> Vector3:
 			return Vector3(FX(u), FY(v), Z_BOCHECHA + h)
 		var u0 := FU(minf(x0, x1))
 		var masc_b := func(u: float, v: float) -> bool:
-			return v >= FV(CEU) and v <= 1045.0
+			return v >= FV(topo_f - 0.05) and v <= 1045.0
 		var alt_b := func(u: float, v: float) -> float:
 			var q := u if u < 627.0 else 1254.0 - u
 			return 0.25 + (0.4 if q >= 330.0 else 0.0) + (0.35 if v >= 690.0 and v < 800.0 and q >= 300.0 else 0.0)
-		_relevo("frente", FRENTE, Rect2(u0, FV(CEU), (X_BOCHECHA - X_IN) / S, FV(0.0) - FV(CEU)), 4.0, mapa_b, Vector3.BACK, masc_b, alt_b)
+		_relevo("frente", FRENTE, Rect2(u0, FV(topo_f), (X_BOCHECHA - X_IN) / S, FV(0.0) - FV(topo_f)), 4.0, mapa_b, Vector3.BACK, masc_b, alt_b)
 	# ---- corredor de trás (sem teto), nuca e o bloco atrás dela
 	for sx: float in lados:
 		var a := Vector3(minf(sx * X_IN, sx * X_CORREDOR), 0.0, Z_FIM)
@@ -547,33 +640,6 @@ func _movel() -> void:
 			return 0.2 + (0.45 if u >= 780.0 and u < 880.0 and v >= 560.0 and v < 680.0 else 0.0)
 		_relevo("lado", LADO, Rect2(SU(Z_FOC), 258, SU(Z_NUCA) - SU(Z_FOC), 505), 4.0, mapa_n, Vector3(sx, 0, 0), masc_n, alt_n)
 		_disco(sx)
-	# ---- penacho: duas fileiras de pranchas em leque, inclinadas para trás
-	# Na arte de frente o leque cerca a cara (pranchas largas e grossas, ~9 de cada lado, a de baixo quase
-	# deitada); de lado elas vão para trás. Fileira da frente mais curta, a de trás entre elas e mais longa.
-	for fileira in 2:
-		var n_p := 10 if fileira == 0 else 9
-		var a0 := -14.0 if fileira == 0 else -2.5
-		var passo := 23.1
-		var incl := deg_to_rad(30.0 if fileira == 0 else 40.0)
-		for k in n_p:
-			var a := deg_to_rad(a0 + passo * k)
-			var radial := Vector3(cos(a), sin(a), 0.0)
-			var cima := clampf(sin(a), 0.0, 1.0)
-			var raiz := Vector3(cos(a) * 8.6, 17.2 + sin(a) * 7.4, lerpf(-15.0, -8.0, cima) - fileira * 3.2)
-			var d := radial * cos(incl) + Vector3.FORWARD * sin(incl)
-			var l := (12.0 if fileira == 0 else 14.0) + 1.5
-			_prancha(raiz - d * 1.5, d, Vector3(-sin(a), cos(a), 0.0), l, 4.3 if fileira == 0 else 4.7, 1.5)
-	var olhos := [Vector3(FX(365.0), FY(358.0), 0.85), Vector3(FX(889.0), FY(358.0), 0.85),
-		Vector3(-(X_FOC + 0.95), SY(400.0), SZ(480.0)), Vector3(X_FOC + 0.95, SY(400.0), SZ(480.0))]
-	_salvar("movel", {"olhos": olhos, "ceu": CEU, "x_in": X_IN, "z_foc": Z_FOC, "z_fim": Z_FIM, "x_base": X_BASE,
-		"z_labio": Z_LABIO_BAIXO, "y_base": Y_BASE, "x_meio_fio": X_MEIO_FIO})
-
-
-# ------------------------------------------------------------------ maxilar de baixo (parado)
-
-func _base() -> void:
-	_novo()
-	var lados := [-1.0, 1.0]
 	for sx: float in lados:
 		# rampas de mosaico dos lados (topo sobe para trás), com a faixa de glifos da arte de lado por fora
 		var passos := 12
