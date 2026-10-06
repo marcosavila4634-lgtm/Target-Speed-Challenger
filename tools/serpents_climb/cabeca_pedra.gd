@@ -516,7 +516,7 @@ func _movel() -> void:
 		var x1 := sx * X_BOCHECHA
 		var lo := Vector3(minf(x0, x1), 0.0, Z_FOC)
 		var hi := Vector3(maxf(x0, x1), CEU, Z_BOCHECHA - 0.02)
-		_caixa(lo, hi, {("+x" if sx < 0 else "-x"): INTERNA, ("-x" if sx < 0 else "+x"): BLOCOS, "+z": PEDRA}, Vector2(5.0, 6.0))
+		_caixa(lo, hi, {("+x" if sx < 0 else "-x"): INTERNA, ("-x" if sx < 0 else "+x"): BLOCOS, "+z": PEDRA, "-z": BLOCOS}, Vector2(5.0, 6.0))   # -z: a saída do túnel, acima das paredes do corredor
 		_caixa(Vector3(minf(sx * X_FOC, x1), CEU, Z_FOC), Vector3(maxf(sx * X_FOC, x1), CEU + 0.02, Z_BOCHECHA), {"+y": PEDRA}, Vector2(3.0, 3.0))
 		var mapa_b := func(u: float, v: float, h: float) -> Vector3:
 			return Vector3(FX(u), FY(v), Z_BOCHECHA + h)
