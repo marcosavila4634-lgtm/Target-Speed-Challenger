@@ -8,7 +8,7 @@ const MEIO_INTERNO := 3400.0
 const N_INTERNO := 513
 const MEIO_EXTERNO := 14000.0
 const N_EXTERNO := 257
-const VERSAO_CACHE := 23
+const VERSAO_CACHE := 27
 
 var perfil: PerfilRampa
 var distancia_saida: float
@@ -61,7 +61,15 @@ var _preencher_altura := 0.0
 ## é estrutura, ver TunelAtalho). A malha tem um ponto a cada ~13 m, então a vala é bem mais larga
 ## que o túnel: a interpolação não pode subir dentro dele (tocar o terreno explode o carro).
 var _sub_tunel: Dictionary = {}
+## Poço da etapa (montanhas.etapas.N.poco = [x, z, raio, y do fundo]; Serpent's Climb E1, pedido do dono): o
+## chão é rebaixado bem abaixo do fundo dentro do poço; parede, fundo e ninho são da Selva (PocoNinho).
+var _sub_poco: Array = []
+var _mat_agua: ShaderMaterial
 const MEIA_VALA_TUNEL := 30.0
+## Túneis da pista (Serpent's Climb, pedido do dono 2026-10-06): onde a estrada da etapa passa dentro de um morro,
+## o chão é cavado nesta meia-largura e TunelPista monta o tubo, as bocas e a capa de rocha por cima.
+const MEIA_VALA_PISTA := 16.0
+var _tuneis_pista: Array = []   # [{pts: PackedVector3Array (estrada a cada 4 m), caixa: Rect2}]
 ## Paredão fino com buraco de atalho da etapa (montanhas.etapas.N.paredao; estrutura, ver
 ## ParedaoFino) e se a etapa tira o morro (sem_morro: o desenho da etapa 4 ocupa o lugar dele).
 var _sub_paredao: Dictionary = {}
@@ -92,6 +100,7 @@ const CHAO_CIDADE := 6.0
 
 
 func gerar(p_perfil: PerfilRampa) -> void:
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms  terreno inicio" % Time.get_ticks_msec())
 	perfil = p_perfil
 	distancia_saida = Config.valor("mapa.distancia_saida_alvo", 2000)
 	_direcoes = Terreno.direcoes_lancamento()
@@ -156,11 +165,13 @@ func gerar(p_perfil: PerfilRampa) -> void:
 		cidade = Cidade.new()
 		add_child(cidade)
 		cidade.gerar(self, CHAO_CIDADE)
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms  terreno preparos (selva/gelo/...)" % Time.get_ticks_msec())
 
 	if not _carregar_cache():
 		alturas_interno = _amostrar(MEIO_INTERNO, N_INTERNO, false)
 		alturas_externo = _amostrar(MEIO_EXTERNO, N_EXTERNO, true)
 		_salvar_cache()
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms  alturas (cache ou amostragem)" % Time.get_ticks_msec())
 
 	# Conferência das passagens da parte final (TSC_MAPA_ASCII=<etapa>): mapa de alturas em texto
 	if OS.get_environment("TSC_MAPA_ASCII") != "" and _modo_subida:
@@ -176,12 +187,16 @@ func gerar(p_perfil: PerfilRampa) -> void:
 	_mat_terreno = _material_terreno()
 	_malha_interna = _criar_malha(alturas_interno, MEIO_INTERNO, N_INTERNO, _mat_terreno)
 	add_child(_malha_interna)
+	_colisao_terreno()
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms  malha interna + colisao" % Time.get_ticks_msec())
 	add_child(_criar_malha(alturas_externo, MEIO_EXTERNO, N_EXTERNO, _mat_terreno))
 	_criar_agua()
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms  malha externa + agua" % Time.get_ticks_msec())
 	if _modo_cidade:
 		return   # sem vegetação do deserto nem bruma de cânion
 	if _modo_selva:
 		selva.montar()   # templos, mata, cachoeira e bichos
+		if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms  selva.montar" % Time.get_ticks_msec())
 		return
 	if _modo_gelo:
 		gelo.montar()   # fortalezas de gelo, vilas, pinheiros nevados, neve caindo
@@ -218,6 +233,44 @@ static func direcoes_lancamento() -> Array[Vector2]:
 
 ## Altura do terreno no ponto (x, z) do mundo.
 ## No City Rush inclui os prédios (telhado = chão; bater na fachada = bater no terreno).
+## Serpent's Climb (pedido do dono, 2026-10-05): o terreno tem colisão de verdade. Encostas íngremes
+## (montanhas, barrancos) empurram o carro sem matar; cair no chão continua matando (Veiculo: contato com
+## o grupo "terreno" com a normal para cima, ou afundar no chão plano).
+var _corpo_terreno: StaticBody3D
+var _forma_terreno: HeightMapShape3D
+
+func _colisao_terreno() -> void:
+	if not _modo_selva:
+		return
+	var passo := MEIO_INTERNO * 2.0 / (N_INTERNO - 1)
+	if _corpo_terreno == null:
+		_corpo_terreno = StaticBody3D.new()
+		_corpo_terreno.name = "ColisaoTerreno"
+		_corpo_terreno.collision_layer = 1
+		_corpo_terreno.collision_mask = 0
+		_corpo_terreno.add_to_group("terreno")
+		var cs := CollisionShape3D.new()
+		_forma_terreno = HeightMapShape3D.new()
+		cs.shape = _forma_terreno
+		cs.scale = Vector3(passo, passo, passo)
+		_corpo_terreno.add_child(cs)
+		add_child(_corpo_terreno)
+	var dados := alturas_interno.duplicate()
+	for i in dados.size():
+		dados[i] /= passo
+	_forma_terreno.map_width = N_INTERNO
+	_forma_terreno.map_depth = N_INTERNO
+	_forma_terreno.map_data = dados
+
+
+## Inclinação do chão (só o terreno) em (x, z): 0 = plano, 1 = 45°.
+func inclinacao_em(x: float, z: float) -> float:
+	var e := 2.0
+	var gx := (_bilinear(alturas_interno, MEIO_INTERNO, N_INTERNO, x + e, z) - _bilinear(alturas_interno, MEIO_INTERNO, N_INTERNO, x - e, z)) / (2.0 * e)
+	var gz := (_bilinear(alturas_interno, MEIO_INTERNO, N_INTERNO, x, z + e) - _bilinear(alturas_interno, MEIO_INTERNO, N_INTERNO, x, z - e)) / (2.0 * e)
+	return sqrt(gx * gx + gz * gz)
+
+
 func altura_em(x: float, z: float) -> float:
 	var h: float
 	if absf(x) < MEIO_INTERNO and absf(z) < MEIO_INTERNO:
@@ -478,7 +531,12 @@ func _altura_subida(x: float, z: float) -> float:
 	if _modo_egito:
 		h = egito.cavar_nilo(x, z, h)
 	if _modo_selva:
+		h = selva.relevo_chao(x, z, h)
 		h = selva.cavar_rio(x, z, h)
+	if _sub_poco.size() >= 4 and Vector2(x - float(_sub_poco[0]), z - float(_sub_poco[1])).length() < float(_sub_poco[2]) + 10.0:
+		h = minf(h, float(_sub_poco[3]) - 25.0)
+	if not _tuneis_pista.is_empty():
+		h = _cavar_tuneis_pista(x, z, h)   # abaixo do fundo (a malha tem células de ~13 m: a parede do poço cobre a beirada)
 	if _modo_gelo:
 		h = gelo.cavar(x, z, h)
 	if _modo_dino:
@@ -529,7 +587,7 @@ func _duna(p: Vector2, c: Array) -> float:
 ## Altura "natural" da montanha, sem a vala do túnel (a rocha por cima do túnel é desenhada por
 ## TunelAtalho com esta altura).
 func altura_natural(x: float, z: float) -> float:
-	if _sub_tunel.is_empty():
+	if _sub_tunel.is_empty() and _tuneis_pista.is_empty():
 		return _altura_procedural(x, z)
 	return _altura_subida_sem_tunel(x, z)
 
@@ -578,10 +636,86 @@ func altura_sem_estrada_malha(x: float, z: float) -> float:
 
 func _altura_subida_sem_tunel(x: float, z: float) -> float:
 	var tun := _sub_tunel
+	var tp := _tuneis_pista
 	_sub_tunel = {}
+	_tuneis_pista = []
 	var h := _altura_procedural(x, z)
 	_sub_tunel = tun
+	_tuneis_pista = tp
 	return h
+
+
+## Onde a estrada da etapa passa dentro do morro (o chão natural acima dela): trechos de estrada cobertos,
+## cada um com 48 m a mais nas pontas (o corte de chegada até a boca).
+func _achar_tuneis_pista(etapa: int) -> Array:
+	var lista: Array = []
+	if str(Config.valor("mapa.subida.tema", "")) != "selva":
+		return lista
+	var perc: Dictionary = Config.valor("mapa.subida.percursos.%d" % (etapa + 1), {})
+	var trechos: Dictionary = perc.get("trechos", Config.valor("mapa.subida.trechos", {}))
+	for nome in ["A", "B", "C"]:
+		var ctrl: Array = trechos.get(nome, [])
+		var pts := PackedVector3Array()
+		for k in range(1, ctrl.size()):
+			var a := Vector3(float(ctrl[k - 1][0]), float(ctrl[k - 1][1]), float(ctrl[k - 1][2]))
+			var b := Vector3(float(ctrl[k][0]), float(ctrl[k][1]), float(ctrl[k][2]))
+			var n := maxi(1, ceili(Vector2(b.x - a.x, b.z - a.z).length() / 4.0))
+			for t in n:
+				pts.append(a.lerp(b, float(t) / n))
+		var coberto := PackedByteArray()
+		coberto.resize(pts.size())
+		for i in pts.size():
+			coberto[i] = 1 if _altura_procedural(pts[i].x, pts[i].z) > pts[i].y + 1.5 else 0
+		var i := 0
+		while i < pts.size():
+			if coberto[i] == 0:
+				i += 1
+				continue
+			var a := i
+			var b := i
+			while b + 1 < pts.size() and (coberto[b + 1] == 1 or (b + 8 < pts.size() and coberto.slice(b + 1, b + 9).has(1))):
+				b += 1
+			i = b + 1
+			var de := maxi(a - 12, 0)
+			var ate := mini(b + 12, pts.size() - 1)
+			var trecho := pts.slice(de, ate + 1)
+			var caixa := Rect2(Vector2(trecho[0].x, trecho[0].z), Vector2.ZERO)
+			for q in trecho:
+				caixa = caixa.expand(Vector2(q.x, q.z))
+			lista.append({"pts": trecho, "caixa": caixa.grow(MEIA_VALA_PISTA + 14.0), "trecho": nome})
+	if OS.get_environment("TSC_SUB_LOG") != "":
+		for t: Dictionary in lista:
+			print("[TUNEL] etapa %d trecho %s: %s a %s" % [etapa + 1, t.trecho, str((t.pts as PackedVector3Array)[0].snapped(Vector3.ONE)), str((t.pts as PackedVector3Array)[-1].snapped(Vector3.ONE))])
+	return lista
+
+
+## Vala dos túneis da pista: 3,5 m abaixo da estrada, com a beira subindo até o chão em 14 m.
+func _cavar_tuneis_pista(x: float, z: float, h: float) -> float:
+	var p := Vector2(x, z)
+	for t: Dictionary in _tuneis_pista:
+		if not (t.caixa as Rect2).has_point(p):
+			continue
+		var pts: PackedVector3Array = t.pts
+		var melhor := INF
+		var y := 0.0
+		for k in range(1, pts.size()):
+			var a := Vector2(pts[k - 1].x, pts[k - 1].z)
+			var b := Vector2(pts[k].x, pts[k].z)
+			var ab := b - a
+			var u := clampf((p - a).dot(ab) / maxf(ab.length_squared(), 0.01), 0.0, 1.0)
+			var d := p.distance_to(a + ab * u)
+			if d < melhor:
+				melhor = d
+				y = lerpf(pts[k - 1].y, pts[k].y, u)
+		if melhor < MEIA_VALA_PISTA:
+			h = minf(h, y - 3.5)
+		elif melhor < MEIA_VALA_PISTA + 14.0:
+			h = minf(h, lerpf(y - 3.5, h, smoothstep(MEIA_VALA_PISTA, MEIA_VALA_PISTA + 14.0, melhor)))
+	return h
+
+
+func tuneis_pista() -> Array:
+	return _tuneis_pista
 
 
 ## Vala do túnel: 4 m abaixo da estrada dele, de uma boca à outra (com 25 m de sobra para fora).
@@ -698,11 +832,16 @@ func _sortear_barreiras(etapa: int) -> void:
 		_preencher.append(Vector2(float(q[0]), float(q[1])))
 	_preencher_altura = float(pr.get("altura", 200))
 	_sub_tunel = desenho.get("tunel", {})
+	_sub_poco = desenho.get("poco", [])
+	if _mat_agua:   # a água não tampa o poço
+		_mat_agua.set_shader_parameter("buraco", Vector4(float(_sub_poco[0]), float(_sub_poco[1]), float(_sub_poco[2]) + 32.0, 1.0) if _sub_poco.size() >= 4 else Vector4.ZERO)
 	_sub_paredao = desenho.get("paredao", {})
 	_sub_estrada_extra = desenho.get("estrada_extra", {})
 	_sem_morro = bool(desenho.get("sem_morro", false))
 	_muralha_estrada = float(desenho.get("muralha_estrada", 0.0)) if _sem_morro else 0.0
 	_natural_nos.clear()   # as montanhas mudam com a etapa
+	_tuneis_pista = []
+	_tuneis_pista = _achar_tuneis_pista(etapa)
 	if not desenho.is_empty():
 		_sub_barreiras.clear()
 		_rota_vale.clear()
@@ -798,7 +937,21 @@ func _area_barreiras() -> Array[Rect2]:
 		var e := Vector2(float(_sub_tunel.entrada[0]), float(_sub_tunel.entrada[1]))
 		var s := Vector2(float(_sub_tunel.saida[0]), float(_sub_tunel.saida[1]))
 		lista.append(Rect2(e, Vector2.ZERO).expand(s).grow(MEIA_VALA_TUNEL + 40.0))
+	if _sub_poco.size() >= 4:
+		lista.append(Rect2(float(_sub_poco[0]), float(_sub_poco[1]), 0.0, 0.0).grow(float(_sub_poco[2]) + 40.0))
+	for t: Dictionary in _tuneis_pista:
+		lista.append((t.caixa as Rect2).grow(14.0))
 	return lista
+
+
+## Ponto dentro do poço da etapa (abaixo da boca)?
+func no_poco(p: Vector3) -> bool:
+	return _sub_poco.size() >= 4 and Vector2(p.x - float(_sub_poco[0]), p.z - float(_sub_poco[1])).length() < float(_sub_poco[2]) + 2.0
+
+
+## Poço da etapa atual ([x, z, raio, y do fundo] ou vazio).
+func poco_da_etapa() -> Array:
+	return _sub_poco
 
 
 ## Túnel-atalho da etapa atual (vazio se não tiver).
@@ -995,6 +1148,8 @@ func rota_vale() -> Array[Vector3]:
 ## Troca os esporões para a etapa: recalcula só a área deles (a antiga e a nova) e refaz a malha
 ## de perto, a vegetação do vale e a bruma.
 func preparar_etapa(etapa: int) -> void:
+	if selva:
+		selva.definir_etapa(etapa)   # o rio da etapa é cavado no chão refeito
 	var subida := _modo_subida and not _sub_barreiras_cfg.is_empty()
 	if not (_canion_fechado or subida) or etapa == _etapa_vale:
 		return
@@ -1021,6 +1176,7 @@ func preparar_etapa(etapa: int) -> void:
 	_malha_interna.queue_free()
 	_malha_interna = _criar_malha(alturas_interno, MEIO_INTERNO, N_INTERNO, _mat_terreno)
 	add_child(_malha_interna)
+	_colisao_terreno()
 	if subida:
 		_criar_vegetacao_subida()
 	else:
@@ -1172,6 +1328,9 @@ func _criar_agua() -> void:
 		mat.set_shader_parameter("ruido", _textura_ruido(0.03, 3, 41))
 		mat.set_shader_parameter("normal_a", _textura_normal(0.02, 4, 43, 6.0))
 		mat.set_shader_parameter("normal_b", _textura_normal(0.045, 3, 47, 4.0))
+		_mat_agua = mat
+		if _sub_poco.size() >= 4:
+			mat.set_shader_parameter("buraco", Vector4(float(_sub_poco[0]), float(_sub_poco[1]), float(_sub_poco[2]) + 32.0, 1.0))
 	mi.material_override = mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)

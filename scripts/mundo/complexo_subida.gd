@@ -431,6 +431,14 @@ func _montar_estrada(terreno: Terreno) -> void:
 		print("[SUB] amostras=", _pts.size(), " trechos=", _inicio_trecho, "..", _fim_trecho, " s_salto=", s_salto, " s_final=", s_final)
 		for i in [0, 1, 5, 20, 60, 120]:
 			print("[SUB] amostra ", i, " = ", _pts[i], " s=", _s[i])
+		# Mapa de metragem: posição de cada trecho a cada 50 m (achar [trecho, m] pelo que se vê na câmera livre)
+		for k in _nomes_trecho.size():
+			var i := _inicio_trecho[k]
+			while i <= _fim_trecho[k]:
+				print("[TRECHO] %s %d %s" % [_nomes_trecho[k], roundi(_s[i] - _s[_inicio_trecho[k]]), str(_pts[i].snapped(Vector3.ONE))])
+				var alvo_s := _s[i] + 50.0
+				while i <= _fim_trecho[k] and _s[i] < alvo_s:
+					i += 1
 		# Folga entre o asfalto (e as beiradas) e o terreno: o morro encostado não pode atravessar
 		var pior := INF
 		var perto := 0
@@ -689,6 +697,7 @@ func _malha_estrada() -> void:
 
 ## Pilares da estrada principal: [Vector3(x, topo, z), meia largura, amostra] (SerpenteCaminho sobe neles).
 var pilares: Array = []
+var _tuneis_pista: TunelPista
 
 
 ## Pilares de concreto até o chão a cada ~22 m, com viga de apoio embaixo da estrada.
@@ -972,7 +981,8 @@ func re_adiante(i: int, alcance: float) -> Dictionary:
 	return {}
 
 
-## Mola ejetora (percursos.N.ejetores: [trecho, m do meio, altura, comprimento (padrão 5 m)]): prato de aço
+## Mola ejetora (percursos.N.ejetores: [trecho, m do meio, altura, comprimento (padrão 5 m), frente (fração da
+## velocidade que o carro guarda, padrão 0,6; > 1 joga para a frente), descontrolado (gira também os bots)]): prato de aço
 ## na largura toda da pista, rente ao asfalto e acompanhando a curva e a rampa dela, em cima de molas.
 ## Quem passa por cima é lançado a ~`altura` m, girando sem controle (Veiculo.girando); no ar dá para
 ## abrir o paraquedas e tentar seguir. Pedido do dono, no lugar da catapulta; a gigante da E1 vai até
@@ -1056,11 +1066,18 @@ func _montar_ejetor(e: Array) -> void:
 				molas.add_child(anel)
 	molas.visible = false
 	_ejetores.append({"i": i, "s": _s[i], "pos": _pts[i], "vy": sqrt(2.0 * 9.8 * float(e[2])), "comp": comp, "faixa": faixa,
+		"frente": float(e[4]) if e.size() > 4 else 0.6, "louco": bool(e[5]) if e.size() > 5 else false,
 		"meio_passo": comp / (ib - ia) * 0.5 + 0.4, "prato": prato, "molas": molas, "t": -100.0})
 
 
+## Mola do último ejetor_em que acertou: quanto da velocidade o carro guarda e se gira os bots também.
+var ejetor_frente := 0.6
+var ejetor_louco := false
+
 ## Velocidade para cima que a mola dá a quem está em cima dela (0 fora). Dispara a animação do prato.
 func ejetor_em(p: Vector3) -> float:
+	ejetor_frente = 0.6
+	ejetor_louco = false
 	for e: Dictionary in _ejetores:
 		if p.distance_squared_to(e.pos) > pow(float(e.comp) * 0.5 + 20.0, 2.0):
 			continue
@@ -1068,6 +1085,8 @@ func ejetor_em(p: Vector3) -> float:
 			var q: Vector3 = p - (f[0] as Vector3)
 			if absf(q.y) < 2.5 and absf(q.dot(f[1])) < float(e.meio_passo) and absf(q.dot(f[2])) < float(f[3]) + 0.3:
 				e.t = _relogio_desvios
+				ejetor_frente = float(e.frente)
+				ejetor_louco = bool(e.louco)
 				return float(e.vy)
 	if plataforma:
 		return plataforma.mola_em(p, _relogio_desvios)
@@ -1100,7 +1119,7 @@ func _atualizar_ejetores() -> void:
 				(anel as Node3D).position = (anel.get_meta("base") as Vector3) + Vector3.UP * (alt * (float(anel.get_meta("k")) + 0.5) / 5.0 - 0.1)
 
 
-## Um ponto de aceleração [trecho, metros (negativo = antes do fim), tranco opcional] com a placa em `pai`.
+## Um ponto de aceleração [trecho, metros (negativo = antes do fim), tranco opcional, "fixo"] com a placa em `pai`.
 func _impulso_trecho(im: Array, pai: Node) -> void:
 	var k := _nomes_trecho.find(str(im[0]))
 	if k < 0:
@@ -1115,8 +1134,9 @@ func _impulso_trecho(im: Array, pai: Node) -> void:
 	else:
 		while i < i1 and _s[i] - _s[i0] < m:
 			i += 1
-	# Nunca antes de curva: o tranco jogaria o carro para fora
-	while i < i1 - 10 and curvatura_adiante(i, 150.0) > 1.0 / 350.0 and _s[i1] - _s[i] > 160.0:
+	# Nunca antes de curva: o tranco jogaria o carro para fora (4º item "fixo": fica onde foi pedido)
+	var fixo := im.size() > 3 and str(im[3]) == "fixo"
+	while not fixo and i < i1 - 10 and curvatura_adiante(i, 150.0) > 1.0 / 350.0 and _s[i1] - _s[i] > 160.0:
 		i += 1
 	# Nunca em cima de vão ou gelo fino (a placa ficaria no ar): recua até ter piso sob ela toda
 	while i > i0 + 4 and (_vao[i] != 0 or _vao[i - 4] != 0 or _vao[mini(i + 4, i1)] != 0):
@@ -1202,6 +1222,13 @@ func preparar_etapa(_indice: int) -> void:
 	if _tunel:
 		_tunel.queue_free()
 		_tunel = null
+	if _tuneis_pista:
+		_tuneis_pista.queue_free()
+		_tuneis_pista = null
+	if not _terreno.tuneis_pista().is_empty():   # morro em cima da pista da etapa: túnel (TunelPista)
+		_tuneis_pista = TunelPista.new()
+		add_child(_tuneis_pista)
+		_tuneis_pista.montar(_terreno, self)
 	var cfg := _terreno.tunel_da_etapa()
 	if cfg.is_empty():
 		return
@@ -1612,7 +1639,8 @@ func _montar_desvios() -> void:
 func _montar_ilhas(d: Dictionary) -> void:
 	var ilhas: Array = d.ilhas
 	var mat := _material_pilar()
-	var anel_mat := _material_luz(Color(1.0, 0.45, 0.1), 3.5)
+	# Selva: borda de ouro aceso, faixa de jade logo abaixo do topo e a laje de cima entalhada (Pedra do Sol)
+	var anel_mat := _material_luz(Color(1.0, 0.72, 0.25), 2.2) if _selva() else _material_luz(Color(1.0, 0.45, 0.1), 3.5)
 	var rampa_mat := ShaderMaterial.new()
 	rampa_mat.shader = load(_shader_pista())
 	rampa_mat.set_shader_parameter("cor_equipe", cor)
@@ -1666,8 +1694,36 @@ func _montar_ilhas(d: Dictionary) -> void:
 		ma.position = topo + Vector3.UP * 0.02
 		ma.scale = Vector3(1.0, 0.25, 1.0)
 		_no.add_child(ma)
+		if _selva():
+			for faixa: Array in [[1.2, Selva.material_jade(), 1.1], [2.6, Selva.material_ouro(), 0.35], [3.4, Selva.material_jade(), 0.5]]:
+				var cinta := CylinderMesh.new()
+				cinta.top_radius = q.w + 0.18
+				cinta.bottom_radius = q.w + 0.22
+				cinta.height = float(faixa[2])
+				cinta.radial_segments = 32
+				var mc := MeshInstance3D.new()
+				mc.mesh = cinta
+				mc.material_override = faixa[1]
+				mc.position = topo - Vector3.UP * float(faixa[0])
+				_no.add_child(mc)
+			# Tampo entalhado: a mesma pedra do sol do alvo, rente ao piso (só textura, a colisão é a do cilindro)
+			var tampo := CylinderMesh.new()
+			tampo.top_radius = q.w - 0.3
+			tampo.bottom_radius = q.w - 0.3
+			tampo.height = 0.06
+			tampo.radial_segments = 40
+			var mt := MeshInstance3D.new()
+			mt.mesh = tampo
+			var ms := ShaderMaterial.new()
+			ms.shader = load("res://shaders/pedra_sol.gdshader")
+			ms.set_shader_parameter("raio", q.w - 0.3)
+			ms.set_shader_parameter("ruido", Terreno._textura_ruido(0.05, 3, 77))
+			mt.material_override = ms
+			mt.position = topo + Vector3.UP * 0.01
+			mt.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			_no.add_child(mt)
 		var luz := OmniLight3D.new()
-		luz.light_color = Color(1.0, 0.55, 0.2)
+		luz.light_color = Color(1.0, 0.7, 0.35) if _selva() else Color(1.0, 0.55, 0.2)
 		luz.light_energy = 2.5
 		luz.omni_range = q.w * 2.4
 		luz.position = topo + Vector3.UP * 7.0

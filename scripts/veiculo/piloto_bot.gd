@@ -791,8 +791,12 @@ func _dirigir_subida(e: Dictionary, sub: ComplexoSubida) -> void:
 				_arm_lado = -1
 				_arm_plano_t = 0.0
 			_arm_plano_t -= _dt_ia
-			if falta_g <= 1.0:
+			if bool(g.get("na_fila", false)) and float(g.get("onda", 0.0)) > 0.0:
+				arm_vel = float(g.onda)   # dentro da montanha dos machados: segue no ritmo da onda (parar ali é morrer)
+			elif falta_g <= 1.0:
 				arm_vel = maxf(22.0, _arm_vel_max)   # já está dentro: sai depressa
+				if float(g.get("onda", 0.0)) > 0.0 and not (g.get("fila", []) as Array).is_empty():
+					arm_vel = float(g.onda)   # fila de machados: segue no ritmo da onda
 			elif _arm_plano_t > 0.0:
 				arm_vel = _arm_vel_plano
 			else:
@@ -807,7 +811,21 @@ func _dirigir_subida(e: Dictionary, sub: ComplexoSubida) -> void:
 						# Só a janela que o carro alcança (velocidade média possível acelerando daqui) e livre
 						# do bico entrar até a traseira sair, com folga curta
 						if vv <= v + ARM_ACEL * 0.5 * t + 1.0 and arm.livre_entre(int(g.id), lado, t - 0.35 * _arm_folga, t + (comp_g + 3.0 + 3.0 * _arm_folga) / maxf(vv, 6.0) + 0.25 * _arm_folga):
-							break
+							# Fila de portais: os seguintes também livres quando ele chegar neles (mantendo vv)
+							var fila_ok := true
+							var v_ch := minf(2.0 * vv - v, _arm_vel_max) if vv > v else vv
+							# Fila: entra embalado (devagar, a onda de machados passa na frente dele) e segue acelerando até ~22 m/s
+							var onda_g := float(g.get("onda", 0.0))
+							if not (g.get("fila", []) as Array).is_empty() and (v_ch < onda_g - 3.0 or v_ch > onda_g + 4.0):
+								fila_ok = false
+							var vf := onda_g if onda_g > 0.0 else maxf((v_ch + maxf(22.0, _arm_vel_max)) * 0.5, 8.0)
+							for fg: Array in (g.get("fila", []) if fila_ok else []):
+								var tf: float = t + float(fg[1]) / vf
+								if not arm.livre_entre(int(fg[0]), lado, tf - 0.35 * _arm_folga, tf + (comp_g + 3.0 + 3.0 * _arm_folga) / vf + 0.25 * _arm_folga):
+									fila_ok = false
+									break
+							if fila_ok:
+								break
 						t += 0.1
 					if t <= t_max and t < melhor_t:
 						melhor_t = t
@@ -818,7 +836,7 @@ func _dirigir_subida(e: Dictionary, sub: ComplexoSubida) -> void:
 					if not bool(g.total):
 						_arm_lado = melhor_lado
 				else:
-					arm_vel = 0.0 if falta_g < 14.0 else ARM_VEL_MIN   # nenhuma janela: segura antes de entrar
+					arm_vel = 0.0 if falta_g < (45.0 if not (g.get("fila", []) as Array).is_empty() else 14.0) else ARM_VEL_MIN   # nenhuma janela: segura antes de entrar (fila: longe, para embalar)
 				_arm_vel_plano = arm_vel
 				_arm_plano_t = ARM_PLANO_S
 			if not bool(g.total) and _arm_lado >= 0:
@@ -860,7 +878,7 @@ func _dirigir_subida(e: Dictionary, sub: ComplexoSubida) -> void:
 			while tt <= tt_max:
 				var vv := falta_t / maxf(tt, 0.05)
 				var chegada := clampf(2.0 * vv - v, vv, _arm_vel_max) if vv > v else vv
-				if vv <= v + ARM_ACEL * 0.5 * tt + 1.0 and cobra_t.livre_entre(tt - 0.25, tt + (float(toca.comp) + 5.0) / maxf(chegada, 6.0) + 0.25):
+				if vv <= v + ARM_ACEL * 0.5 * tt + 1.0 and cobra_t.livre_entre(tt - 0.25, tt + (float(toca.comp) + 5.0) / maxf(chegada, 6.0) + 0.25, chegada):
 					melhor_t = tt
 					break
 				tt += 0.1
@@ -874,10 +892,15 @@ func _dirigir_subida(e: Dictionary, sub: ComplexoSubida) -> void:
 			_encerrar_ataque()
 		elif falta_t <= 0.5:
 			arm_vel = maxf(24.0, _arm_vel_max)   # dentro da zona: sai depressa
+		if falta_t > 0.5 and falta_t < 60.0 and arm_vel >= _arm_vel_max - 0.5:
+			arm_vel = maxf(arm_vel, 24.0)   # passando pela toca: embalado (abaixo de ~17 m/s a cobra pega)
 			alvo_lat = 0.0
 		# Desvio da catapulta: chega devagar, para em cima da boca do gêiser e espera a erupção
 	var cat := sub.catapulta_adiante(i)
 	var segurar := false
+	# Com veneno/ovo em cima de uma plataforma redonda: para e espera passar (escorregando, saía pela borda)
+	if veiculo.com_ovo() and sub._vao[i] == 3:
+		segurar = true
 	if not cat.is_empty() and float(cat.falta) < 70.0:
 		alvo_lat = 0.0
 		_ultrap_t = 0.0
@@ -1000,8 +1023,8 @@ func _dirigir_subida(e: Dictionary, sub: ComplexoSubida) -> void:
 		e.re = 0.0
 		e.nitro = false
 		# Sem o ejetor pronto (5 s de recarga): freia logo que pousa e espera parado — chegando rápido na beirada não parava mais
-		if not pronto and not veiculo.ejetor_bloqueado() and falta_v < 17.0:
-			segurar = true
+		if (not pronto and not veiculo.ejetor_bloqueado() and falta_v < 17.0) or (veiculo.com_ovo() and falta_v > -1.0 and falta_v < 17.0):
+			segurar = true   # (com veneno/ovo: escorregando, espera passar antes de pular)
 		elif v > v_alvo + 0.3:
 			e.acelerar = 0.0
 			e.freiar = 1.0 if v > v_alvo + 0.9 else 0.0
@@ -1017,6 +1040,8 @@ func _dirigir_subida(e: Dictionary, sub: ComplexoSubida) -> void:
 	elif perto_vao:
 		var v_vao := float(vao.get("vel", 19.0 + float(vao.comp) * 0.5))
 		e.re = 0.0
+		if ilhas and veiculo.com_ovo() and float(vao.falta) > -1.0 and float(vao.falta) < 17.0:
+			segurar = true   # com veneno/ovo: espera passar em cima da plataforma antes de pular
 		if v > v_vao + 5.0 and float(vao.falta) > 14.0:
 			e.acelerar = 0.0
 			e.freiar = 1.0
@@ -1609,6 +1634,10 @@ func _planar(e: Dictionary) -> void:
 			_mergulho_pronto = _t + 6.0
 			veiculo.alternar_paraquedas()
 			return
+	# Alvo no fundo do poço: chega por cima da boca (mirando o fundo direto, encostava na beirada e caía)
+	var poco: Array = veiculo.terreno.poco_da_etapa() if veiculo.terreno else []
+	if poco.size() >= 4 and dist_h > float(poco[2]) - 16.0:
+		destino.y = maxf(destino.y, veiculo.terreno.altura_em(float(poco[0]) + float(poco[2]) + 40.0, float(poco[1])) + 22.0)
 	var altura := p.y - destino.y
 	var razao := dist_h / maxf(altura, 0.5)
 
@@ -1654,7 +1683,7 @@ func _planar(e: Dictionary) -> void:
 		# se estiver ficando baixo demais para alcançar o alvo
 		var v_h := vh3.length()
 		var v_quer := clampf(5.0 + dist_h * 0.09, 6.0, 26.0)
-		if altura > 6.0 and razao < 4.2 and dist_h > 30.0 and _t >= _mergulho_pronto and not cercado:
+		if altura > 6.0 and razao < 4.2 and (dist_h > 30.0 or altura > 25.0) and _t >= _mergulho_pronto and not cercado:   # (em cima do alvo e muito alto — poço do alvo: mergulha até a altura bater)
 			_mergulhar_freando(e)   # alto demais: mergulho curto
 		elif v_h > v_quer and razao < 6.8:
 			e.freiar = 1.0

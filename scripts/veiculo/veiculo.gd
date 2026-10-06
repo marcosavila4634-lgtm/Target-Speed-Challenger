@@ -65,6 +65,7 @@ var _invertido_ate := 0.0      # yeti pendurado no teto (Frozen Peak): direção
 var _invertido_ini := 0.0
 var _ovo_ate := 0.0            # ovo de pterossauro (Extinction Day): pneus sem aderência e direção invertida até este instante
 var _ovo_ini := 0.0
+var _so_direcao := false       # veneno das cobras: a película e a direção invertida, sem escorregar nem melar o paraquedas
 var _ovo_ativo := false
 var _ovo_fx: Array[GPUParticles3D] = []   # pingos de gema e de clara caindo do carro
 var _ovo_pele: Array = []      # gema na lataria enquanto dura o efeito: [[MeshInstance3D (cópia da malha), ShaderMaterial]]
@@ -895,6 +896,7 @@ func ressurgir(t: Transform3D, duracao: float) -> void:
 	_invertido_ate = 0.0
 	_ovo_ate = 0.0
 	_impulso_espera = relogio + 1.0
+	_bateu_mortal = false   # o toque mortal que derrubou o carro não pode matar de novo no checkpoint
 	for r in rodas:
 		r.compressao = 0.0
 	global_transform = t
@@ -938,7 +940,7 @@ func devorar() -> void:
 ## Melado de gosma (cuspe de dinossauro) ou de ovo de pterossauro: enquanto dura, o paraquedas não abre
 ## (pedido do dono, 2026-10-04). O que já estava aberto continua aberto.
 func paraquedas_melado() -> bool:
-	return relogio < _gosma_ate or relogio < _ovo_ate
+	return relogio < _gosma_ate or (relogio < _ovo_ate and not _so_direcao)
 
 
 ## Gosma verde (dinossauro cuspidor do Extinction Day): o carro anda muito devagar por `segundos`
@@ -1122,10 +1124,25 @@ func gelado() -> bool:
 	return relogio < _gelado_ate
 
 
+## Cores da película e dos pingos: [fina, grossa, beira, pingo 1, pingo 2]. Ovo: clara e gema; veneno das
+## cobras cuspidoras do Serpent's Climb: verde bem claro, quase branco (pedido do dono).
+const CORES_OVO := [Color(0.96, 0.95, 0.88), Color(0.98, 0.7, 0.06), Color(1.0, 1.0, 0.96), Color(0.98, 0.7, 0.06), Color(0.97, 0.96, 0.9)]
+const CORES_VENENO := [Color(0.9, 1.0, 0.86), Color(0.72, 0.96, 0.62), Color(0.97, 1.0, 0.95), Color(0.78, 0.98, 0.7), Color(0.94, 1.0, 0.92)]
+
+
+## Veneno cuspido (cobras do Serpent's Climb): só inverte a direção por `segundos` (pedido do dono 2026-10-06: nada de
+## escorregar nem de travar o paraquedas), com a gosma verde-clara na lataria.
+func veneno(segundos: float) -> void:
+	var ja_com_ovo := relogio < _ovo_ate and not _so_direcao
+	ovo(segundos, CORES_VENENO)
+	_so_direcao = not ja_com_ovo
+
+
 ## Ovo de pterossauro (plataforma dos buracos do Extinction Day): por `segundos` os pneus quase não
 ## seguram — o carro escorrega como no gelo — e a direção fica invertida, como com o yeti no teto.
 ## A lataria fica melada de gema (a mesma película da gosma, em amarelo).
-func ovo(segundos: float) -> void:
+func ovo(segundos: float, cores := CORES_OVO) -> void:
+	_so_direcao = false
 	if relogio >= _ovo_ate:
 		_ovo_ini = relogio
 	_ovo_ate = maxf(_ovo_ate, relogio + segundos)
@@ -1188,6 +1205,16 @@ func ovo(segundos: float) -> void:
 			pele.visible = false
 			mi.add_child(pele)
 			_ovo_pele.append([pele, mat_s])
+	for par: Array in _ovo_pele:
+		var ms: ShaderMaterial = par[1]
+		ms.set_shader_parameter("cor_fina", cores[0])
+		ms.set_shader_parameter("cor_grossa", cores[1])
+		ms.set_shader_parameter("cor_beira", cores[2])
+	for k in _ovo_fx.size():
+		var mg := ((_ovo_fx[k] as GPUParticles3D).draw_pass_1 as PrimitiveMesh).material as StandardMaterial3D
+		if mg:
+			mg.albedo_color = cores[3 + k % 2]
+			mg.emission = cores[3 + k % 2]
 	if not _ovo_ativo:
 		_ovo_ativo = true
 		for par: Array in _ovo_pele:
@@ -1222,14 +1249,19 @@ func _atualizar_ovo() -> void:
 ## Encostar na serpente gigante (Serpent's Climb, pedido do dono): por `segundos` os pneus quase não
 ## seguram e a direção fica invertida — o mesmo efeito do ovo, sem a gema na lataria.
 func escorregar(segundos: float) -> void:
+	_so_direcao = false
 	if relogio >= _ovo_ate:
 		_ovo_ini = relogio
 	_ovo_ate = maxf(_ovo_ate, relogio + segundos)
 	yeti(segundos)
 
 
+func com_veneno() -> bool:
+	return relogio < _ovo_ate and _so_direcao
+
+
 func com_ovo() -> bool:
-	return relogio < _ovo_ate
+	return relogio < _ovo_ate and not _so_direcao
 
 
 func com_gosma() -> bool:
@@ -1289,6 +1321,10 @@ func _integrate_forces(s: PhysicsDirectBodyState3D) -> void:
 			alvo_tocado = true
 		elif obj is Node and (obj as Node).is_in_group("mortal"):
 			_bateu_mortal = true
+		elif obj is Node and (obj as Node).is_in_group("terreno"):
+			# Serpent's Climb: o chão (normal para cima) mata; encosta de montanha só empurra
+			if s.get_contact_local_normal(i).y > 0.65:
+				_bateu_mortal = true
 		elif obj is Node and (obj as Node).is_in_group("predio"):
 			# City Rush: fachada (normal na horizontal) explode; o telhado é chão
 			if absf(s.get_contact_local_normal(i).y) < 0.5:
@@ -1390,7 +1426,7 @@ func _integrate_forces(s: PhysicsDirectBodyState3D) -> void:
 		if gelado:
 			ader_piso *= 0.12   # pneus congelados: o carro desliza
 			ader_min = minf(ader_min, ader_piso)
-		if relogio < _ovo_ate:
+		if relogio < _ovo_ate and not _so_direcao:
 			ader_piso *= float(_cfg.get("ovo_aderencia", 0.3))   # melado de ovo: escorrega como no gelo vivo
 			ader_min = minf(ader_min, ader_piso)
 		var limite := f_susp * aderencia * ader_piso
@@ -1533,14 +1569,25 @@ func _integrate_forces(s: PhysicsDirectBodyState3D) -> void:
 	# Mola ejetora: lança o carro para cima girando nos três eixos, sem controle
 	if girando and (paraquedas_aberto or (relogio > _girando_desde + 0.6 and (rodas_no_chao > 0 or contato_corpo))):
 		girando = false
+	elif girando and not eh_jogador and relogio > _girando_desde + 1.3:
+		girando = false   # bot (mola descontrolada): dá o susto e retoma o voo para o alvo
+		s.angular_velocity *= 0.15
 	if sub_lp and not travado and relogio >= _impulso_espera and (rodas_no_chao > 0 or contato_corpo):
 		var vy_mola := sub_lp.ejetor_em(xf.origin)
 		if vy_mola > 0.0:
-			s.linear_velocity = Vector3(v.x * 0.6, vy_mola, v.z * 0.6)
+			var fr: float = sub_lp.ejetor_frente
+			s.linear_velocity = Vector3(v.x * fr, vy_mola, v.z * fr)
 			var giro_mola := Vector3(randf_range(2.5, 5.0) * (1.0 if randf() < 0.5 else -1.0), randf_range(-3.0, 3.0), randf_range(2.0, 4.5) * (1.0 if randf() < 0.5 else -1.0))
-			# Os bots sobem sem girar e pousam nivelados mais adiante (girando, quase todos caíam de teto)
-			s.angular_velocity = xf.basis * giro_mola if eh_jogador else Vector3.ZERO
-			girando = eh_jogador
+			# Os bots sobem sem girar e pousam nivelados mais adiante (girando, quase todos caíam de teto); na mola
+			# descontrolada (fim da rampa) giram também, mais fraco
+			var louco: bool = sub_lp.ejetor_louco
+			s.angular_velocity = xf.basis * giro_mola * (1.0 if eh_jogador else (0.45 if louco else 0.0))
+			girando = eh_jogador or louco
+			if louco and not saiu_da_rampa:   # a mola descontrolada fica no fim da rampa final: já é o salto para o alvo
+				saiu_da_rampa = true
+				telemetria.saida_kmh = velocidade_kmh()
+				telemetria.saida_altura = xf.origin.y
+				telemetria.saida_tempo = relogio
 			_girando_desde = relogio
 			_impulso_espera = relogio + 2.0
 			impulso_usado.emit.call_deferred(self)
@@ -1558,7 +1605,7 @@ func _integrate_forces(s: PhysicsDirectBodyState3D) -> void:
 func _controle_aereo(s: PhysicsDirectBodyState3D, xf: Transform3D) -> void:
 	var taxa: float = _cfg.controle_aereo
 	var arfagem := float(entrada.freiar) - float(entrada.acelerar)
-	var d := float(entrada.direcao)
+	var d := float(entrada.direcao) * (-1.0 if direcao_invertida() else 1.0)   # veneno/yeti/ovo valem no voo também
 	var w_des := xf.basis.x * arfagem * taxa + xf.basis.z * (-d) * taxa * 0.8 + xf.basis.y * (-d) * taxa * 0.35
 	_torque_para(s, w_des, 3.0)
 
@@ -1568,7 +1615,7 @@ func _planeio(s: PhysicsDirectBodyState3D, v: Vector3) -> void:
 	var pq: Dictionary = _cfg.pq
 	var w := float(entrada.acelerar)
 	var sb := float(entrada.freiar)
-	var d := float(entrada.direcao)
+	var d := float(entrada.direcao) * (-1.0 if direcao_invertida() else 1.0)
 	var controle := float(dados.get("paraquedas_controle", 1.0))
 	# Curva com inércia: a taxa de giro cresce e diminui aos poucos.
 	var giro_max := deg_to_rad(pq.get("giro_graus_s", 28)) * controle
@@ -1644,7 +1691,10 @@ func _physics_process(delta: float) -> void:
 		telemetria.apice = maxf(telemetria.get("apice", 0.0), p.y)
 	# City Rush: o telhado é chão (colisão física); só explode se entrou no prédio (atravessou a fachada)
 	var margem := -1.5 if terreno.cidade and terreno.cidade.altura(p.x, p.z) > -INF else 0.2
-	if p.y - margem < terreno.altura_em(p.x, p.z):
+	# Terreno com colisão (selva): na encosta íngreme o carro encosta sem morrer; só afundando de verdade
+	if terreno.selva and terreno.inclinacao_em(p.x, p.z) > 0.9:
+		margem = -4.0
+	if p.y - margem < terreno.altura_em(p.x, p.z) and not (terreno.selva and terreno.selva.na_piramide(p.x, p.z)):
 		eliminar("terreno")
 		return
 	if _bateu_mortal:
@@ -1669,7 +1719,7 @@ func _physics_process(delta: float) -> void:
 	if complexo and complexo.buraco_mortal(p):
 		eliminar("buraco")
 		return
-	if p.y < _cfg.nivel_agua:
+	if p.y < _cfg.nivel_agua and not terreno.no_poco(p):   # (dentro do poço do alvo não tem água)
 		eliminar("agua")
 		return
 	if Vector2(p.x, p.z).length() > 6500.0 or p.y > 2500.0:

@@ -8,11 +8,17 @@ const fs = require('fs');
 const [entrada, saida, cor] = process.argv.slice(2);
 
 function abrir(arq) {
+  if (arq.endsWith('.gltf')) {   // .gltf com .bin e texturas soltas (pasta do Sketchfab)
+    const jj = JSON.parse(fs.readFileSync(arq, 'utf8'));
+    const pasta = require('path').dirname(arq);
+    return { j: jj, bin: fs.readFileSync(pasta + '/' + jj.buffers[0].uri), pasta };
+  }
   const b = fs.readFileSync(arq);
   const len = b.readUInt32LE(12);
   return { j: JSON.parse(b.slice(20, 20 + len).toString()), bin: b.slice(20 + len + 8) };
 }
-const { j, bin } = abrir(entrada);
+const ENT = abrir(entrada);
+const { j, bin } = ENT;
 function acc(i) {
   const a = j.accessors[i], bv = j.bufferViews[a.bufferView];
   const n = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 }[a.type];
@@ -26,6 +32,8 @@ function acc(i) {
   return out;
 }
 function imagem(g, i) {
+  const im0 = g.j.images[i];
+  if (im0.uri) return { mime: im0.uri.endsWith('.png') ? 'image/png' : 'image/jpeg', dados: fs.readFileSync(g.pasta + '/' + im0.uri) };
   const im = g.j.images[i], bv = g.j.bufferViews[im.bufferView];
   return { mime: im.mimeType, dados: g.bin.slice(bv.byteOffset || 0, (bv.byteOffset || 0) + bv.byteLength) };
 }
@@ -108,8 +116,24 @@ let geo = dijkstra(ponta);
 const co = [0, 0, 0];
 for (let i = 0; i < olhos.P.length; i += 3) for (let c = 0; c < 3; c++) co[c] += olhos.P[i + c] / (olhos.P.length / 3);
 const outra = longe(geo);
-const ate = (v) => Math.hypot(P[rep[v] * 3] - co[0], P[rep[v] * 3 + 1] - co[1], P[rep[v] * 3 + 2] - co[2]);
-if (ate(outra) < ate(ponta)) { ponta = outra; geo = dijkstra(ponta); }
+if (olhos.P.length) {
+  const ate = (v) => Math.hypot(P[rep[v] * 3] - co[0], P[rep[v] * 3 + 1] - co[1], P[rep[v] * 3 + 2] - co[2]);
+  if (ate(outra) < ate(ponta)) { ponta = outra; geo = dijkstra(ponta); }
+} else {
+  // Sem olho separado: a cabeça é a ponta mais grossa (espalhamento dos vértices nos 4% de cada ponta)
+  const tot = geo[outra];
+  const grossura = (perto) => {
+    const c = [0, 0, 0], vs = [];
+    for (let v = 0; v < ns; v++) if (perto(geo[v] / tot)) vs.push(rep[v]);
+    for (const r of vs) for (let k = 0; k < 3; k++) c[k] += P[r * 3 + k] / vs.length;
+    let d = 0;
+    for (const r of vs) d += Math.hypot(P[r * 3] - c[0], P[r * 3 + 1] - c[1], P[r * 3 + 2] - c[2]) / vs.length;
+    return d;
+  };
+  const g0 = grossura((t) => t < 0.04), g1 = grossura((t) => t > 0.96);
+  console.log('grossura das pontas', g0.toFixed(4), g1.toFixed(4));
+  if (g1 > g0) { ponta = outra; geo = dijkstra(ponta); }
+}
 const total = geo[longe(geo)];
 
 // Linha do meio: média dos vértices por fatia de geodésica, alisada
@@ -222,9 +246,9 @@ function attr(arr, tipo, n) {
 }
 const prims = [
   { attributes: { POSITION: attr(RP, 'VEC3', 3), NORMAL: attr(RN, 'VEC3', 3), TEXCOORD_0: attr(new Float32Array(UV), 'VEC2', 2) }, indices: attr(new Uint32Array(I), 'SCALAR', 1), material: 0 },
-  { attributes: { POSITION: attr(OP, 'VEC3', 3), NORMAL: attr(ON, 'VEC3', 3) }, indices: attr(new Uint32Array(olhos.I), 'SCALAR', 1), material: 1 },
 ];
-const g0 = { j, bin }, gc = cor ? abrir(cor) : g0;
+if (olhos.P.length) prims.push({ attributes: { POSITION: attr(OP, 'VEC3', 3), NORMAL: attr(ON, 'VEC3', 3) }, indices: attr(new Uint32Array(olhos.I), 'SCALAR', 1), material: 1 });
+const g0 = ENT, gc = cor ? abrir(cor) : g0;
 const im_cor = imagem(gc, gc.j.textures[gc.j.materials[0].pbrMetallicRoughness.baseColorTexture.index].source);
 const im_rel = imagem(g0, j.textures[j.materials[0].normalTexture.index].source);
 const images = [im_cor, im_rel].map((im) => ({ mimeType: im.mime, bufferView: junta(im.dados) }));

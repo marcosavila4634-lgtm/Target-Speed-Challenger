@@ -7,7 +7,7 @@ extends RefCounted
 ## As malhas e texturas são criadas uma vez e compartilhadas; `plantar` distribui em blocos
 ## (MultiMesh por bloco) com alcance de visibilidade, para o custo cair com a distância.
 
-enum Tipo { ZIMBRO, SALVIA, CAPIM, PALMEIRA, SUMAUMA, COPA, PALMEIRA_SELVA, BANANEIRA, SAMAMBAIA, PINHEIRO, SEQUOIA, ARAUCARIA, FETO, CICA, ARAUCARIA_GELO, SEQUOIA_QUEBRADA }
+enum Tipo { ZIMBRO, SALVIA, CAPIM, PALMEIRA, SUMAUMA, COPA, PALMEIRA_SELVA, BANANEIRA, SAMAMBAIA, PINHEIRO, SEQUOIA, ARAUCARIA, FETO, CICA, ARAUCARIA_GELO, SEQUOIA_QUEBRADA, CIPO, CAPIM_SELVA }
 
 static var _malhas := {}      # Tipo -> Array[ArrayMesh] (variações)
 static var _materiais := {}   # Tipo -> ShaderMaterial
@@ -35,6 +35,8 @@ static func malhas(tipo: Tipo) -> Array:
 				Tipo.CICA: lista.append(_cica(rng))
 				Tipo.ARAUCARIA_GELO: lista.append(_araucaria_gelo(rng))
 				Tipo.SEQUOIA_QUEBRADA: lista.append(_sequoia_quebrada(rng, i))
+				Tipo.CIPO: lista.append(_cipo(rng))
+				Tipo.CAPIM_SELVA: lista.append(_capim_selva(rng))
 		_malhas[tipo] = lista
 	return _malhas[tipo]
 
@@ -127,8 +129,57 @@ static func material(tipo: Tipo) -> ShaderMaterial:
 				m.set_shader_parameter("casca", 1.0)
 				m.set_shader_parameter("rigidez", 200.0)
 				m.set_shader_parameter("vento", 0.1)
+			Tipo.CAPIM_SELVA:
+				m.set_shader_parameter("folhas", _textura_folhas(Color(0.08, 0.2, 0.04), Color(0.38, 0.55, 0.16), 137, true))
+				m.set_shader_parameter("rigidez", 0.9)
+				m.set_shader_parameter("vento", 1.1)
+			Tipo.CIPO:
+				m.set_shader_parameter("folhas", _textura_cipo(131))
+				m.set_shader_parameter("rigidez", 1.0)
+				m.set_shader_parameter("vento", 0.25)
 		_materiais[tipo] = m
 	return _materiais[tipo]
+
+
+## Tronco de cada tipo para a colisão (pedido do dono no Serpent's Climb: árvores com colisão, sem matar):
+## [raio, altura] em m com escala 1.
+const TRONCO := {Tipo.SUMAUMA: [1.4, 30.0], Tipo.COPA: [0.6, 10.0], Tipo.PALMEIRA_SELVA: [0.35, 9.0], Tipo.PALMEIRA: [0.35, 9.0], Tipo.BANANEIRA: [0.25, 3.0]}
+static var _formas_tronco := {}
+
+## Colisão dos troncos de `pontos` (os mesmos de plantar): um StaticBody por chamada, formas direto no
+## servidor de física (dezenas de milhares de árvores sem um nó cada). Só empurra: não é "mortal".
+static func colidir(pai: Node, tipo: Tipo, pontos: Array, esc_min := 0.0) -> void:
+	if not TRONCO.has(tipo) or pontos.is_empty():
+		return
+	# Um corpo por bloco de 120 m: corpo com dezenas de milhares de formas fica lentíssimo de montar (cada
+	# forma nova refaz o composto) e pesa na física
+	var blocos := {}
+	for p: Array in pontos:
+		if float(p[1]) < esc_min:
+			continue
+		var pos: Vector3 = p[0]
+		var chave := Vector2i(floori(pos.x / 120.0), floori(pos.z / 120.0))
+		if not blocos.has(chave):
+			blocos[chave] = []
+		blocos[chave].append(p)
+	var base: Array = TRONCO[tipo]
+	for chave in blocos:
+		var corpo := StaticBody3D.new()
+		corpo.collision_layer = 1
+		corpo.collision_mask = 0
+		pai.add_child(corpo)
+		var rid := corpo.get_rid()
+		for p: Array in blocos[chave]:
+			var e: float = p[1]
+			var r := snappedf(maxf(float(base[0]) * e, 0.3), 0.1)
+			var h := snappedf(float(base[1]) * e, 1.0)
+			var ch := Vector2(r, h)
+			if not _formas_tronco.has(ch):
+				var sh := PhysicsServer3D.cylinder_shape_create()
+				PhysicsServer3D.shape_set_data(sh, {"radius": r, "height": h})
+				_formas_tronco[ch] = sh
+			var pos: Vector3 = p[0]
+			PhysicsServer3D.body_add_shape(rid, _formas_tronco[ch], Transform3D(Basis.IDENTITY, pos + Vector3.UP * h * 0.5))
 
 
 const BLOCO_SOMBRA := 300.0   # lado máximo (m) dos blocos de plantas que projetam sombra
@@ -404,6 +455,21 @@ static func _capim(rng: RandomNumberGenerator) -> ArrayMesh:
 	return st.commit()
 
 
+## Touceira de capim da selva (0,6–1,3 m), mais cheia que o capim seco do cânion.
+static func _capim_selva(rng: RandomNumberGenerator) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var altura := rng.randf_range(0.6, 1.3)
+	var giro := rng.randf() * PI
+	var n := 5
+	for k in n:
+		var a := giro + k * PI / n
+		var dir := Vector3(cos(a), 0.0, sin(a)) * rng.randf_range(0.5, 0.75)
+		var inclinado := Vector3(rng.randf_range(-0.2, 0.2), 1.0, rng.randf_range(-0.2, 0.2)).normalized() * altura * 0.5
+		_cartao(st, inclinado, dir, inclinado, Vector3.ZERO)
+	return st.commit()
+
+
 ## Tamareira de 8–14 m: tronco anelado levemente curvo (afunila pouco) e coroa de 14 folhas
 ## compridas arqueando para baixo, as de baixo mais caídas e as do meio apontando para cima.
 static func _palmeira(rng: RandomNumberGenerator) -> ArrayMesh:
@@ -469,37 +535,61 @@ static func _fronde(st: SurfaceTool, base: Vector3, dir: Vector3, comp: float, l
 ## Folhagem de folhas largas (sumaúma, árvores de copa): folhas grandes elípticas brilhantes, com a
 ## nervura clara, mais densas no centro do cacho.
 static func _textura_folhas_largas(escura: Color, clara: Color, semente: int) -> ImageTexture:
-	var n := 256
+	# Folhas lanceoladas de verdade (pedido do dono, 2026-10-05: vegetação mais realista): ponta fina, nervura
+	# central clara, nervuras laterais, brilho de um lado e sombra do outro, em camadas — as de trás (pintadas
+	# antes) mais escuras, as da frente mais claras e amareladas pela luz.
+	var n := 512
 	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
 	img.fill(Color(escura.r, escura.g, escura.b, 0.0))
 	var rng := RandomNumberGenerator.new()
 	rng.seed = semente
-	for i in 230:
+	var total := 760
+	for i in total:
+		var camada := float(i) / total   # 0 = fundo, 1 = frente
 		var ang := rng.randf() * TAU
-		var raio := pow(rng.randf(), 0.65) * 0.44 * n
+		var raio := pow(rng.randf(), 0.6) * 0.44 * n
 		var cx := n * 0.5 + cos(ang) * raio
-		var cy := n * 0.5 + sin(ang) * raio * 0.8
+		var cy := n * 0.5 + sin(ang) * raio * 0.82
 		var borda := raio / (0.44 * n)
-		var c := escura.lerp(clara, clampf(rng.randf() * 0.6 + (1.0 - cy / n) * 0.45, 0.0, 1.0))
-		c = c.darkened(0.3 * (1.0 - borda))
-		var rx := rng.randf_range(5.0, 8.0)
-		var ry := rng.randf_range(11.0, 17.0)
-		var giro := ang + rng.randf_range(-0.6, 0.6) + PI * 0.5
+		var c := escura.lerp(clara, clampf(rng.randf() * 0.45 + camada * 0.45 + (1.0 - cy / n) * 0.25, 0.0, 1.0))
+		c = c.darkened(0.35 * (1.0 - camada) * (1.0 - borda * 0.5))
+		# Variedade de verdes: uns mais amarelos (novos), uns mais azulados (velhos)
+		var tom := rng.randf()
+		if tom < 0.15:
+			c = c.lerp(Color(0.55, 0.62, 0.18), 0.35)
+		elif tom > 0.85:
+			c = c.lerp(Color(0.08, 0.22, 0.16), 0.35)
+		var comp := rng.randf_range(16.0, 30.0)
+		var larg := comp * rng.randf_range(0.26, 0.38)
+		var giro := ang + rng.randf_range(-0.7, 0.7) + PI * 0.5
 		var co := cos(giro)
 		var si := sin(giro)
-		var lim := int(ry) + 1
+		var lim := int(comp) + 1
 		for dy in range(-lim, lim + 1):
 			for dx in range(-lim, lim + 1):
-				var u := (dx * co + dy * si) / rx
-				var v := (-dx * si + dy * co) / ry
-				var d := u * u + v * v
-				if d <= 1.0:
-					var px := int(cx) + dx
-					var py := int(cy) + dy
-					if px >= 0 and px < n and py >= 0 and py < n:
-						var k := c.lightened(0.18 * (1.0 - absf(u))) if absf(u) < 0.12 else c
-						k = k.darkened(0.15 * d)
-						img.set_pixel(px, py, Color(k.r, k.g, k.b, 1.0))
+				var v := (-dx * si + dy * co) / comp          # -1 (base) .. 1 (ponta)
+				if absf(v) > 1.0:
+					continue
+				var t := v * 0.5 + 0.5
+				var w := larg * pow(sin(PI * clampf(t, 0.0, 1.0)), 0.75) * (1.0 - 0.35 * t)   # mais larga perto da base, ponta fina
+				var u := (dx * co + dy * si)
+				if w <= 0.3 or absf(u) > w:
+					continue
+				var px := int(cx) + dx
+				var py := int(cy) + dy
+				if px < 0 or px >= n or py < 0 or py >= n:
+					continue
+				var uu := u / w   # -1..1 de uma borda à outra
+				var k := c
+				k = k.lightened(0.12 * maxf(-uu, 0.0))      # um lado pega luz
+				k = k.darkened(0.18 * maxf(uu, 0.0))        # o outro fica na sombra
+				if absf(u) < 0.9:
+					k = k.lightened(0.22)                   # nervura central
+				var lateral := absf(fmod(absf(uu) * 0.9 - v * 2.2 + 10.0, 0.45) - 0.225)
+				if lateral < 0.03 and absf(uu) > 0.12:
+					k = k.lightened(0.08)                   # nervuras laterais
+				k = k.darkened(0.12 * uu * uu)              # borda mais escura
+				img.set_pixel(px, py, Color(k.r, k.g, k.b, 1.0))
 	img.generate_mipmaps()
 	return ImageTexture.create_from_image(img)
 
@@ -636,6 +726,79 @@ static func _samambaia(rng: RandomNumberGenerator) -> ArrayMesh:
 		var a := TAU * f / n_f + rng.randf_range(-0.25, 0.25)
 		_fronde(st, Vector3(0, 0.1, 0), Vector3(cos(a), 0.0, sin(a)), rng.randf_range(1.2, 1.9), rng.randf_range(0.3, 0.42), rng.randf_range(1.0, 1.6), rng.randf_range(1.3, 1.9))
 	return st.commit()
+
+
+## Cortina de cipós (Serpent's Climb, encostas da mata): 3 a 5 tiras penduradas do alto (y = 0) para
+## baixo, no plano XY e viradas para +Z (a encosta fica atrás, em -Z), de comprimentos diferentes e um
+## pouco abertas em leque. Quem planta gira o +Y para cima da encosta (a cortina deita na rampa).
+static func _cipo(rng: RandomNumberGenerator) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := rng.randi_range(3, 5)
+	for k in n:
+		var x := rng.randf_range(-2.2, 2.2)
+		var comp := rng.randf_range(7.0, 15.0)
+		var larg := rng.randf_range(1.1, 1.8)
+		var abre := rng.randf_range(-0.12, 0.12)
+		var segs := 4
+		for g in segs:
+			var t0 := float(g) / segs
+			var t1 := float(g + 1) / segs
+			var a := Vector3(x + abre * comp * t0, -comp * t0, 0.12 + 0.25 * t0 + k * 0.03)
+			var b := Vector3(x + abre * comp * t1, -comp * t1, 0.12 + 0.25 * t1 + k * 0.03)
+			var cantos := [a + Vector3(-larg * 0.5, 0, 0), a + Vector3(larg * 0.5, 0, 0), b + Vector3(larg * 0.5, 0, 0), b + Vector3(-larg * 0.5, 0, 0)]
+			var uvs := [Vector2(0, t0), Vector2(1, t0), Vector2(1, t1), Vector2(0, t1)]
+			for i in [0, 1, 2, 0, 2, 3]:
+				var ao := lerpf(1.0, 0.7, (uvs[i] as Vector2).y)
+				st.set_normal(Vector3(0, 0.3, 1).normalized())
+				st.set_color(Color(ao, ao, ao))
+				st.set_uv(uvs[i])
+				st.set_uv2(Vector2(0, 0))
+				st.add_vertex(cantos[i])
+	return st.commit()
+
+
+## Cipó com folhas (128 x 512, fundo transparente): 2 a 3 fios ondulados descendo, folhas em coração
+## dos dois lados, mais cheias em cima e rareando até a ponta.
+static func _textura_cipo(semente: int) -> ImageTexture:
+	var w := 128
+	var h := 512
+	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0.1, 0.2, 0.05, 0.0))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = semente
+	var caule := Color(0.22, 0.2, 0.1)
+	for f in 3:
+		var x0 := rng.randf_range(0.3, 0.7) * w
+		var fase := rng.randf() * TAU
+		var amp := rng.randf_range(4.0, 12.0)
+		var fim := int(h * rng.randf_range(0.75, 1.0))
+		for y in fim:
+			var x := x0 + sin(y * 0.03 + fase) * amp
+			for dx in range(-1, 2):
+				var px := int(x) + dx
+				if px >= 0 and px < w:
+					img.set_pixel(px, y, Color(caule.r, caule.g, caule.b, 1.0))
+			# Folhas: mais densas em cima
+			var dens := lerpf(0.22, 0.04, float(y) / fim)
+			if rng.randf() < dens:
+				var lado := -1.0 if rng.randf() < 0.5 else 1.0
+				var tam := rng.randf_range(5.0, 10.0) * lerpf(1.0, 0.6, float(y) / fim)
+				var c := Color(0.04, 0.13, 0.03).lerp(Color(0.18, 0.34, 0.08), rng.randf())
+				var cx := x + lado * tam * 0.8
+				var cy := y + tam * 0.3
+				for dy in range(int(-tam), int(tam) + 1):
+					for dx in range(int(-tam), int(tam) + 1):
+						var u := dx / tam
+						var v := dy / (tam * 1.2)
+						if u * u + v * v <= 1.0:
+							var px := int(cx) + dx
+							var py := int(cy) + dy
+							if px >= 0 and px < w and py >= 0 and py < h:
+								var sombra := 0.8 + 0.2 * (1.0 - u * lado)
+								img.set_pixel(px, py, Color(c.r * sombra, c.g * sombra, c.b * sombra, 1.0))
+	img.generate_mipmaps()
+	return ImageTexture.create_from_image(img)
 
 
 # ------------------------------------------------------------------ gelo (Frozen Peak)

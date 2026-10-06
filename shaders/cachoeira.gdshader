@@ -6,6 +6,7 @@ render_mode cull_disabled, depth_draw_opaque;
 uniform sampler2D ruido : filter_linear_mipmap, repeat_enable;
 uniform vec3 cor_agua : source_color = vec3(0.32, 0.55, 0.52);
 uniform float velocidade = 0.55;
+uniform float opaco = 0.0;   // >0: cortina densa (não se vê o que tem atrás)
 
 void fragment() {
 	vec2 uv = UV;
@@ -17,7 +18,8 @@ void fragment() {
 	borda *= smoothstep(0.0, 0.03, uv.y);
 	float base = smoothstep(0.75, 1.0, uv.y);
 	vec3 cor = mix(cor_agua, vec3(0.95, 0.98, 1.0), clamp(espuma + base * 0.7, 0.0, 1.0));
-	float a = clamp(0.55 + espuma * 0.45, 0.0, 1.0) * borda;
+	float a = clamp(max(0.55 + espuma * 0.45, opaco), 0.0, 1.0) * borda;
+	cor = mix(cor, vec3(0.88, 0.93, 0.95), opaco * 0.55);
 	a *= 0.8 + 0.2 * texture(ruido, vec2(uv.x * 3.0, uv.y * 2.0 - t * 0.7)).r;
 	ALBEDO = cor;
 	ALPHA = a;

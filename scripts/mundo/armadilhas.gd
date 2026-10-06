@@ -19,7 +19,8 @@ var sub: ComplexoSubida
 ## Frozen Peak: as mesmas armadilhas em versão de gelo e aço (martelo de gelo, pingentes que caem,
 ## prensa de gelo, bolas de neve, turbinas de vento) e as placas de gelo fino que quebram.
 var gelo := false
-var _placas: Array = []      # zonas de gelo fino: {corpos, xf, estado, t_ev, area, p0, tan, passo, tempo, volta}
+var _log_placa := OS.get_environment("TSC_PLACA_LOG") != ""
+var _placas: Array = []      # zonas de gelo fino: {corpos, xf, meias, estado, t_ev, centro, raio, p0, tan, passo, tempo, volta}
 var _terreno: Terreno
 var _t := 0.0
 var _passo := 0
@@ -54,6 +55,18 @@ func montar(p_sub: ComplexoSubida, cfg: Dictionary, terreno: Terreno) -> void:
 		_montar_serpente(item, cfg.get("serpente", {}))
 	for item in cfg.get("pedras", []):
 		_montar_pedras(item, cfg.get("pedra", {}))
+	for item in cfg.get("placas", []):   # pedaços de pista que desabam depois que o carro passa (o mesmo gelo fino, em pedra)
+		_montar_placas(item, cfg.get("placa", {}))
+	for item in cfg.get("cuspidoras", []):   # cobras cuspindo veneno de buracos na rocha (CobrasCuspidoras)
+		var cc := CobrasCuspidoras.new()
+		cc.name = "Cuspidoras%d" % get_child_count()
+		add_child(cc)
+		cc.montar(sub, item, cfg.get("cuspidora", {}))
+	for item in cfg.get("quedas", []):   # rochas caindo da montanha (RochasCaindo)
+		var rq := RochasCaindo.new()
+		rq.name = "Quedas%d" % get_child_count()
+		add_child(rq)
+		rq.montar(sub, _terreno, item, cfg.get("queda", {}))
 	for item in cfg.get("jatos", []):
 		_montar_jato(item, cfg.get("jato", {}))
 	_portoes.sort_custom(func(a, b): return a.s < b.s)
@@ -178,6 +191,42 @@ func _montar_lamina(item: Array, cfg: Dictionary) -> void:
 	no.name = "Lamina%d" % _portoes.size()
 	add_child(no)
 	var hp := comp + 0.6   # pivô acima do asfalto
+	if item.size() > 4 and str(item[4]) == "rocha":
+		# Montanha de rocha com túnel, portais e machados pela arte do dono (MontanhaArmadilha). [trecho, m, fase,
+		# período, "rocha", portais extras, passo m, escada s]: os extras ficam antes (passo m cada) e cada machado
+		# balança um pouco antes do seguinte (escadinha, pedido do dono; escada < 0: a onda anda no sentido do
+		# carro, dá para passar a fila toda numa velocidade só).
+		var extras := int(item[5]) if item.size() > 5 else 0
+		var passo := float(item[6]) if item.size() > 6 else 14.0
+		var escada := float(item[7]) if item.size() > 7 else -0.6
+		var idxs: Array = []
+		for k in range(extras, -1, -1):
+			idxs.append(sub.indice_trecho(str(item[0]), float(item[1]) - k * passo))
+		var lista := MontanhaArmadilha.montar(self, no, idxs)
+		for k in lista.size():
+			var m: Dictionary = lista[k]
+			_portoes.append({"tipo": "lamina", "i": m.i, "s": sub.progresso_amostra(m.i), "comp": 1.0, "fase": float(item[2]) + k * escada, "periodo": periodo,
+				"amp": minf(amp, float(m.amp)), "l": m.l, "hp": m.hp, "corpo": m.corpo, "pivo": m.pivo, "base": m.base, "lampadas": m.lampadas, "total": false,
+				"meia_lam": m.meia_lam})
+		if not lista.is_empty():
+			return
+	if item.size() > 4 and str(item[4]) == "fogo":
+		# A mesma montanha com túnel, sem portal nem machado: pares de estátuas que cospem fogo atravessando a
+		# pista (MontanhaArmadilha.montar_fogo), na mesma escadinha dos machados. Só o fogo mata.
+		var extras_f := int(item[5]) if item.size() > 5 else 0
+		var passo_f := float(item[6]) if item.size() > 6 else 14.0
+		var escada_f := float(item[7]) if item.size() > 7 else -0.6
+		var idxs_f: Array = []
+		for k in range(extras_f, -1, -1):
+			idxs_f.append(sub.indice_trecho(str(item[0]), float(item[1]) - k * passo_f))
+		var lista_f := MontanhaArmadilha.montar_fogo(self, no, idxs_f)
+		for k in lista_f.size():
+			var m: Dictionary = lista_f[k]
+			_portoes.append({"tipo": "fogo", "i": m.i, "s": sub.progresso_amostra(m.i) - 2.5, "comp": 5.0, "fase": float(item[2]) + k * escada_f,
+				"periodo": periodo, "ligado": float(cfg.get("fogo_s", 1.3)), "jatos": m.jatos, "luzes": m.luzes, "meia": m.meia,
+				"c": sub.amostra(m.i), "tan": sub.tangente_em(m.i), "lat": sub.lateral_em(m.i), "total": true})
+		if not lista_f.is_empty():
+			return
 	_apoios(no, i, meia + 3.2, 4.0)
 	# Pórtico: dois pilares com friso entalhado, lintel com ameias e discos de ouro e jade
 	var pecas: Array[Transform3D] = []
@@ -266,11 +315,12 @@ func _perigo_lamina(g: Dictionary, lado: int, t: float) -> bool:
 	var th := _angulo_lamina(g, t)
 	var l: float = g.l
 	var xb := l * sin(th)
-	var baixo := 0.6 + l * (1.0 - cos(th)) - absf(sin(th)) * 2.65   # ponta mais baixa da meia-lua inclinada
+	var ml: float = g.get("meia_lam", 2.65)
+	var baixo := 0.6 + l * (1.0 - cos(th)) - absf(sin(th)) * ml   # ponta mais baixa da meia-lua inclinada
 	if baixo > 2.3:
 		return false
 	var xl := FAIXA * (1.0 if lado == 1 else -1.0)
-	return absf(xb - xl) < 2.65 + MEIA_CARRO + 0.3
+	return absf(xb - xl) < ml + MEIA_CARRO + 0.3
 
 
 # ------------------------------------------------------------------ lanças
@@ -790,6 +840,8 @@ func _atualizar() -> void:
 					m.emission = Color(1.0, 0.08, 0.04) if perigo else Color(0.25, 1.0, 0.35)
 				if g.has("esmagador"):
 					_animar_esmagador(g, h, perigo)
+			"fogo":
+				_animar_fogo(g)
 			"jato":
 				var lig := _jato_ligado(g, _t)
 				for p: GPUParticles3D in g.particulas:
@@ -897,6 +949,7 @@ func _perigo(g: Dictionary, lado: int, t: float) -> bool:
 		"lanca": return _perigo_lanca(g, lado, t)
 		"serpente": return _perigo_serpente(g, lado, t)
 		"jato": return _perigo_jato(g, lado, t)
+		"fogo": return _jato_ligado(g, t)   # o fogo dos dois lados fecha a pista toda
 		"placas": return _perigo_placas(g, t)
 		"foca": return _perigo_foca(g, lado, t)
 	return false
@@ -913,7 +966,31 @@ func portao_adiante(i: int, alcance := 150.0) -> Dictionary:
 			continue
 		if falta > alcance:
 			return {}
-		return {"id": g.id, "tipo": g.tipo, "falta": falta, "comp": g.comp, "total": g.total}
+		# Fila (montanha com vários portais): os seguintes a menos de 25 m um do outro, [id, metros depois deste]
+		var fila: Array = []
+		var ult: Dictionary = g
+		for g2: Dictionary in _portoes:
+			if float(g2.s) <= float(ult.s) or g2.tipo != g.tipo or sub.trecho_de(g2.i) != k:
+				continue
+			if float(g2.s) - float(ult.s) > 25.0:
+				break
+			fila.append([g2.id, float(g2.s) - float(g.s)])
+			ult = g2
+		# Velocidade da onda de machados da fila (m por s de atraso entre um e o seguinte): o bot anda nela
+		var onda := 0.0
+		if not fila.is_empty():
+			var g2: Dictionary = _portoes[int(fila[0][0])]
+			var df := absf(float(g2.fase) - float(g.fase))
+			onda = float(fila[0][1]) / df if df > 0.05 else 0.0
+		# Já dentro da fila (passou o portal anterior, a menos de 25 m): segue na onda, sem parar embaixo dos machados
+		var na_fila := false
+		for g0: Dictionary in _portoes:
+			if g0.tipo == g.tipo and sub.trecho_de(g0.i) == k and float(g0.s) < float(g.s) and float(g.s) - float(g0.s) <= 25.0 and float(g0.s) <= s + 1.0:
+				na_fila = true
+				var df0 := absf(float(g.fase) - float(g0.fase))
+				if onda <= 0.0 and df0 > 0.05:
+					onda = (float(g.s) - float(g0.s)) / df0
+		return {"id": g.id, "tipo": g.tipo, "falta": falta, "comp": g.comp, "total": g.total, "fila": fila, "onda": onda, "na_fila": na_fila}
 	return {}
 
 
@@ -1610,14 +1687,27 @@ func _montar_placas(item: Array, cfg: Dictionary) -> void:
 	var no := Node3D.new()
 	no.name = "Placas%d" % _placas.size()
 	add_child(no)
-	var mat := ShaderMaterial.new()
-	mat.shader = load("res://shaders/pista_gelo_vivo.gdshader")
-	mat.set_shader_parameter("ruido", Terreno._textura_ruido(0.05, 3, 3))
-	mat.set_shader_parameter("largura", sub.largura_em(i0))
-	mat.set_shader_parameter("cor_gelo", Color(0.45, 0.78, 0.95))
-	mat.set_shader_parameter("cor_fundo", Color(0.2, 0.5, 0.75))
+	var mat: Material
+	var mat_laje: Material
+	var mat_long: Material
+	if gelo:
+		var mg := ShaderMaterial.new()
+		mg.shader = load("res://shaders/pista_gelo_vivo.gdshader")
+		mg.set_shader_parameter("ruido", Terreno._textura_ruido(0.05, 3, 3))
+		mg.set_shader_parameter("largura", sub.largura_em(i0))
+		mg.set_shader_parameter("cor_gelo", Color(0.45, 0.78, 0.95))
+		mg.set_shader_parameter("cor_fundo", Color(0.2, 0.5, 0.75))
+		mat = mg
+		mat_laje = Gelo.material(Gelo.Mat.GELO)
+		mat_long = Gelo.material(Gelo.Mat.VERMELHO)
+	else:
+		# Selva: lajes de pedra rachada sobre vigas de ouro (pedido do dono: pedaços de pista que caem)
+		mat = Selva.material_pedra(1, 0.8)
+		mat_laje = Selva.material_pedra(2, 1.0)
+		mat_long = _mat_ouro
 	var corpos: Array = []
 	var xfs: Array = []
+	var meias := PackedFloat32Array()   # meia largura de cada placa
 	var longarinas: Array[Transform3D] = []
 	for k in n:
 		var j := sub.indice_adiante(i0, (k + 0.5) * passo)
@@ -1645,30 +1735,23 @@ func _montar_placas(item: Array, cfg: Dictionary) -> void:
 		mi.material_override = mat
 		mi.position = Vector3(0, 0.01, 0)
 		corpo.add_child(mi)
-		_malha(corpo, _caixa(Vector3(larg - 0.1, 0.45, passo - 0.14)), Gelo.material(Gelo.Mat.GELO), Transform3D(Basis.IDENTITY, Vector3(0, -0.24, 0)))
+		_malha(corpo, _caixa(Vector3(larg - 0.1, 0.45, passo - 0.14)), mat_laje, Transform3D(Basis.IDENTITY, Vector3(0, -0.24, 0)))
 		no.add_child(corpo)
 		var xf := Transform3D(bp, sub.amostra(j))
 		corpo.global_transform = xf
 		corpos.append(corpo)
 		xfs.append(xf)
+		meias.append(larg * 0.5)
 		for s: float in [-1.0, 1.0]:
 			longarinas.append(Transform3D(bp * Basis.from_scale(Vector3(0.6, 1.0, passo + 0.05)), sub.amostra(j) + lat * s * (larg * 0.5 - 0.3) - nrm * 1.0))
-	ComplexoLancamento.criar_multimesh(no, longarinas, Gelo.material(Gelo.Mat.VERMELHO))
+	ComplexoLancamento.criar_multimesh(no, longarinas, mat_long)
 	var i_meio := sub.indice_adiante(i0, total * 0.5)
-	var area := Area3D.new()
-	area.collision_layer = 0
-	area.collision_mask = 2
-	area.monitorable = false
-	_forma_caixa(area, Vector3(sub.largura_em(i_meio) + 1.0, 3.0, total))
-	var tm := sub.tangente_em(i_meio)
-	var lm := sub.lateral_em(i_meio)
-	area.transform = Transform3D(Basis(lm, lm.cross(tm).normalized(), -tm), sub.amostra(i_meio) + Vector3.UP * 1.2)
-	no.add_child(area)
 	var estado := PackedInt32Array()
 	estado.resize(n)
 	var t_ev := PackedFloat32Array()
 	t_ev.resize(n)
-	_placas.append({"corpos": corpos, "xf": xfs, "estado": estado, "t_ev": t_ev, "area": area, "p0": sub.amostra(i0), "tan": sub.tangente_em(i0),
+	_placas.append({"corpos": corpos, "xf": xfs, "estado": estado, "t_ev": t_ev, "p0": sub.amostra(i0), "tan": sub.tangente_em(i0), "meias": meias,
+		"centro": sub.amostra(i_meio), "raio": total * 0.5 + 20.0,
 		"passo": passo, "tempo": float(cfg.get("tempo_s", 0.8)), "volta": float(cfg.get("volta_s", 5.0))})
 	_portoes.append({"tipo": "placas", "i": i0, "s": s0, "comp": total, "fase": 0.0, "periodo": 1.0, "total": true, "zona": _placas.size() - 1})
 
@@ -1679,14 +1762,20 @@ func _atualizar_placas() -> void:
 		var estado: PackedInt32Array = z.estado
 		var t_ev: PackedFloat32Array = z.t_ev
 		var n := estado.size()
-		for corpo_v in (z.area as Area3D).get_overlapping_bodies():
-			var v := corpo_v as Veiculo
-			if v == null or v.rodas_no_chao == 0:
+		# Placa embaixo de cada carro (vale em curva também: a zona pode ser uma curva em U)
+		for no_v in get_tree().get_nodes_in_group("veiculo"):
+			var v := no_v as Veiculo
+			if v == null or v.rodas_no_chao == 0 or v.global_position.distance_to(z.centro) > float(z.raio):
 				continue
-			var k := int(floor((v.global_position - (z.p0 as Vector3)).dot(z.tan) / float(z.passo)))
-			if k >= 0 and k < n and estado[k] == 0:
-				estado[k] = 1
-				t_ev[k] = _t + float(z.tempo)
+			for k in n:
+				if estado[k] != 0:
+					continue
+				var q: Vector3 = (z.xf[k] as Transform3D).affine_inverse() * v.global_position
+				if absf(q.z) < float(z.passo) * 0.5 + 0.3 and absf(q.x) < (z.meias as PackedFloat32Array)[k] + 0.5 and q.y > -1.5 and q.y < 3.5:
+					estado[k] = 1
+					t_ev[k] = _t + float(z.tempo)
+					if _log_placa:
+						print("[PLACA] %s rachou a placa %d/%d" % [v.nome_piloto, k, n])
 		for k in n:
 			var corpo: AnimatableBody3D = z.corpos[k]
 			var xf: Transform3D = z.xf[k]
@@ -1714,6 +1803,28 @@ func _atualizar_placas() -> void:
 						corpo.reset_physics_interpolation()
 		z.estado = estado
 		z.t_ev = t_ev
+
+
+## Estátuas que cospem fogo (montanha "fogo"): liga/desliga os jatos e a luz; com o fogo ligado, quem está
+## na faixa dele explode (volta ao checkpoint).
+func _animar_fogo(g: Dictionary) -> void:
+	var lig := _jato_ligado(g, _t)
+	var aviso := _jato_ligado(g, _t + 0.35)   # a luz acende um instante antes: dá para ver chegando
+	for j: GPUParticles3D in g.jatos:
+		if j.emitting != lig:
+			j.emitting = lig
+	for l: OmniLight3D in g.luzes:
+		l.light_energy = 6.0 if lig else (1.2 if aviso else 0.0)
+	if not lig:
+		return
+	var c: Vector3 = g.c
+	for no_v in get_tree().get_nodes_in_group("veiculo"):
+		var v := no_v as Veiculo
+		if v == null or v.eliminado or v.fantasma():
+			continue
+		var d := v.global_position - c
+		if absf(d.dot(g.tan)) < 2.4 and absf(d.dot(g.lat)) < float(g.meia) + 1.0 and absf(d.y) < 4.0:
+			v.eliminar("fogo")
 
 
 ## Alguma placa da zona falta (ou vai faltar) daqui a t segundos?

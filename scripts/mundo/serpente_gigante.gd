@@ -2,9 +2,9 @@ class_name SerpenteGigante
 extends Node3D
 ## Serpente gigante que rasteja pela mata do Serpent's Climb (mapa.subida.selva.serpente_gigante). Só
 ## enfeite: não ataca e não tem colisão.
-## - modelo: assets/selva/cobra_gigante/cobra_gigante.glb, a cobra escaneada da pasta do dono (ver
-##   creditos.txt) desenrolada por tools/serpents_climb/endireitar_cobra.js — reta, cabeça em z = 0
-##   olhando para -Z, barriga em y = 0;
+## - modelo: assets/selva/cobra/cobra.glb, a naja marrom da pasta do dono (ver creditos.txt, CC-BY)
+##   desenrolada pelos próprios ossos (tools/serpents_climb/endireitar_cobra_ossos.gd) — reta, cabeça em
+##   z = 0 olhando para -Z, barriga em y = 0;
 ## - aqui ela ganha um esqueleto (OSSOS ossos em fila, pele presa aos dois ossos vizinhos) e cada osso
 ##   segue a MESMA trilha no chão, um atrás do outro: o corpo passa por onde a cabeça passou, como cobra
 ##   de verdade;
@@ -14,9 +14,10 @@ extends Node3D
 ## (SerpenteBote) e as pequenas dos poços da plataforma montam com montar_pontos (trilha 3D pronta,
 ## fechada ou aberta).
 
-const MODELO := "res://assets/selva/cobra_gigante/cobra_gigante.glb"
+const MODELO := "res://assets/selva/cobra/cobra.glb"
 const OSSOS := 84
-const CABECA := 0.058    # até onde vai a cabeça no modelo (m do escaneamento): não estica com o corpo
+const CABECA := 22.0         # até onde vão a cabeça e o capelo no modelo (unidades dele): não esticam com o corpo
+const LARGURA_CORPO := 6.2   # largura do corpo no modelo (a cabeça é mais larga): `grossura` é a do corpo
 
 static var _malhas := {}   # "comprimento_grossura" -> [ArrayMesh, altura do corpo]
 static var _origem: Mesh   # a malha do .glb como veio
@@ -111,6 +112,7 @@ func montar_pontos(pts: PackedVector3Array, cfg: Dictionary, fechada := true) ->
 	if md.is_empty() or pts.size() < 3:
 		return
 	_alto = md[1]
+	_gross = md[2]
 	_pts = pts
 	var m := pts.size()
 	var n := m + 1 if fechada else m
@@ -137,7 +139,30 @@ func montar_pontos(pts: PackedVector3Array, cfg: Dictionary, fechada := true) ->
 	mi.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # ossos atualizados a cada quadro
 	_esq.add_child(mi)
 	mi.skeleton = NodePath("..")   # sem isto a pele não acha os ossos e não é desenhada
+	_pintar(mi, cfg)
 	_posar()
+
+
+## Cobras de cor (cfg "cor": preta, verde, coral, cascavel): a pele do modelo tingida/desenhada
+## (shaders/cobra_pele.gdshader). Sem "cor", a cor natural do modelo.
+const CORES := {"preta": [Color(0.13, 0.13, 0.15), 0], "verde": [Color(0.75, 1.7, 0.45), 0], "coral": [Color.WHITE, 1], "cascavel": [Color.WHITE, 2]}
+
+func _pintar(mi: MeshInstance3D, cfg: Dictionary) -> void:
+	var cor := str(cfg.get("cor", ""))
+	if not CORES.has(cor):
+		return
+	var orig := mi.mesh.surface_get_material(0) as StandardMaterial3D
+	if orig == null:
+		return
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/cobra_pele.gdshader")
+	mat.set_shader_parameter("pele", orig.albedo_texture)
+	mat.set_shader_parameter("relevo", orig.normal_texture)
+	mat.set_shader_parameter("tinta", CORES[cor][0])
+	mat.set_shader_parameter("desenho", CORES[cor][1])
+	mat.set_shader_parameter("comprimento", _comp)
+	mat.set_shader_parameter("anel", maxf(_gross * 1.6, 1.0))
+	mi.material_override = mat
 
 
 ## Ponto da trilha a `s` m do começo (fechada: dá a volta; aberta: para no fim e segue reta antes do começo).
@@ -202,8 +227,10 @@ func cabeca() -> Array:
 	return [_p[0], (_p[0] - _p[2]).normalized()] if _esq else [Vector3.ZERO, Vector3.FORWARD]
 
 
-## Malha do modelo já no tamanho do jogo e presa aos ossos. O corpo estica até `comp` m; a cabeça
-## cresce por igual com a grossura (senão ficava achatada). Vazio se o modelo não está lá.
+## Malha do modelo já no tamanho do jogo e presa aos ossos. A cobra cresce POR IGUAL até `comp` m: a
+## grossura sai da proporção do modelo (pedido do dono: grossa demais dobrava nas curvas e esticava as
+## escamas). `gross` só vale para a SerpenteCaminho (achatar != 1). Devolve [malha, altura, grossura].
+## Vazio se o modelo não está lá.
 static func _malha(comp: float, gross: float, n_ossos := OSSOS, achatar := 1.0) -> Array:
 	var chave := "%.1f_%.2f_%d_%.2f" % [comp, gross, n_ossos, achatar]
 	if _malhas.has(chave):
@@ -224,8 +251,10 @@ static func _malha(comp: float, gross: float, n_ossos := OSSOS, achatar := 1.0) 
 	if origem == null:
 		return []
 	var caixa := origem.get_aabb()
-	var k := gross / caixa.size.x
-	var kz := (comp - CABECA * k) / (caixa.size.z - CABECA)
+	var k := comp / caixa.size.z
+	if achatar != 1.0:
+		k = gross / LARGURA_CORPO
+	var kz := k if achatar == 1.0 else (comp - CABECA * k) / (caixa.size.z - CABECA)
 	var malha := ArrayMesh.new()
 	for s in origem.get_surface_count():
 		var arr := origem.surface_get_arrays(s)
@@ -266,6 +295,13 @@ static func _malha(comp: float, gross: float, n_ossos := OSSOS, achatar := 1.0) 
 		arr[Mesh.ARRAY_BONES] = ossos
 		arr[Mesh.ARRAY_WEIGHTS] = pesos
 		malha.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
-		malha.surface_set_material(s, origem.surface_get_material(s))
-	_malhas[chave] = [malha, caixa.size.y * k * achatar]
+		var mat := origem.surface_get_material(s)
+		if mat is StandardMaterial3D:
+			# Escamas bem marcadas: relevo mais forte e brilho de pele seca (não de plástico molhado)
+			mat = (mat as StandardMaterial3D).duplicate()
+			mat.normal_scale = 1.8
+			mat.roughness = 1.0
+			mat.metallic_specular = 0.35
+		malha.surface_set_material(s, mat)
+	_malhas[chave] = [malha, caixa.size.y * k * achatar, LARGURA_CORPO * k]
 	return _malhas[chave]

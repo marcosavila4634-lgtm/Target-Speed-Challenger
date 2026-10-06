@@ -15,12 +15,16 @@ uniform float largura_espuma = 0.8;
 uniform vec2 correnteza = vec2(0.012, 0.035);
 
 varying vec3 pos_mundo;
+uniform vec4 buraco = vec4(0.0);   // poço (x, z, raio, ligado): a água não tampa o buraco
 
 void vertex() {
 	pos_mundo = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
 
 void fragment() {
+	if (buraco.w > 0.5 && length(pos_mundo.xz - buraco.xy) < buraco.z) {
+		discard;
+	}
 	vec2 p = pos_mundo.xz;
 	float t = TIME;
 	// Ondas: duas escalas correndo em direções levemente diferentes

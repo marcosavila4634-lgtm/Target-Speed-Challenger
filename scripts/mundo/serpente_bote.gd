@@ -4,13 +4,14 @@ extends SerpenteGigante
 ## serpente gigante; o bote estica o pescoço até o carro e ele explode (volta ao último checkpoint).
 ## - ARENA (cobra 2, selva.cobra_arena): ronda dentro da plataforma dos buracos por uma volta fechada;
 ##   bote no carro que chegar a menos de `alcance` m da cabeça e depois descansa `descanso` s.
-## - TOCA (cobra 3, selva.cobra_toca): mora numa toca da montanha colada na pista; num ciclo fixo
-##   [escondida, saindo, fora, voltando] sai pela laje de pedra, atravessa a estrada (a cabeça passa da
-##   beirada de lá, erguida) e volta. Com a cabeça fora é muito agressiva: bote em quem passar perto e
-##   quem encosta no corpo em cima da pista também explode. O ciclo não muda com o bote: os bots
-##   planejam a passagem (toca_adiante / livre_entre).
+## - TOCA (cobra 3, selva.cobra_toca; pedido do dono 2026-10-05): mora numa toca na montanha colada na
+##   pista, atrás da cachoeira. Fica escondida e só sai quando um carro chega perto: atravessa a água,
+##   abocanha o carro (como o tiranossauro do Extinction Day), balança com ele na boca por `segura_s` s (o
+##   carro explode e volta ao checkpoint), volta para a toca e só pode sair de novo `espera_s` s depois de
+##   entrar. Os bots passam enquanto ela está ocupada, voltando ou esperando (livre_entre).
+##   Acerta em qualquer velocidade (2026-10-06): o bote sai de onde a cabeça estiver e persegue o carro.
 ## Corpo da ARENA sólido (cápsulas que acompanham os ossos: o carro bate e é empurrado; só o bote
-## mata); o da TOCA mata quem encosta. Log: TSC_COBRA_LOG.
+## mata). Log: TSC_COBRA_LOG.
 
 enum Modo { ARENA, TOCA }
 
@@ -31,8 +32,18 @@ var _bote_de := Vector3.ZERO  # deslocamento da cabeça quando o bote acabou (vo
 var _volta_t := -1.0
 var _log := false
 # Toca
-var _ciclo: Array[float] = [3.0, 1.5, 1.6, 2.1]
-var _periodo := 8.2
+enum Toca { ESCONDIDA, SAINDO, FORA, SEGURANDO, VOLTANDO, ESPERA }
+var _estado := Toca.ESCONDIDA
+var _est_t := 0.0
+var _presa: Veiculo
+var _presa_de := Vector3.ZERO
+var _t_sair := 0.9
+var _t_fora := 2.2       # sem ninguém ao alcance, volta depois disto
+var _t_volta := 1.4
+var _segura := 3.0
+var _espera_toca := 2.0
+var _detecta := 40.0     # m da boca da toca em que um carro a faz sair
+var _c_toca := Vector3.ZERO
 var _s_esc := 0.0             # cabeça escondida (m da trilha)
 var _s_boca := 0.0            # boca da toca
 var _s_fora := 0.0            # cabeça no ponto mais longe (passou da beirada de lá)
@@ -72,6 +83,7 @@ func montar_arena(plat: Recinto, cfg: Dictionary) -> void:
 		curva.add_point(q, -(prox - ant) / 6.0, (prox - ant) / 6.0)
 	var pts := curva.get_baked_points()
 	pts.remove_at(pts.size() - 1)
+	pts = _alisar_volta(pts, float(cfg.get("serpenteio_amplitude", 1.6)), float(cfg.get("serpenteio_onda", 22.0)))
 	var c := cfg.duplicate()
 	c["ossos"] = 64
 	c["alcance_visivel"] = 1500.0
@@ -112,6 +124,38 @@ func _mover_corpos() -> void:
 		_corpos[n].global_transform = Transform3D(Basis(lado, eixo, lado.cross(eixo)), centro)
 
 
+## Volta fechada (um ponto a cada ~0,5 m) sem bico: média móvel de ~10 m em várias passadas (os pontos da
+## config fazem curvas fechadas de 2 m, que viravam um "V" quebrado no corpo) e depois o serpenteio de cobra
+## de verdade (onda lateral; o corpo passa por onde a cabeça passou, então ela ondula andando).
+static func _alisar_volta(pts: PackedVector3Array, amp: float, onda: float) -> PackedVector3Array:
+	var m := pts.size()
+	if m < 8:
+		return pts
+	var r := 10
+	for passada in 4:
+		var novo := PackedVector3Array()
+		novo.resize(m)
+		for i in m:
+			var soma := Vector3.ZERO
+			for k in range(-r, r + 1):
+				soma += pts[(i + k + m) % m]
+			novo[i] = soma / float(2 * r + 1)
+		pts = novo
+	var total := 0.0
+	for i in m:
+		total += pts[i].distance_to(pts[(i + 1) % m])
+	var ondas := maxi(roundi(total / maxf(onda, 5.0)), 1)
+	var saida := PackedVector3Array()
+	saida.resize(m)
+	var s := 0.0
+	for i in m:
+		var t := pts[(i + 1) % m] - pts[(i - 1 + m) % m]
+		t = Vector3(t.x, 0.0, t.z).normalized()
+		saida[i] = pts[i] + Vector3(-t.z, 0.0, t.x) * amp * sin(TAU * ondas * s / total)
+		s += pts[i].distance_to(pts[(i + 1) % m])
+	return saida
+
+
 ## Cobra 3: toca na montanha ao lado da pista (cfg: trecho, metros, lado, alem, ciclo).
 func montar_toca(sub: ComplexoSubida, terreno: Terreno, cfg: Dictionary) -> void:
 	name = "CobraToca"
@@ -120,9 +164,12 @@ func montar_toca(sub: ComplexoSubida, terreno: Terreno, cfg: Dictionary) -> void
 	alcance = float(cfg.get("alcance", 14.0))
 	descanso = 0.35
 	_log = OS.get_environment("TSC_COBRA_LOG") != ""
-	var cic: Array = cfg.get("ciclo", _ciclo)
-	_ciclo.assign(cic.map(func(x): return float(x)))
-	_periodo = _ciclo[0] + _ciclo[1] + _ciclo[2] + _ciclo[3]
+	_segura = float(cfg.get("segura_s", 3.0))
+	_espera_toca = float(cfg.get("espera_s", 2.0))
+	_t_sair = float(cfg.get("sair_s", 0.9))
+	_t_fora = float(cfg.get("fora_s", _t_fora))
+	_t_volta = float(cfg.get("volta_s", _t_volta))
+	_detecta = float(cfg.get("detecta", 40.0))
 	i_pista = sub.indice_trecho(str(cfg.get("trecho", "C")), float(cfg.get("metros", 0)))
 	meia_zona = alcance + 3.0
 	var c := sub.amostra(i_pista)
@@ -164,8 +211,17 @@ func montar_toca(sub: ComplexoSubida, terreno: Terreno, cfg: Dictionary) -> void
 	_erguer = 1.6
 	_posar()
 	_montar_toca_pedra(c, n, t, meia, parede, y)
+	_c_toca = c
+	# Cachoeira caindo do alto da montanha na frente da boca da toca (a cobra sai por dentro da água)
+	if bool(cfg.get("cachoeira", false)) and terreno.selva:
+		var lab := c + n * (parede + 3.0)
+		var y_topo := c.y
+		for k in 12:
+			var q := c + n * (parede + 2.0 + k * 3.0)
+			y_topo = maxf(y_topo, terreno.altura_em(q.x, q.z))
+		terreno.selva.cachoeira(self, Vector3(lab.x, y_topo - 3.0, lab.z), -n, parede - meia - 2.0, float(cfg.get("cachoeira_largura", 26.0)), true, y)
 	if OS.get_environment("TSC_SUB_LOG") != "" or _log:
-		print("[COBRA] toca em %s, parede a %.1f m do eixo (meia pista %.1f), sai %.0f m, ciclo %s" % [str(c.snapped(Vector3.ONE)), parede, meia, _s_fora - _s_boca, str(_ciclo)])
+		print("[COBRA] toca em %s, parede a %.1f m do eixo (meia pista %.1f), sai %.0f m, segura %.1f s, espera %.1f s" % [str(c.snapped(Vector3.ONE)), parede, meia, _s_fora - _s_boca, _segura, _espera_toca])
 
 
 ## Boca escura da toca na parede e a laje de pedra (com colisão) da boca até a beirada da pista.
@@ -233,43 +289,107 @@ func _avancar(delta: float) -> void:
 		var lenta := _espera > 0.0 or _bote_t >= 0.0
 		_pos += _vel * (0.35 if lenta else 1.0) * delta
 	else:
-		_pos = _s_cabeca(_relogio)
-		# Fora da toca a cabeça varre a pista de um lado para o outro, procurando quem passa
-		var fora := clampf((_pos - _s_boca) / maxf(_s_fora - _s_boca, 1.0), 0.0, 1.0)
-		var t := _sub.tangente_em(i_pista)
-		_varre = Vector3(t.x, 0.0, t.z).normalized() * 5.0 * fora * sin(_relogio * 2.6)
+		_toca(delta)
 	_atacar(delta)
 	_bote = _varre + _deslocamento_bote()
 
 
-## Onde a cabeça da cobra da toca está na trilha no instante `tempo` (s desde a largada da etapa).
-func _s_cabeca(tempo: float) -> float:
-	var ph := fposmod(tempo, _periodo)
-	if ph < _ciclo[0]:
-		return _s_esc
-	ph -= _ciclo[0]
-	if ph < _ciclo[1]:
-		var u := ph / _ciclo[1]
-		return lerpf(_s_esc, _s_fora, 1.0 - (1.0 - u) * (1.0 - u))   # sai rápido e freia no fim
-	ph -= _ciclo[1]
-	if ph < _ciclo[2]:
-		return _s_fora - 1.5 * (1.0 - cos(ph * 4.0))
-	ph -= _ciclo[2]
-	return lerpf(_s_fora, _s_esc, smoothstep(0.0, 1.0, ph / _ciclo[3]))
+## Máquina da cobra da toca (ver o começo do arquivo).
+func _toca(delta: float) -> void:
+	_est_t += delta
+	var fora := clampf((_pos - _s_boca) / maxf(_s_fora - _s_boca, 1.0), 0.0, 1.0)
+	var t := _sub.tangente_em(i_pista)
+	var ao_longo := Vector3(t.x, 0.0, t.z).normalized()
+	_varre = ao_longo * 4.0 * fora * sin(_relogio * 2.6)
+	match _estado:
+		Toca.ESCONDIDA:
+			_pos = _s_esc
+			if _carro_chegando():
+				_mudar(Toca.SAINDO)
+		Toca.SAINDO:
+			# Bote de susto: arranca de uma vez, passa um pouco do ponto e assenta (sem freio linear)
+			var u := clampf(_est_t / _t_sair, 0.0, 1.0)
+			var c1 := 1.9
+			var e := 1.0 + (c1 + 1.0) * pow(u - 1.0, 3.0) + c1 * pow(u - 1.0, 2.0)
+			_pos = lerpf(_s_esc, _s_fora, e)
+			if u >= 1.0:
+				_mudar(Toca.FORA)
+		Toca.FORA:
+			# Parada em cima da pista, ondulando o pescoço; sem presa, volta logo
+			_pos = _s_fora - 0.8 * (1.0 - cos(_est_t * 7.0)) * exp(-_est_t * 2.0)
+			if _est_t > _t_fora and _bote_t < 0.0:
+				_mudar(Toca.VOLTANDO)
+		Toca.SEGURANDO:
+			_pos = _s_fora
+			# Sacode o carro de um lado para o outro, com a cabeça erguida
+			_varre = ao_longo * 3.5 * sin(_est_t * 14.0) + Vector3.UP * 3.0 * minf(_est_t / 0.4, 1.0)
+			if _est_t >= _segura:
+				if is_instance_valid(_presa) and _presa.preso:
+					if _log:
+						print("[COBRA] %s devorou %s" % [name, _presa.nome_piloto])
+					_presa.devorar()
+				_presa = null
+				_mudar(Toca.VOLTANDO)
+		Toca.VOLTANDO:
+			var u2 := clampf(_est_t / _t_volta, 0.0, 1.0)
+			_pos = lerpf(_s_fora, _s_esc, u2 * u2 * u2 * (u2 * (6.0 * u2 - 15.0) + 10.0))   # recolhe macio
+			if u2 >= 1.0:
+				_mudar(Toca.ESPERA)
+		Toca.ESPERA:
+			_pos = _s_esc
+			if _est_t >= _espera_toca:
+				_mudar(Toca.ESCONDIDA)
 
 
-func _cabeca_fora_em(tempo: float) -> bool:
-	return _s_cabeca(tempo) > _s_boca - 1.5
+func _mudar(e: Toca) -> void:
+	_estado = e
+	_est_t = 0.0
 
 
-## Bots: a cabeça fica dentro da toca entre daqui a t0 e t1 s?
-func livre_entre(t0: float, t1: float) -> bool:
-	var tt := maxf(t0, 0.0)
-	while tt <= t1:
-		if _cabeca_fora_em(_relogio + tt):
+## Algum carro chegando perto da boca da toca (na pista, nos dois sentidos)?
+func _carro_chegando() -> bool:
+	for no in get_tree().get_nodes_in_group("veiculo"):
+		var v := no as Veiculo
+		if v == null or not _pode_morder(v):
+			continue
+		var d := v.global_position - _c_toca
+		var dist := Vector2(d.x, d.z).length()
+		var vel := Vector2(v.linear_velocity.x, v.linear_velocity.z)
+		var chegando := vel.dot(-Vector2(d.x, d.z)) / maxf(dist, 0.1)   # m/s em direção à toca
+		# Sai quando o carro chega em menos de _t_sair + 0,25 s (ou já está a menos de 12 m): pega de surpresa
+		if absf(d.y) < 12.0 and dist < _detecta and (dist < 12.0 or dist < maxf(chegando, 0.0) * (_t_sair + 0.25)):
+			return true
+	return false
+
+
+func _process(delta: float) -> void:
+	super(delta)
+	# O carro vai na boca: atravessado, acompanhando a cabeça (e o chacoalhão)
+	if modo == Modo.TOCA and _estado == Toca.SEGURANDO and is_instance_valid(_presa) and _presa.preso:
+		var cab := _p[0]
+		var rumo := (_p[0] - _p[3]).normalized()
+		var lado := Vector3.UP.cross(rumo).normalized()
+		var alvo := Transform3D(Basis(rumo, Vector3.UP, -lado).orthonormalized(), cab + rumo * 1.2 - Vector3.UP * 0.6)
+		var u := clampf(_est_t / 0.15, 0.0, 1.0)
+		_presa.global_transform = Transform3D(alvo.basis, _presa_de.lerp(alvo.origin, u))
+		_presa.reset_physics_interpolation()
+
+
+## Bots: a cabeça não alcança a pista entre daqui a t0 e t1 s? Ela só sai quando alguém chega perto e
+## leva _t_sair s para atravessar: dá para passar enquanto ela está segurando outro carro, voltando ou
+## esperando.
+func livre_entre(t0: float, t1: float, chegada := 0.0) -> bool:
+	var pronta := 0.0
+	match _estado:
+		Toca.SAINDO, Toca.FORA:
 			return false
-		tt += 0.05
-	return true
+		Toca.SEGURANDO:
+			pronta = (_segura - _est_t) + _t_volta + _espera_toca
+		Toca.VOLTANDO:
+			pronta = (_t_volta - _est_t) + _espera_toca
+		Toca.ESPERA:
+			pronta = _espera_toca - _est_t
+	return t1 < pronta + _t_sair * 0.8 and t0 >= -0.5
 
 
 ## Cobra da toca à frente da amostra `i` (até `alcance_m` m): {falta (m até a zona), comp (m da zona), cobra}.
@@ -289,7 +409,8 @@ func _deslocamento_bote() -> Vector3:
 	if _bote_t >= 0.0 and is_instance_valid(_bote_alvo):
 		var u := clampf(_bote_t / _bote_dur, 0.0, 1.0)
 		var base := _cabeca_sem_bote()
-		var para := (_bote_alvo.global_position + Vector3.UP * 0.8 - base).limit_length(alcance + 3.0)
+		# A da toca persegue o carro até onde ele estiver (acerta rápido ou devagar; pedido do dono 2026-10-06)
+		var para := (_bote_alvo.global_position + Vector3.UP * 0.8 - base).limit_length(alcance + 3.0 if modo == Modo.ARENA else 90.0)
 		return para * (u * u * (3.0 - 2.0 * u))
 	if _volta_t >= 0.0:
 		return _bote_de * (1.0 - smoothstep(0.0, 1.0, _volta_t / BOTE_VOLTA_S))
@@ -310,21 +431,32 @@ func _atacar(delta: float) -> void:
 		if not is_instance_valid(_bote_alvo) or _bote_alvo.eliminado or _bote_alvo.fantasma():
 			_fim_bote(false)
 		elif _bote_t >= _bote_dur:
-			var acertou := _bote_alvo.global_position.distance_to(_cabeca_sem_bote()) < alcance + 6.0
+			var acertou := _bote_alvo.global_position.distance_to(_cabeca_sem_bote()) < alcance + 6.0 or modo == Modo.TOCA
+			if acertou and modo == Modo.TOCA:
+				# Abocanha: o carro fica na boca, ela sacode e só depois ele explode (_toca)
+				if _log:
+					print("[COBRA] %s abocanhou %s" % [name, _bote_alvo.nome_piloto])
+				_presa = _bote_alvo
+				_presa_de = _presa.global_position
+				_presa.agarrar()
+				_bote_de = _deslocamento_bote()
+				_bote_t = -1.0
+				_bote_alvo = null
+				_volta_t = 0.0
+				_mudar(Toca.SEGURANDO)
+				return
 			if acertou:
 				if _log:
 					print("[COBRA] %s mordeu %s" % [name, _bote_alvo.nome_piloto])
 				_bote_alvo.eliminar("cobra")
 			_fim_bote(acertou)
 		return
-	if modo == Modo.TOCA:
-		_esmagar()
 	if _espera > 0.0:
 		_espera -= delta
 		return
-	if modo == Modo.TOCA and _pos < _s_boca + 1.0:
-		return   # escondida ou ainda na boca da toca
-	var cab := _cabeca_sem_bote()
+	if modo == Modo.TOCA and not _estado in [Toca.SAINDO, Toca.FORA, Toca.VOLTANDO]:
+		return
+	var cab := _cabeca_sem_bote() if modo == Modo.ARENA else _c_toca   # a da toca dá o bote em quem passa na frente dela
 	var melhor: Veiculo = null
 	var melhor_d := alcance
 	for no in get_tree().get_nodes_in_group("veiculo"):
@@ -345,7 +477,7 @@ func _atacar(delta: float) -> void:
 
 
 func _pode_morder(v: Veiculo) -> bool:
-	return not v.eliminado and not v.fantasma() and v.visible and v.na_largada
+	return not v.eliminado and not v.fantasma() and v.visible and v.na_largada and not v.preso
 
 
 func _fim_bote(acertou: bool) -> void:
@@ -354,24 +486,3 @@ func _fim_bote(acertou: bool) -> void:
 	_bote_alvo = null
 	_volta_t = 0.0
 	_espera = descanso if acertou or modo == Modo.TOCA else 0.8
-
-
-## Cobra da toca: o corpo atravessado na pista também mata quem encosta.
-func _esmagar() -> void:
-	if _pos < _s_boca:
-		return
-	var raio := _gross * 0.5 + 1.6
-	for no in get_tree().get_nodes_in_group("veiculo"):
-		var v := no as Veiculo
-		if v == null or not _pode_morder(v):
-			continue
-		var p := v.global_position
-		for k in range(0, _ossos, 2):
-			if _pos - _z[k] < _s_boca:
-				break   # daqui para trás está dentro da toca
-			var q := _p[k]
-			if absf(p.y - q.y) < _alto + 1.5 and Vector2(p.x - q.x, p.z - q.z).length() < raio:
-				if _log:
-					print("[COBRA] %s esmagou %s" % [name, v.nome_piloto])
-				v.eliminar("cobra")
-				break

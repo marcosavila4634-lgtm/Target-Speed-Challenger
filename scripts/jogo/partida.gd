@@ -46,6 +46,7 @@ var _impacto: ImpactoMeteoro
 
 func _ready() -> void:
 	_rng.randomize()
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms  partida inicio" % Time.get_ticks_msec())
 	# (capturas de conferência com TSC_FOTOS não são partidas: não gravam)
 	if bool(Config.valor("partida.gravar", true)) and (not Sessao.teste_automatico or OS.get_environment("TSC_GRAVAR") != "") and OS.get_environment("TSC_FOTOS") == "":
 		gravador = Gravador.new()
@@ -70,15 +71,22 @@ func _ready() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	await _construir_mundo()
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms  mundo construido" % Time.get_ticks_msec())
 	await _criar_participantes()
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms  participantes" % Time.get_ticks_msec())
 	var som_ambiente := SomAmbiente.new()
 	add_child(som_ambiente)
 	som_ambiente.montar(complexos)
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms  som ambiente" % Time.get_ticks_msec())
+	_preparar_cenario(_etapa_inicial())
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms  cenario da etapa" % Time.get_ticks_msec())
+	await _passo_carga(1.0)
 	await hud.esconder_carregando()
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms  tela de carga escondida" % Time.get_ticks_msec())
 	if Sessao.teste_automatico:
 		Engine.time_scale = float(OS.get_environment("TSC_VELOCIDADE")) if OS.get_environment("TSC_VELOCIDADE") != "" else 4.0
-	# TSC_ETAPA=N: começa direto na etapa N (conferência de etapas)
-	_iniciar_etapa(clampi(int(OS.get_environment("TSC_ETAPA")) - 1, 0, total_etapas - 1) if OS.get_environment("TSC_ETAPA") != "" else _primeira_etapa())
+	_iniciar_etapa(_etapa_inicial())
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms  etapa iniciada" % Time.get_ticks_msec())
 	if OS.get_environment("TSC_MALHAS") != "":
 		_censo_malhas()
 	if OS.get_environment("TSC_FOTO_FINAL") != "":
@@ -166,6 +174,7 @@ func _construir_mundo() -> void:
 	terreno.name = "Terreno"
 	add_child(terreno)
 	terreno.gerar(perfil)
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms  terreno.gerar" % Time.get_ticks_msec())
 	await _passo_carga(0.45)
 	equipes_qtd = clampi(int(Config.valor("partida.equipes", 4)), 2, 4)
 	if Config.mapa_tipo() == "subida":
@@ -177,6 +186,7 @@ func _construir_mundo() -> void:
 			e0 = int(OS.get_environment("TSC_ETAPA")) - 1
 		ComplexoSubida.etapa_percurso = maxi(e0, 0)   # Serpent's Climb: cada etapa tem o seu percurso
 		sub.montar(0, perfil, terreno)
+		if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms  complexo subida" % Time.get_ticks_msec())
 		complexos.append(sub)
 		await _passo_carga(0.65)
 	elif Config.mapa_arena():
@@ -197,6 +207,7 @@ func _construir_mundo() -> void:
 	alvo.terreno = terreno
 	alvo.name = "Alvo"
 	add_child(alvo)
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms  alvo" % Time.get_ticks_msec())
 	await _passo_carga(0.7)
 	camera = CameraJogo.new()
 	camera.terreno = terreno
@@ -250,7 +261,7 @@ func _criar_participantes() -> void:
 			v.complexo = complexos[mini(e, complexos.size() - 1)]
 			v.freeze = true   # parado até preparar() na largada (a tela desenha entre os passos da carga)
 			add_child(v)
-			await _passo_carga(0.7 + 0.28 * float(e * por_equipe + k + 1) / (equipes_qtd * por_equipe))
+			await _passo_carga(0.7 + 0.18 * float(e * por_equipe + k + 1) / (equipes_qtd * por_equipe))
 			var controle: Node
 			if eh_jogador and not Sessao.teste_automatico:
 				var cj := ControleJogador.new()
@@ -306,10 +317,30 @@ func _cfg_etapa() -> Dictionary:
 	return etapas_cfg[mini(etapa_idx, etapas_cfg.size() - 1)]
 
 
+## TSC_ETAPA=N: começa direto na etapa N (conferência de etapas)
+func _etapa_inicial() -> int:
+	return clampi(int(OS.get_environment("TSC_ETAPA")) - 1, 0, total_etapas - 1) if OS.get_environment("TSC_ETAPA") != "" else _primeira_etapa()
+
+
 func _iniciar_etapa(indice: int) -> void:
 	_evento("troca de etapa")
 	etapa_idx = indice
 	Audio.musica_etapa(Config.mapa_id, indice + 1)
+	if _cenario_pronto != indice:
+		_preparar_cenario(indice)
+	_cenario_pronto = -1
+	_semaforos(0)
+	_iniciar_etapa_participantes()
+
+
+## Cenário da etapa: terreno, complexo, mapa temático (selva, gelo, ...) e alvo. Na primeira etapa roda antes
+## da tela de carga sumir (no Serpent's Climb são vários segundos: rochas, mata, serpentes); nas trocas, no
+## começo de _iniciar_etapa.
+var _cenario_pronto := -1
+
+func _preparar_cenario(indice: int) -> void:
+	etapa_idx = indice
+	_cenario_pronto = indice
 	terreno.preparar_etapa(indice)  # Canyon Combat: esporões do vale mudam a cada etapa
 	if complexos[0].has_method("preparar_etapa"):
 		complexos[0].preparar_etapa(indice)   # Climb to Death: túnel-atalho da etapa
@@ -329,7 +360,10 @@ func _iniciar_etapa(indice: int) -> void:
 	alvo.configurar(_cfg_etapa())
 	if terreno.selva and complexos[0] is ComplexoSubida:
 		terreno.selva.montar_serpente_caminho(indice, complexos[0], alvo)   # Serpent's Climb E1: serpente colossal até o ninho (o alvo)
-	_semaforos(0)
+
+
+func _iniciar_etapa_participantes() -> void:
+	var indice := etapa_idx
 	# Arena e Climb to Death: vagas sorteadas a cada etapa entre todos, equipes misturadas
 	var vagas_arena := {}
 	var arena = complexos[0] if complexos[0].has_method("sortear_vagas") else null
@@ -1132,7 +1166,9 @@ func _avisar_gelo() -> void:
 	_gelado = gelado
 	var inv := not v.eliminado and v.direcao_invertida()
 	if inv and not _invertido:
-		if v.com_ovo():
+		if v.com_veneno():
+			hud.mensagem("VENENO — DIREÇÃO INVERTIDA!", Color(0.8, 1.0, 0.6), 2.5)
+		elif v.com_ovo():
 			hud.mensagem("OVO NO CARRO — ESCORREGANDO E DIREÇÃO INVERTIDA!", Color(1.0, 0.85, 0.3), 2.5)
 		else:
 			hud.mensagem("YETI NO TETO — DIREÇÃO INVERTIDA!", Color(0.75, 0.9, 1.0), 2.5)
@@ -1168,7 +1204,7 @@ func _ao_ressurgir(v: Veiculo) -> void:
 	if controle is PilotoBot:
 		controle.ao_ressurgir()
 	if Sessao.teste_automatico:
-		print("[CP] %s ressurgiu no checkpoint %d (quedas %d) t=%.1f" % [v.nome_piloto, v.checkpoint + 1, int(v.telemetria.get("quedas", 0)), v.relogio])
+		print("[CP] %s ressurgiu no checkpoint %d (quedas %d) t=%.1f motivo=%s em %s" % [v.nome_piloto, v.checkpoint + 1, int(v.telemetria.get("quedas", 0)), v.relogio, str(v.telemetria.get("motivo", "-")), str(v.telemetria.get("pos_eliminado", "-"))])
 	if v == jogador.veiculo:
 		camera.seguir(v, true)
 		var onde := "DE VOLTA NO CHECKPOINT %d" % (v.checkpoint + 1) if v.checkpoint >= 0 else "DE VOLTA NA LARGADA"
@@ -1365,10 +1401,63 @@ func _vista_debug(vista: String) -> void:
 					"selva_caminho_ninho": camera.podio(alvo.centro_base, alvo.centro_base + Vector3(70, 35, -60))
 					_: camera.podio(pc + Vector3.UP * 2.0, pc + rc * 30.0 + lc * 18.0 + Vector3.UP * 10.0)
 			return
+		if vista.begins_with("selva_livre"):
+			# Qualquer ponto: TSC_CAM_DE="x,y,z" (câmera) e TSC_CAM_PARA_N="x,y,z" (alvo da foto selva_livreN)
+			var de := OS.get_environment("TSC_CAM_DE").split(",")
+			var para := OS.get_environment("TSC_CAM_PARA_" + vista.trim_prefix("selva_livre")).split(",")
+			if de.size() == 3 and para.size() == 3:
+				camera.podio(Vector3(float(para[0]), float(para[1]), float(para[2])), Vector3(float(de[0]), float(de[1]), float(de[2])))
+			return
+		if vista.begins_with("selva_montanha"):
+			# Montanha da armadilha (MontanhaArmadilha): _frente/_costas = de fora em cada boca, _dentro = dentro do túnel,
+			# _alto = de cima e de lado
+			var mts := get_tree().get_nodes_in_group("montanha_armadilha")   # TSC_MONTANHA=N escolhe (1 = a primeira)
+			var mt := mts[clampi(int(OS.get_environment("TSC_MONTANHA")) - 1, 0, mts.size() - 1)] as Node3D if not mts.is_empty() else null
+			if mt:
+				var bocas: Array = mt.get_meta("bocas")
+				var bk: Array = bocas[1] if vista.contains("costas") else bocas[0]
+				var pb: Vector3 = bk[0]
+				var dd := Vector3(bk[1].x, 0.0, bk[1].z).normalized()
+				var ld := dd.cross(Vector3.UP)
+				if vista.ends_with("_dentro"):
+					camera.podio(pb + dd * 40.0 + Vector3.UP * 6.0, pb - dd * 6.0 + Vector3.UP * 5.0)
+				if vista.contains("_ponto"):   # TSC_CAM_PONTO="x,y,z": daquele ponto, olhando o pé da boca mais perto
+					var xyz := OS.get_environment("TSC_CAM_PONTO").split(",")
+					var cp := Vector3(float(xyz[0]), float(xyz[1]), float(xyz[2]))
+					var perto: Array = bocas[0] if cp.distance_to(bocas[0][0]) < cp.distance_to(bocas[1][0]) else bocas[1]
+					camera.podio((perto[0] as Vector3) + Vector3.DOWN * 1.5, cp)
+				elif vista.ends_with("_tunel"):   # na pista, já dentro do túnel, olhando a fila de machados
+					camera.podio(pb + dd * 70.0 + Vector3.UP * 6.0, pb + dd * 4.0 + Vector3.UP * 3.5)
+				elif vista.ends_with("_baixo"):   # embaixo da boca, olhando a junta do chão do túnel com a rocha
+					camera.podio(pb + Vector3.DOWN * 2.0, pb - dd * 22.0 + ld * 8.0 + Vector3.DOWN * 9.0)
+				elif vista.ends_with("_alto"):
+					camera.podio(pb + dd * 15.0 + Vector3.UP * 40.0, pb - dd * 160.0 + ld * 140.0 + Vector3.UP * 110.0)
+				else:
+					camera.podio(pb + dd * 10.0 + Vector3.UP * 30.0, pb - dd * 110.0 + ld * 25.0 + Vector3.UP * 25.0)
+			return
+		if vista.begins_with("selva_cachoeira_toca"):
+			# Cachoeira na frente da toca da cobra 3 (E1): da pista (selva_cachoeira_toca) ou de perto (_perto)
+			for c: SerpenteBote in SerpenteBote.ativas:
+				var cq := c.get_node_or_null("Cachoeira") as Node3D
+				if cq:
+					var o := Vector3(cq.global_position.x, c._c_toca.y, cq.global_position.z)
+					var f := cq.global_basis.z
+					var l := cq.global_basis.x
+					if vista.ends_with("_perto"):
+						camera.podio(o + f * 12.0 + Vector3.UP * 10.0, o + f * 50.0 + l * 14.0 + Vector3.UP * 5.0)
+					else:
+						camera.podio(o + f * 10.0 + Vector3.UP * 25.0, o + f * 120.0 + l * 60.0 + Vector3.UP * 25.0)
+			return
 		if vista.begins_with("selva_cobra"):
 			# Serpente gigante da etapa: de perto, pela frente (selva_cobra), de lado (selva_cobra_lado)
 			# ou a trilha toda de cima (selva_cobra_alto). TSC_SERPENTE_S escolhe onde ela começa.
 			var cobra := terreno.selva.get_node_or_null("Etapa/SerpenteGigante") as SerpenteGigante
+			if vista.begins_with("selva_cobra_arena"):   # a cobra 2 (plataforma dos buracos)
+				cobra = null
+				for c: SerpenteBote in SerpenteBote.ativas:
+					if c.modo == SerpenteBote.Modo.ARENA:
+						cobra = c
+				vista = vista.replace("_arena", "")
 			if cobra:
 				var cb := cobra.cabeca()
 				var p0: Vector3 = cb[0]
