@@ -696,7 +696,8 @@ func _montar_jato(item: Array, cfg: Dictionary) -> void:
 	var lado := float(item[2])                       # de que lado fica a boca (+1 = direita)
 	var fase := float(item[3]) if item.size() > 3 else 0.0
 	var periodo := float(item[4]) if item.size() > 4 else float(cfg.get("periodo", 5.0))
-	var comp := float(cfg.get("comprimento", 14.0))
+	# As três bocas da arte cobrem ~17 m de pista (MuroSerpentes.ALCANCE)
+	var comp := maxf(float(cfg.get("comprimento", 14.0)), MuroSerpentes.ALCANCE)
 	var i_meio := sub.indice_adiante(i, comp * 0.5)
 	var c := sub.amostra(i_meio)
 	var b := _base(i_meio)
@@ -706,25 +707,17 @@ func _montar_jato(item: Array, cfg: Dictionary) -> void:
 	no.name = "Jato%d" % _portoes.size()
 	add_child(no)
 	_apoios(no, i_meio, meia + 2.4, comp)
-	# Paredão de pedra com 3 cabeças de serpente cuspindo água para dentro da estrada
-	var pecas: Array[Transform3D] = []
-	pecas.append(Transform3D(b * Basis.from_scale(Vector3(3.0, 7.0, comp + 2.0)), c + lat * lado * (meia + 1.6) + Vector3.UP * 3.5))
-	ComplexoLancamento.criar_multimesh(no, pecas, Selva.material_pedra(2, 1.2))
 	var est := StaticBody3D.new()
 	est.collision_layer = 1
 	est.collision_mask = 0
 	est.add_to_group("estrutura")
 	no.add_child(est)
-	ComplexoLancamento.adicionar_colisoes(est, pecas)
+	# Muro das três cabeças de serpente (a arte do dono em relevo, MuroSerpentes) com a boca virada para a pista
+	var muro := _muro_serpentes(no, est, i_meio, lado)
 	var particulas: Array = []
-	for k in 3:
-		var z := (k - 1) * comp * 0.33
-		var boca := c + lat * lado * (meia + 0.2) + Vector3.UP * 2.2 + b.z * z
-		var cab := Selva.cabeca_serpente(1.6)
-		cab.transform = Transform3D(Basis.looking_at(-lat * lado, Vector3.UP), boca)
-		no.add_child(cab)
-		var p := _particulas_jato(-lat * lado, meia * 2.0 + 4.0)
-		p.position = boca - lat * lado * 0.8
+	for boca: Vector3 in muro.bocas:
+		var p := _particulas_jato(muro.frente + Vector3.DOWN * 0.18, meia * 2.0 + 4.0)
+		p.position = boca
 		no.add_child(p)
 		particulas.append(p)
 	var area := Area3D.new()
@@ -737,6 +730,46 @@ func _montar_jato(item: Array, cfg: Dictionary) -> void:
 	_jatos.append({"area": area, "dir": -lat * lado, "forca": float(cfg.get("forca", 16.0))})
 	_portoes.append({"tipo": "jato", "i": i, "s": sub.progresso_amostra(i), "comp": comp, "fase": fase, "periodo": periodo,
 		"ligado": float(cfg.get("ligado_s", 1.8)), "jato": _jatos.size() - 1, "particulas": particulas, "total": true})
+
+
+## Muro das cabeças ao lado da amostra i_meio, do lado `lado`. A estrada pode fazer curva: o muro (reto, 22 m)
+## recua até nenhum ponto da beira da pista ficar a menos de FOLGA_PISTA do focinho (perto das cabeças) ou da
+## face (nas pontas). Fundação até o chão mais baixo embaixo dele; calçada da face até a beira da pista.
+func _muro_serpentes(no: Node3D, est: StaticBody3D, i_meio: int, lado: float) -> MuroSerpentes:
+	var c := sub.amostra(i_meio)
+	var lat := sub.lateral_em(i_meio)
+	var meia := sub.largura_em(i_meio) * 0.5
+	var med := MuroSerpentes.medidas()
+	var comp: float = med[0]
+	var esp: float = med[1]
+	var focinho: float = med[2]
+	var z := Vector3(-lat.x * lado, 0.0, -lat.z * lado).normalized()   # para a pista
+	var x := Vector3.UP.cross(z).normalized()
+	var origem := c - z * (meia + MuroSerpentes.FOLGA_PISTA + focinho + esp * 0.5)
+	# Recuo pela curva: a beira da pista em coordenadas do muro
+	var recuo := 0.0
+	for j in range(maxi(i_meio - 40, 0), mini(i_meio + 41, sub.total_amostras())):
+		if sub.trecho_de(j) != sub.trecho_de(i_meio):
+			continue
+		var beira := sub.amostra(j) - z * sub.largura_em(j) * 0.5
+		var d := beira - origem
+		var ax := absf(d.dot(x))
+		if ax > comp * 0.5 + 1.0:
+			continue
+		var precisa := esp * 0.5 + MuroSerpentes.FOLGA_PISTA + (focinho if ax < comp * 0.4 else 0.0)
+		recuo = maxf(recuo, precisa - d.dot(z))
+	origem -= z * recuo
+	var chao := INF
+	for sx: float in [-0.5, 0.0, 0.5]:
+		for sz: float in [-0.5, 0.5]:
+			var q := origem + x * comp * sx + z * esp * sz
+			chao = minf(chao, _terreno.altura_em(q.x, q.z))
+	var muro := MuroSerpentes.new()
+	no.add_child(muro)
+	muro.montar(Transform3D(Basis(x, Vector3.UP, z), origem), chao, focinho + MuroSerpentes.FOLGA_PISTA + recuo, est)
+	if OS.get_environment("TSC_SUB_LOG") != "":
+		print("[JATO] muro em %s, frente %s, recuo %.1f m, fundação %.0f m" % [str(origem.snapped(Vector3.ONE)), str(z.snapped(Vector3.ONE * 0.01)), recuo, origem.y - chao])
+	return muro
 
 
 func _particulas_jato(dir: Vector3, alcance: float) -> GPUParticles3D:
