@@ -316,7 +316,7 @@ const percurso = {
     serpentes: [['B', mB(V(-500, 490)), 0], ['C', mC(V(707, 230)), 1.5]],
     serpente: { periodo: 5.6, fecha_s: 0.4, fechada_s: 1.3, abre_s: 1.1 },
     jatos: [['C', TOCA_M - 120, 1, 0], ['C', mC(V(-1512, -420)), -1, 1.5]],   // [trecho, m, lado, fase]
-    jato: { periodo: 4, ligado_s: 1.6, forca: 16 },
+    jato: { periodo: 4, ligado_s: 1.6, forca: 32 },   // força dobrada (pedido do dono 2026-10-06)
     placas: [['A', mA(V(-1680, 420)), mA(V(-1680, 420)) + 60], ['B', mB(V(-420, 440)), mB(V(-420, 440)) + 50], ['C', placasE[0], placasE[1]]],
     placa: { comprimento: 4, tempo_s: 0.9, volta_s: 6, aderencia: 0.9 },
     cuspidoras: [['C', CUSP[0], CUSP[1], 9]],

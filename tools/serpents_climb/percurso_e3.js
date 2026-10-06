@@ -52,7 +52,7 @@ gerar({
         serpentes: [['C', c.m('C', V(-983, -850)), 0], ['C', c.m('C', V(-1243, -577)), 2.5]],
         serpente: { periodo: 5.2, fecha_s: 0.35, fechada_s: 1.4, abre_s: 1.0 },
         jatos: [['A', c.m('A', V(638, 468)), 1, 0], ['C', c.m('C', V(-291, 288)), -1, 1.2], ['C', c.m('C', V(-1752, 514)), 1, 2.4]],
-        jato: { periodo: 3.8, ligado_s: 1.7, forca: 18 },
+        jato: { periodo: 3.8, ligado_s: 1.7, forca: 36 },   // força dobrada (pedido do dono 2026-10-06)
         placas, placa: { comprimento: 4, tempo_s: 0.8, volta_s: 6, aderencia: 0.9 },
         cuspidoras: [['A', ...cusp1, 8], ['C', ...cusp2, 8]],
         cuspidora: { alcance: 65, veneno_s: 3.5, intervalo: [4.0, 8.0], altura_cabeca: 5.0, erro_m: 4.5 },
