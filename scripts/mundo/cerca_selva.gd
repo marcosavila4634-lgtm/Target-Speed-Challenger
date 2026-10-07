@@ -15,7 +15,8 @@ extends RefCounted
 const ARTE := "res://assets/selva/cerca/cerca.png"
 const CHAO_PX := 826.0
 const TRAVESSA_PX := 276.0     # alto da travessa da grade
-const CEL := 4.0               # px da arte por célula do relevo
+const CEL := 6.0               # px da arte por célula do relevo (~3 cm). Era 4: cada pilar tinha 66 mil triângulos e a cerca
+                               # inteira 5,8 milhões, redesenhados nas passadas de sombra — o ponto mais pesado do mapa
 # Regiões da arte (px): fuste e plinto do pilar do meio, taça, painel de grade, pedra lisa para as tampas
 const FUSTE := Rect2(765, 205, 150, 530)
 const PLINTO := Rect2(732, 735, 208, 91)

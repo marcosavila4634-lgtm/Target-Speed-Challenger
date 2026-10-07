@@ -8,7 +8,7 @@ extends RefCounted
 ## em relevo, descascados, líquen, musgo); a malha também tem relevo de verdade (sulcos e nós).
 
 const PASSO := 1.6   # m de casca por repetição do UV (o mesmo valor do shader)
-const VERSAO := 1    # subir quando a árvore mudar (as prontas ficam em user://cache)
+const VERSAO := 3    # subir quando a árvore mudar (as prontas ficam em user://cache)
 
 static var _shader: Shader
 static var _nv := 0   # vértices já postos no SurfaceTool do tronco (índices do próximo tubo)
@@ -149,7 +149,7 @@ static func criar(pai: Node3D, pe: Vector3, rumo: Vector3, poleiro_y: float, alc
 	st.generate_tangents()
 	var mi := MeshInstance3D.new()
 	mi.name = "Casca"
-	mi.mesh = st.commit()
+	mi.mesh = st.commit()   # (sem LOD gerado em tempo de execução: em outras malhas derrubou o driver da placa do dono, ver ComplexoSubida._sumico_de_longe)
 	var mat := ShaderMaterial.new()
 	if _shader == null:
 		_shader = load("res://shaders/arvore_seca.gdshader")

@@ -711,6 +711,9 @@ var _tuneis_pista: TunelPista
 ## triângulos delas de qualquer distância): pilares e grades das cercas dos recintos e as peças dos portais das
 ## armadilhas (a montanha em si continua aparecendo). A 1200 m elas são menores que um pixel.
 func _sumico_de_longe() -> void:
+	# (Níveis de detalhe gerados em tempo de execução para essas malhas — ImporterMesh.generate_lods — foram testados em
+	# 2026-10-07 e NÃO ficaram: em fotos paradas a placa aliviava, mas passando de carro pela plataforma do
+	# Serpent's Climb o driver da RX 5700 XT caiu em 6 de 10 passagens com eles e a GPU em movimento não melhorou.)
 	for r: Node in [largada, plataforma]:
 		if r == null:
 			continue

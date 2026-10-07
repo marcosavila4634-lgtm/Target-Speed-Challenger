@@ -89,6 +89,27 @@ func _ready() -> void:
 	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms  etapa iniciada" % Time.get_ticks_msec())
 	if OS.get_environment("TSC_MALHAS") != "":
 		_censo_malhas()
+	# Diagnóstico: TSC_PERTO_DE="x,y,z,raio" lista os nós visuais a menos de raio m do ponto (o que há num lugar)
+	if OS.get_environment("TSC_PERTO_DE") != "":
+		var pd := OS.get_environment("TSC_PERTO_DE").split_floats(",")
+		var centro_pd := Vector3(pd[0], pd[1], pd[2])
+		for n_pd in find_children("*", "VisualInstance3D", true, false):
+			var vi := n_pd as VisualInstance3D
+			var caixa_pd := vi.global_transform * vi.get_aabb()
+			if caixa_pd.grow(pd[3]).has_point(centro_pd) and caixa_pd.size.length() < 400.0:
+				var mat_pd := ""
+				if vi is GeometryInstance3D and (vi as GeometryInstance3D).material_override is ShaderMaterial:
+					mat_pd = ((vi as GeometryInstance3D).material_override as ShaderMaterial).shader.resource_path.get_file()
+				print("[PERTO] %-22s %-70s tam %5.1f %s %s" % [vi.get_class(), str(get_path_to(vi)).right(70), caixa_pd.size.length(), mat_pd,
+					("amount=%d" % (vi as GPUParticles3D).amount) if vi is GPUParticles3D else ""])
+	# Diagnóstico: TSC_OCULTAR="Rochas,Plataforma100,tipo:MultiMeshInstance3D" esconde os nós com esses nomes (ou desse
+	# tipo) para medir quanto cada parte da cena custa na placa de vídeo ([PLACA] com TSC_TRAVADAS=1)
+	for alvo_o in OS.get_environment("TSC_OCULTAR").split(",", false):
+		var achados := find_children("*", alvo_o.trim_prefix("tipo:"), true, false) if alvo_o.begins_with("tipo:") else find_children(alvo_o, "", true, false)
+		for n_o in achados:
+			if n_o is Node3D:
+				(n_o as Node3D).visible = false
+		print("[OCULTAR] %s: %d nós" % [alvo_o, achados.size()])
 	if OS.get_environment("TSC_FOTO_FINAL") != "":
 		_foto_final(OS.get_environment("TSC_FOTO_FINAL"))
 	elif OS.get_environment("TSC_MEDIR_SUPORTE") != "":
@@ -531,7 +552,69 @@ var _eventos: Array = []   # [tempo_ms, texto] dos últimos acontecimentos (moni
 
 ## Diagnóstico (TSC_MALHAS=1): censo das malhas do mundo — triângulos por grupo (nó de 2º nível) e as
 ## 30 malhas mais pesadas, com sombra e distância de sumiço. Para achar o que pesa na placa de vídeo.
+## Diagnóstico (TSC_NAN=1): a cada meio segundo procura valores impossíveis (NaN, infinito ou enormes) nas
+## transformações dos nós 3D e nos ossos dos esqueletos — um osso assim vira triângulos impossíveis na placa de
+## vídeo e pode travar o driver. Imprime [NAN] com o caminho do nó (uma vez por nó).
+var _nan_t := 0.0
+var _nan_vistos := {}
+func _varrer_nan(delta: float) -> void:
+	_nan_t -= delta
+	if _nan_t > 0.0:
+		return
+	_nan_t = 0.5
+	var pilha: Array[Node] = [self]
+	while not pilha.is_empty():
+		var n: Node = pilha.pop_back()
+		pilha.append_array(n.get_children())
+		var ruim := ""
+		if n is Node3D and (n as Node3D).is_inside_tree():
+			var g := (n as Node3D).global_transform
+			if not g.is_finite() or g.origin.length() > 1.0e5 or g.basis.get_scale().length() > 1.0e4:
+				ruim = "transformação %s" % str(g)
+			elif n is VisualInstance3D and absf(g.basis.determinant()) < 1.0e-12 and (n as Node3D).is_visible_in_tree():
+				ruim = "escala zero %s" % str(g.basis.get_scale())
+		if ruim == "" and n is Skeleton3D:
+			var e := n as Skeleton3D
+			for k in e.get_bone_count():
+				var b := e.get_bone_global_pose(k)
+				if not b.is_finite() or b.origin.length() > 1.0e5 or b.basis.get_scale().length() > 1.0e4:
+					ruim = "osso %d %s = %s" % [k, e.get_bone_name(k), str(b)]
+					break
+		if ruim != "" and not _nan_vistos.has(n.get_instance_id()):
+			_nan_vistos[n.get_instance_id()] = true
+			print("[NAN] t=%.1f %s: %s" % [_relogio_nan, str(get_path_to(n)).right(90), ruim.left(220)])
+var _relogio_nan := 0.0
+
+
 func _censo_malhas() -> void:
+	# Luzes e partículas por grupo (TSC_MALHAS_NIVEL): muitas luzes com sombra ou partículas juntas pesam mais que triângulos
+	var nivel_l := int(OS.get_environment("TSC_MALHAS_NIVEL")) if OS.get_environment("TSC_MALHAS_NIVEL") != "" else 2
+	var luzes := {}
+	var fila: Array[Node] = [self]
+	while not fila.is_empty():
+		var nl: Node = fila.pop_back()
+		fila.append_array(nl.get_children())
+		var tipo := ""
+		if nl is OmniLight3D or nl is SpotLight3D:
+			tipo = "luz_sombra" if (nl as Light3D).shadow_enabled else "luz"
+		elif nl is GPUParticles3D:
+			tipo = "particulas"
+		elif nl is CPUParticles3D:
+			tipo = "particulas_cpu"
+		elif nl is Skeleton3D:
+			tipo = "esqueleto"
+		if tipo == "":
+			continue
+		var ch := "/".join(str(get_path_to(nl)).split("/").slice(0, nivel_l)).rstrip("0123456789@")
+		var dl: Dictionary = luzes.get(ch, {})
+		dl[tipo] = int(dl.get(tipo, 0)) + 1
+		if nl is GPUParticles3D:
+			dl["qtd_particulas"] = int(dl.get("qtd_particulas", 0)) + (nl as GPUParticles3D).amount
+		if nl is OmniLight3D:
+			dl["alcance_max"] = maxf(float(dl.get("alcance_max", 0.0)), (nl as OmniLight3D).omni_range)
+		luzes[ch] = dl
+	for ch in luzes:
+		print("[LUZES] %-50s %s" % [ch, str(luzes[ch])])
 	var grupos := {}
 	var itens := []
 	var pilha: Array[Node] = [self]
@@ -577,6 +660,17 @@ func _censo_malhas() -> void:
 	for k in grupos:
 		total += int(grupos[k].tri)
 	print("[MALHAS] total no mundo: %.2f M triângulos em %d malhas" % [total / 1e6, itens.size()])
+	# MultiMesh (vegetação): total por malha — triângulos de cada cópia, quantas cópias, alcance e se tem sombra
+	var por_malha := {}
+	for it_m in itens:
+		if int(it_m[2]) > 1 or str(it_m[1]).contains("MultiMesh"):
+			var ch_m := "%d tri  alcance %4.0f  sombra %s" % [it_m[3], it_m[5], it_m[4]]
+			var d_m: Array = por_malha.get(ch_m, [0, 0, 0])
+			por_malha[ch_m] = [int(d_m[0]) + int(it_m[0]), int(d_m[1]) + int(it_m[2]), int(d_m[2]) + 1]
+	var ch_ms := por_malha.keys()
+	ch_ms.sort_custom(func(x, y): return por_malha[x][0] > por_malha[y][0])
+	for ch_m in ch_ms.slice(0, 18):
+		print("[MALHAS] multi %7.2f M  %7d cópias em %4d blocos  cada: %s" % [por_malha[ch_m][0] / 1e6, por_malha[ch_m][1], por_malha[ch_m][2], ch_m])
 	var chaves := grupos.keys()
 	chaves.sort_custom(func(a, b): return grupos[a].tri > grupos[b].tri)
 	for k in chaves.slice(0, 25):
@@ -670,6 +764,9 @@ func _physics_process(delta: float) -> void:
 func _process(delta: float) -> void:
 	if OS.get_environment("TSC_TRAVADAS") != "":
 		_monitor_travadas()
+	if OS.get_environment("TSC_NAN") != "":
+		_relogio_nan += delta
+		_varrer_nan(delta)
 	if fase == Fase.CARREGANDO:
 		return
 	if not _fotos.is_empty() or OS.get_environment("TSC_FOTOS") != "":
