@@ -1398,6 +1398,14 @@ func _mata_da_etapa() -> void:
 ## terreno, longe das estradas e das construções; refeito a cada etapa (o terreno muda).
 func _mata_encosta() -> void:
 	var t0 := Time.get_ticks_msec()
+	# (o sorteio das plantas só muda com o mapa: guardado em user://cache como o da vegetação do vale)
+	var sorteadas: Dictionary = _cache("encosta", _sortear_encosta)
+	var listas: Dictionary = sorteadas.listas
+	var cipos: Array = sorteadas.cipos
+	_plantar_encosta(t0, listas, cipos)
+
+
+func _sortear_encosta() -> Dictionary:
 	var vale: Array = Config.valor("mapa.subida.vale", [-2100, -1750, 1100, 1000])
 	var a := _terreno.alturas_interno
 	var n := Terreno.N_INTERNO
@@ -1461,6 +1469,10 @@ func _mata_encosta() -> void:
 					listas[Vegetacao.Tipo.BANANEIRA].append([base, rng.randf_range(1.3, 2.2), rng.randf() * TAU, tinta])
 				else:
 					listas[Vegetacao.Tipo.PALMEIRA_SELVA].append([base, rng.randf_range(0.6, 1.0), rng.randf() * TAU, tinta])
+	return {"listas": listas, "cipos": cipos}
+
+
+func _plantar_encosta(t0: int, listas: Dictionary, cipos: Array) -> void:
 	Vegetacao.plantar(_etapa_no, Vegetacao.Tipo.COPA, listas[Vegetacao.Tipo.COPA], 400.0, 2600.0, true)
 	Vegetacao.plantar(_etapa_no, Vegetacao.Tipo.SAMAMBAIA, listas[Vegetacao.Tipo.SAMAMBAIA], 250.0, 700.0, false)
 	Vegetacao.plantar(_etapa_no, Vegetacao.Tipo.BANANEIRA, listas[Vegetacao.Tipo.BANANEIRA], 300.0, 1000.0, false)

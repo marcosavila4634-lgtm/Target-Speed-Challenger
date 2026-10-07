@@ -121,11 +121,18 @@ void fragment() {
 	vec2 uv = UV;
 	vec3 info;
 	float h = casca(uv, sorteio, per, info);
-	vec3 i2;
-	float e = 0.004;
-	float hx = casca(uv + vec2(e, 0.0), sorteio, per, i2);
-	float hy = casca(uv + vec2(0.0, e * 3.0), sorteio, per, i2);
-	vec2 dh = vec2(hx - h, (hy - h) / 3.0) / e;
+	// Inclinação da casca pelas derivadas de tela da altura (uma avaliação só por pixel, em vez de três):
+	// resolve dh/duv a partir de dh/dtela e duv/dtela
+	vec2 dux = dFdx(uv);
+	vec2 duy = dFdy(uv);
+	float hdx = dFdx(h);
+	float hdy = dFdy(h);
+	float det = dux.x * duy.y - dux.y * duy.x;
+	vec2 dh = abs(det) > 1e-12 ? vec2(hdx * duy.y - hdy * dux.y, hdy * dux.x - hdx * duy.x) / det : vec2(0.0);
+	dh = clamp(dh, vec2(-60.0), vec2(60.0));
+	// de longe o relevo fino vira chuvisco: some aos poucos
+	float longe = 1.0 - smoothstep(0.02, 0.08, max(length(dux), length(duy)));
+	dh *= longe;
 	float desc = info.x;
 
 	// Casca: cinza-marrom de árvore morta, placas de tons diferentes, fundo das fissuras escuro

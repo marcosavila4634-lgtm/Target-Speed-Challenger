@@ -14,6 +14,9 @@ extends Node3D
 
 const PASTA := "res://assets/selva/rochas/"
 const FUNDO := 0.45   # profundidade (entrando no morro) em relação à largura: o paredão do anel é fino
+const VERSAO := 1     # subir quando mudar a conta do lugar das rochas (o resultado fica em user://cache)
+
+var _postas: Array = []   # [nome, transformação] de cada rocha posta (o que vai para o cache)
 
 static var _mats := {}
 
@@ -33,6 +36,19 @@ static func montar(pai: Node3D, terreno: Terreno, lista: Array, dentro := Vector
 	corpo.collision_mask = 0
 	corpo.add_to_group("estrutura")
 	no.add_child(corpo)
+	# O lugar de cada rocha (pé do morro, encolher até não encostar em estrada...) só muda com o mapa: a conta
+	# levava ~10 s por abertura de etapa e fica guardada em user://cache
+	var arq := "user://cache/rochas_%s.bin" % str([VERSAO, Terreno.VERSAO_CACHE, Config.mapa_id, Config.valor("mapa", {}), lista, dentro, livres,
+		so_percurso, ComplexoSubida.etapa_percurso]).md5_text().substr(0, 12)
+	if FileAccess.file_exists(arq) and OS.get_environment("TSC_SUB_LOG") == "":
+		var fa := FileAccess.open(arq, FileAccess.READ)
+		var guardadas = fa.get_var() if fa else null
+		if guardadas is Array:
+			for g: Array in guardadas:
+				var malha_g := load(PASTA + str(g[0]) + ".res") as ArrayMesh
+				if malha_g:
+					no._por(corpo, malha_g, str(g[0]), g[1])
+			return
 	for r: Array in lista:
 		var alvo := Vector2(float(r[0]), float(r[1]))
 		if dentro.x < INF:
@@ -42,6 +58,10 @@ static func montar(pai: Node3D, terreno: Terreno, lista: Array, dentro := Vector
 			float(r[6]) if r.size() > 6 else 0.0, float(r[7]) if r.size() > 7 else 1.0, float(r[8]) if r.size() > 8 else FUNDO,
 			float(r[9]) if r.size() > 9 and r[9] != null else -INF, float(r[10]) if r.size() > 10 and r[10] != null else INF,
 			float(r[11]) if r.size() > 11 and r[11] != null else -1.0, r[12] if r.size() > 12 else [])
+	DirAccess.make_dir_recursive_absolute("user://cache")
+	var fg := FileAccess.open(arq, FileAccess.WRITE)
+	if fg:
+		fg.store_var(no._postas)
 
 
 static func _material(nome: String) -> ShaderMaterial:
@@ -228,27 +248,32 @@ func _rocha(corpo: StaticBody3D, terreno: Terreno, p: Vector2, larg: float, nome
 			continue
 		if OS.get_environment("TSC_SUB_LOG") != "":
 			print("[ROCHA] %s em %s, %.0f m (fator %.2f), pé y %.0f" % [nome, str(Vector2(xf.origin.x, xf.origin.z).round()), larg * fator, fator, xf.origin.y])
-		var mi := MeshInstance3D.new()
-		mi.mesh = malha
-		mi.material_override = _material(nome)
-		mi.transform = xf
-		mi.visibility_range_end = 3500.0
-		add_child(mi)
-		# Colisão com a escala já nas faces (forma escalada não colide direito no Godot). Malha leve de colisão
-		# (meta "col", tools/serpents_climb/rochas_lod.gd): com a cheia, as ~1100 rochas levavam 30 s na abertura.
-		var esc3 := Vector3(xf.basis.x.length(), xf.basis.y.length(), xf.basis.z.length())
-		var faces: PackedVector3Array = (malha.get_meta("col", PackedVector3Array()) as PackedVector3Array).duplicate()   # cópia: o array da meta é compartilhado
-		if faces.is_empty():
-			faces = malha.get_faces()
-		for i in faces.size():
-			faces[i] = faces[i] * esc3
-		var forma_c := ConcavePolygonShape3D.new()
-		forma_c.set_faces(faces)
-		var forma := CollisionShape3D.new()
-		forma.shape = forma_c
-		forma.transform = Transform3D(xf.basis.orthonormalized(), xf.origin)
-		corpo.add_child(forma)
+		_postas.append([nome, xf])
+		_por(corpo, malha, nome, xf)
 		return
+
+
+## Põe a rocha no mundo: malha e colisão.
+func _por(corpo: StaticBody3D, malha: ArrayMesh, nome: String, xf: Transform3D) -> void:
+	var mi := MeshInstance3D.new()
+	mi.mesh = malha
+	mi.material_override = _material(nome)
+	mi.transform = xf
+	mi.visibility_range_end = 3500.0
+	add_child(mi)
+	# Colisão com a escala já nas faces (forma escalada não colide direito no Godot). Malha leve de colisão
+	# (meta "col", tools/serpents_climb/rochas_lod.gd): com a cheia, as ~1100 rochas levavam 30 s na abertura.
+	var esc3 := Vector3(xf.basis.x.length(), xf.basis.y.length(), xf.basis.z.length())
+	var faces: PackedVector3Array = malha.get_meta("col", PackedVector3Array())
+	if faces.is_empty():
+		faces = malha.get_faces()
+	faces = Transform3D(Basis.from_scale(esc3), Vector3.ZERO) * faces   # (cópia nova: o array da meta é compartilhado)
+	var forma_c := ConcavePolygonShape3D.new()
+	forma_c.set_faces(faces)
+	var forma := CollisionShape3D.new()
+	forma.shape = forma_c
+	forma.transform = Transform3D(xf.basis.orthonormalized(), xf.origin)
+	corpo.add_child(forma)
 
 
 ## Desliza a rocha (no plano) até o ponto dela mais perto da estrada desta etapa ficar a `dist` m do eixo.

@@ -8,6 +8,7 @@ extends RefCounted
 ## em relevo, descascados, líquen, musgo); a malha também tem relevo de verdade (sulcos e nós).
 
 const PASSO := 1.6   # m de casca por repetição do UV (o mesmo valor do shader)
+const VERSAO := 1    # subir quando a árvore mudar (as prontas ficam em user://cache)
 
 static var _shader: Shader
 static var _nv := 0   # vértices já postos no SurfaceTool do tronco (índices do próximo tubo)
@@ -17,6 +18,16 @@ static var _nv := 0   # vértices já postos no SurfaceTool do tronco (índices 
 ## do topo do galho onde o jaguar fica. alcance: distância horizontal do eixo do tronco até a ponta do galho.
 ## altura: Callable(x, z) -> chão. Devolve {no, poleiro: Transform3D (pés do jaguar, olhando para a estrada)}.
 static func criar(pai: Node3D, pe: Vector3, rumo: Vector3, poleiro_y: float, alcance: float, semente: int, altura: Callable) -> Dictionary:
+	# Árvore pronta guardada (montar uma leva ~0,5 s; são várias por etapa)
+	var arq := "user://cache/arvore_%s.scn" % str([VERSAO, Terreno.VERSAO_CACHE, pe.snapped(Vector3.ONE * 0.1), rumo.snapped(Vector3.ONE * 0.01),
+		snappedf(poleiro_y, 0.1), snappedf(alcance, 0.1), semente]).md5_text().substr(0, 12)
+	if FileAccess.file_exists(arq):
+		var cena := ResourceLoader.load(arq, "PackedScene", ResourceLoader.CACHE_MODE_IGNORE) as PackedScene
+		var pronta := cena.instantiate() as Node3D if cena else null
+		if pronta and pronta.has_meta("poleiro"):
+			pai.add_child(pronta)
+			pronta.global_transform = Transform3D(Basis.IDENTITY, pe)
+			return {"no": pronta, "poleiro": pronta.get_meta("poleiro")}
 	var rng := RandomNumberGenerator.new()
 	rng.seed = semente
 	var ruido := FastNoiseLite.new()
@@ -169,6 +180,13 @@ static func criar(pai: Node3D, pe: Vector3, rumo: Vector3, poleiro_y: float, alc
 		var eixo := (b - a).normalized()
 		cs.transform = Transform3D(Basis(Quaternion(Vector3.UP, eixo)), (a + b) * 0.5)
 		corpo.add_child(cs)
+	raiz.set_meta("poleiro", poleiro)
+	for filho in raiz.find_children("*", "", true, false):
+		filho.owner = raiz
+	var cena_nova := PackedScene.new()
+	if cena_nova.pack(raiz) == OK:
+		DirAccess.make_dir_recursive_absolute("user://cache")
+		ResourceSaver.save(cena_nova, arq)
 	return {"no": raiz, "poleiro": poleiro}
 
 

@@ -273,6 +273,7 @@ func _recinto_cfg(r: Recinto, cfg: Dictionary) -> void:
 
 func _montar_largada(terreno: Terreno) -> void:
 	var cfg: Dictionary = cfg_sub("largada", {})
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms    subida: antes da largada" % Time.get_ticks_msec())
 	largada = Recinto.new()
 	largada.name = "Largada"
 	_recinto_cfg(largada, cfg)
@@ -286,6 +287,7 @@ func _montar_largada(terreno: Terreno) -> void:
 
 func _montar_plataforma_alta(terreno: Terreno) -> void:
 	var cfg: Dictionary = cfg_sub("plataforma", {})
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms    subida: largada" % Time.get_ticks_msec())
 	plataforma = Recinto.new()
 	plataforma.name = "Plataforma100"
 	_recinto_cfg(plataforma, cfg)
@@ -407,6 +409,7 @@ func _montar_estrada(terreno: Terreno) -> void:
 		lista.append(i)   # PackedInt32Array é copiado por valor: precisa guardar de volta
 		_grade[c] = lista
 	_malha_estrada()
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms    subida: plataforma e estrada" % Time.get_ticks_msec())
 	_pilares(terreno)
 	_luzes_bordas()
 	_meio_fio()
@@ -418,11 +421,14 @@ func _montar_estrada(terreno: Terreno) -> void:
 	_montar_pistoes()
 	_montar_desvios()
 	if not (cfg_sub("armadilhas", {}) as Dictionary).is_empty():
+		if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms    subida: pilares" % Time.get_ticks_msec())
 		armadilhas = ArmadilhasDino.new() if str(cfg_sub("tema", "")) == "dino" else Armadilhas.new()
 		armadilhas.name = "Armadilhas"
 		armadilhas.gelo = _gelo()
 		_no.add_child(armadilhas)
 		armadilhas.montar(self, cfg_sub("armadilhas", {}), _terreno)
+		_sumico_de_longe()
+		if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms    subida: armadilhas" % Time.get_ticks_msec())
 	if _gelo():
 		var enfeites := EnfeitesGelo.new()
 		_no.add_child(enfeites)
@@ -701,6 +707,25 @@ var _tuneis_pista: TunelPista
 
 
 ## Pilares de concreto até o chão a cada ~22 m, com viga de apoio embaixo da estrada.
+## Peças pequenas e muito detalhadas param de ser desenhadas de longe (a placa de vídeo desenhava ~9 milhões de
+## triângulos delas de qualquer distância): pilares e grades das cercas dos recintos e as peças dos portais das
+## armadilhas (a montanha em si continua aparecendo). A 1200 m elas são menores que um pixel.
+func _sumico_de_longe() -> void:
+	for r: Node in [largada, plataforma]:
+		if r == null:
+			continue
+		for mm: MultiMeshInstance3D in r.find_children("*", "MultiMeshInstance3D", true, false):
+			if mm.visibility_range_end <= 0.0:
+				mm.visibility_range_end = 1200.0
+	if armadilhas:
+		for filho in armadilhas.get_children():
+			if not str(filho.name).begins_with("Lamina"):
+				continue
+			for mi: MeshInstance3D in filho.find_children("*", "MeshInstance3D", true, false):
+				if mi.name != "Montanha" and mi.visibility_range_end <= 0.0 and mi.get_aabb().size.length() < 60.0:
+					mi.visibility_range_end = 1200.0
+
+
 func _pilares(terreno: Terreno) -> void:
 	pilares.clear()
 	var colunas: Array[Transform3D] = []

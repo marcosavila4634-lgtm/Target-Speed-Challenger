@@ -562,7 +562,8 @@ func _censo_malhas() -> void:
 		var g := n as GeometryInstance3D
 		var caminho := str(get_path_to(n))
 		var partes := caminho.split("/")
-		var chave := "/".join(partes.slice(0, 2))
+		var nivel_c := int(OS.get_environment("TSC_MALHAS_NIVEL")) if OS.get_environment("TSC_MALHAS_NIVEL") != "" else 2   # 3 abre um grupo por dentro
+		var chave := "/".join(partes.slice(0, nivel_c)).rstrip("0123456789@")
 		var d: Dictionary = grupos.get(chave, {"tri": 0, "nos": 0, "sombra": 0, "sem_lod": 0})
 		d.tri += tri
 		d.nos += 1

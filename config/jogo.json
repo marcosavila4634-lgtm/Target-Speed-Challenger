@@ -4012,6 +4012,8 @@
 		"sombra_distancia": 1500,
 		"_qualidade": "Opções para aliviar a placa de vídeo (os valores abaixo são os de sempre): sombra_mapa = tamanho do mapa de sombras do sol (8192; 4096 é mais leve e as sombras ficam um pouco menos nítidas); escala_3d = fração da resolução em que o 3D é desenhado antes de ampliar com FSR (1 = nativa; 0.77 é mais leve e a imagem fica um pouco menos nítida); ssao = sombreamento dos cantos (1 liga, 0 desliga).",
 		"sombra_mapa": 8192,
+		"_lod_limiar": "Limiar (px) dos níveis de detalhe das malhas com LOD (as rochas dos paredões): 3 = troca para a versão leve mais cedo, sem diferença visível (medido no Serpent's Climb E1: 36 → 24 milhões de triângulos por quadro, GPU 19,7 → 14,8 ms). 1 = como era.",
+		"lod_limiar": 3,
 		"escala_3d": 1.0,
 		"ssao": 1,
 		"_qualidades": "Qualidade gráfica escolhida no menu (Configuração): cada nível troca as opções acima. ULTRA é o jogo como sempre foi. vegetacao = fração das plantas que é plantada (1 = todas).",

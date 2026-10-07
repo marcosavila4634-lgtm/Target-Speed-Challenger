@@ -164,6 +164,8 @@ func _ready() -> void:
 	# escala da imagem 3D (1 = nativa; menos = desenha menor e amplia com FSR — alivia a placa de vídeo).
 	# (A suavização de bordas — MSAA — fica no project.godot: trocá-la com o jogo aberto fechou o jogo na RX 5700 XT.)
 	var vp := get_viewport()
+	# Limiar dos níveis de detalhe (px): acima de 1 as malhas com LOD (rochas) trocam para a versão leve mais cedo
+	vp.mesh_lod_threshold = _grafico("lod_limiar", "TSC_LOD", 1.0)
 	RenderingServer.directional_shadow_atlas_set_size(int(_grafico("sombra_mapa", "TSC_SOMBRA_MAPA", 8192)), true)
 	var escala := _grafico("escala_3d", "TSC_ESCALA", 1.0)
 	vp.scaling_3d_scale = escala

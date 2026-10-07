@@ -15,6 +15,8 @@ extends RefCounted
 ##   no disco dourado como pêndulo. Só ele mata; montanha, túnel e portal são parede comum.
 
 const ROCHA := "res://assets/selva/rochas/montanha_armadilha"
+const VERSAO := 1   # subir quando mudar a escultura da montanha (fica em user://cache)
+static var _ladrilho: ImageTexture
 const PORTAL := "res://assets/selva/armadilha_rocha/portal.png"
 const INTERNA := "res://assets/selva/armadilha_rocha/interna.png"
 # Na arte do portal (UV): vão entre os pilares, pé dos pilares, disco do pivô e o retângulo do machado
@@ -179,6 +181,69 @@ static func _montanha(arm: Armadilhas, no: Node3D, i: int, c: Vector3, b: Basis,
 		j += 1
 		if j >= sub.total_amostras():
 			break
+	# A rocha esculpida (alisada, esticada até o chão, furada pelo túnel) só muda com o mapa: a conta levava
+	# ~0,8 s por montanha a cada abertura e fica guardada em user://cache
+	var arq := "user://cache/montanha_%s.bin" % str([VERSAO, Terreno.VERSAO_CACHE, Config.mapa_id, Config.valor("mapa", {}), ComplexoSubida.etapa_percurso, i, hw, htopo, piso,
+		vao_tamanho]).md5_text().substr(0, 12)
+	var esc_d := {}
+	if FileAccess.file_exists(arq):
+		var fa := FileAccess.open(arq, FileAccess.READ)
+		var lido = fa.get_var() if fa else null
+		if lido is Dictionary and (lido as Dictionary).has("faixas"):
+			esc_d = lido
+	if esc_d.is_empty():
+		esc_d = _esculpir(arm, malha, xf, c, base_y, origem, lat, b, esc, prof, pista, hw, htopo, piso)
+		DirAccess.make_dir_recursive_absolute("user://cache")
+		var fg := FileAccess.open(arq, FileAccess.WRITE)
+		if fg:
+			fg.store_var(esc_d)
+	var faces: PackedVector3Array = esc_d.faces
+	var s_min: float = esc_d.s_min
+	var s_max: float = esc_d.s_max
+	var faixas: Array[Vector2] = []
+	for fxk: Vector2 in (esc_d.faixas as PackedVector2Array):
+		faixas.append(fxk)
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = esc_d.v
+	arrays[Mesh.ARRAY_NORMAL] = esc_d.n
+	arrays[Mesh.ARRAY_INDEX] = esc_d.i
+	var malha_pronta := ArrayMesh.new()
+	malha_pronta.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var mat := RochasSelva._material("montanha_armadilha").duplicate() as ShaderMaterial
+	mat.set_shader_parameter("so_mosaico", true)
+	mat.set_shader_parameter("mosaico_m", 30.0)
+	mat.set_shader_parameter("alto_y", 1.0)   # a malha está no mundo: sem o musgo "do pé" da rocha solta
+	if _ladrilho == null:
+		var lad := Recinto.ler_imagem("res://assets/selva/rochas/rocha_ladrilho.png")
+		if lad:
+			lad.generate_mipmaps()
+			_ladrilho = ImageTexture.create_from_image(lad)
+	if _ladrilho:
+		mat.set_shader_parameter("ladrilho", _ladrilho)
+	var mi := MeshInstance3D.new()
+	mi.name = "Montanha"
+	mi.mesh = malha_pronta
+	mi.material_override = mat
+	no.add_child(mi)
+	var corpo := StaticBody3D.new()
+	corpo.collision_layer = 1
+	corpo.collision_mask = 0
+	corpo.add_to_group("estrutura")
+	no.add_child(corpo)
+	var forma := ConcavePolygonShape3D.new()
+	forma.set_faces(faces)
+	var cs := CollisionShape3D.new()
+	cs.shape = forma
+	corpo.add_child(cs)
+	# Túnel: só onde a rocha foi cortada (as bocas ficam rente à pedra)
+	var dentro: Array = pista.filter(func(p: Array) -> bool: return float(p[2]) >= s_min - 2.0 and float(p[2]) <= s_max + 2.0)
+	_tunel(no, corpo, dentro if dentro.size() > 4 else pista, hw, htopo, piso, mat, faixas)
+
+
+## A conta pesada da montanha: devolve a malha pronta (v, n, i), as faces da colisão e por onde o túnel passa.
+static func _esculpir(arm: Armadilhas, malha: ArrayMesh, xf: Transform3D, c: Vector3, base_y: float, origem: Vector3, lat: Vector3, b: Basis, esc: float, prof: float,
+		pista: Array, hw: float, htopo: float, piso: float) -> Dictionary:
 	# Rocha furada pelo túnel (ver o laço mais abaixo). Antes, o contorno alisado: o relevo da malha deixava o
 	# recorte da rocha em serra contra o céu.
 	var arr := malha.surface_get_arrays(0)
@@ -245,32 +310,11 @@ static func _montanha(arm: Armadilhas, no: Node3D, i: int, c: Vector3, b: Basis,
 		st.add_vertex(mundo[k])
 	st.index()
 	st.generate_normals()
-	var mat := RochasSelva._material("montanha_armadilha").duplicate() as ShaderMaterial
-	mat.set_shader_parameter("so_mosaico", true)
-	mat.set_shader_parameter("mosaico_m", 30.0)
-	mat.set_shader_parameter("alto_y", 1.0)   # a malha está no mundo: sem o musgo "do pé" da rocha solta
-	var lad := Recinto.ler_imagem("res://assets/selva/rochas/rocha_ladrilho.png")
-	if lad:
-		lad.generate_mipmaps()
-		mat.set_shader_parameter("ladrilho", ImageTexture.create_from_image(lad))
-	var mi := MeshInstance3D.new()
-	mi.name = "Montanha"
-	mi.mesh = st.commit()
-	mi.material_override = mat
-	no.add_child(mi)
-	var corpo := StaticBody3D.new()
-	corpo.collision_layer = 1
-	corpo.collision_mask = 0
-	corpo.add_to_group("estrutura")
-	no.add_child(corpo)
-	var forma := ConcavePolygonShape3D.new()
-	forma.set_faces(faces)
-	var cs := CollisionShape3D.new()
-	cs.shape = forma
-	corpo.add_child(cs)
-	# Túnel: só onde a rocha foi cortada (as bocas ficam rente à pedra)
-	var dentro: Array = pista.filter(func(p: Array) -> bool: return float(p[2]) >= s_min - 2.0 and float(p[2]) <= s_max + 2.0)
-	_tunel(no, corpo, dentro if dentro.size() > 4 else pista, hw, htopo, piso, mat, faixas)
+	var pronto := st.commit_to_arrays()
+	var fx := PackedVector2Array()
+	for fxk: Vector2 in faixas:
+		fx.append(fxk)
+	return {"v": pronto[Mesh.ARRAY_VERTEX], "n": pronto[Mesh.ARRAY_NORMAL], "i": pronto[Mesh.ARRAY_INDEX], "faces": faces, "s_min": s_min, "s_max": s_max, "faixas": fx}
 
 
 ## Vértice da rocha dentro do perfil do túnel (paredes retas de meia largura w até a altura parede, arco em

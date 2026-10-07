@@ -49,26 +49,32 @@ func montar(p_sub: ComplexoSubida, cfg: Dictionary, terreno: Terreno) -> void:
 		return
 	for item in cfg.get("laminas", []):
 		_montar_lamina(item, cfg.get("lamina", {}))
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms      armadilhas: laminas" % Time.get_ticks_msec())
 	for item in cfg.get("lancas", []):
 		_montar_lancas(item, cfg.get("lanca", {}))
 	for item in cfg.get("serpentes", []):
 		_montar_serpente(item, cfg.get("serpente", {}))
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms      armadilhas: lancas e serpentes" % Time.get_ticks_msec())
 	for item in cfg.get("pedras", []):
 		_montar_pedras(item, cfg.get("pedra", {}))
 	for item in cfg.get("placas", []):   # pedaços de pista que desabam depois que o carro passa (o mesmo gelo fino, em pedra)
 		_montar_placas(item, cfg.get("placa", {}))
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms      armadilhas: pedras e placas" % Time.get_ticks_msec())
 	for item in cfg.get("cuspidoras", []):   # cobras cuspindo veneno de buracos na rocha (CobrasCuspidoras)
 		var cc := CobrasCuspidoras.new()
 		cc.name = "Cuspidoras%d" % get_child_count()
 		add_child(cc)
 		cc.montar(sub, item, cfg.get("cuspidora", {}))
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms      armadilhas: cuspidoras" % Time.get_ticks_msec())
 	for item in cfg.get("quedas", []):   # rochas caindo da montanha (RochasCaindo)
 		var rq := RochasCaindo.new()
 		rq.name = "Quedas%d" % get_child_count()
 		add_child(rq)
 		rq.montar(sub, _terreno, item, cfg.get("queda", {}))
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms      armadilhas: quedas" % Time.get_ticks_msec())
 	for item in cfg.get("jatos", []):
 		_montar_jato(item, cfg.get("jato", {}))
+	if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms      armadilhas: jatos" % Time.get_ticks_msec())
 	for item in cfg.get("jaguares", []):   # jaguar na árvore seca que pula no teto do carro (JaguarArvore)
 		var ja := JaguarArvore.new()
 		ja.name = "Jaguar%d" % get_child_count()
