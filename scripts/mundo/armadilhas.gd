@@ -69,6 +69,11 @@ func montar(p_sub: ComplexoSubida, cfg: Dictionary, terreno: Terreno) -> void:
 		rq.montar(sub, _terreno, item, cfg.get("queda", {}))
 	for item in cfg.get("jatos", []):
 		_montar_jato(item, cfg.get("jato", {}))
+	for item in cfg.get("jaguares", []):   # jaguar na árvore seca que pula no teto do carro (JaguarArvore)
+		var ja := JaguarArvore.new()
+		ja.name = "Jaguar%d" % get_child_count()
+		add_child(ja)
+		ja.montar(sub, _terreno, item, cfg.get("jaguar", {}))
 	_portoes.sort_custom(func(a, b): return a.s < b.s)
 	for k in _portoes.size():
 		_portoes[k].id = k

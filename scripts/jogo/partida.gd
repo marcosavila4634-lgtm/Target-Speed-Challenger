@@ -1170,6 +1170,8 @@ func _avisar_gelo() -> void:
 			hud.mensagem("VENENO — DIREÇÃO INVERTIDA!", Color(0.8, 1.0, 0.6), 2.5)
 		elif v.com_ovo():
 			hud.mensagem("OVO NO CARRO — ESCORREGANDO E DIREÇÃO INVERTIDA!", Color(1.0, 0.85, 0.3), 2.5)
+		elif v.has_meta("jaguar"):
+			hud.mensagem("JAGUAR NO TETO — DIREÇÃO INVERTIDA!", Color(1.0, 0.75, 0.3), 2.5)
 		else:
 			hud.mensagem("YETI NO TETO — DIREÇÃO INVERTIDA!", Color(0.75, 0.9, 1.0), 2.5)
 	_invertido = inv

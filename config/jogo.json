@@ -1773,6 +1773,15 @@
 										"erro_m": 5
 									},
 									"quedas": [["C", 1505, 1790], ["C", 150, 680, [0.42, 1.17]]],
+									"jaguares": [["A", 1900, 1]],
+									"jaguar": {
+										"segura_s": 4,
+										"descanso_s": 3,
+										"altura": 8.5,
+										"afastamento": 9,
+										"proporcao": 0.4,
+										"carro_m": 4.2
+									},
 									"queda": {
 										"intervalo": [1.2, 3.5],
 										"tamanho": [3, 6],

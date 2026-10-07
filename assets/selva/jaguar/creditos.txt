@@ -1,0 +1,5 @@
+Modelo usado em scripts/mundo/jaguar_arvore.gd (jaguar da árvore seca do Serpent's Climb).
+Arquivo: jaguar.glb = cópia de assets/MAPA SERPENTE/jaguar/ojaguar.glb (lido direto com GLTFDocument).
+
+This work is based on "jaguar" (https://sketchfab.com/3d-models/jaguar-91c61c329d2a4668816f81f08dfcd492) by Ear.Rodriguez (https://sketchfab.com/Ear.Rodriguez) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Licenca CC-BY 4.0: uso comercial permitido, basta manter o credito ao autor.
