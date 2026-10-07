@@ -6,9 +6,11 @@ extends Node3D
 ## pista. O jaguar espera no galho (de pé olhando em volta; agachado de tocaia quando vem carro) e, quando um
 ## carro passa por baixo, salta no teto e fica agarrado `segura_s` s, meio agachado com as patas da frente na
 ## beira do para-brisa: a direção fica invertida no chão e no ar (Veiculo.yeti). Quando acaba o tempo ele pula
-## para fora da pista e cai até o chão; some no mato e volta para o galho `descanso_s` s depois.
-## Tamanho proporcional ao carro: do focinho ao quadril = `proporcao` × comprimento do carro (no galho, de um
-## carro de `carro_m` m).
+## para fora da pista e cai até o chão; some no mato e volta para o galho `descanso_s` s depois. O mesmo carro
+## fica `imune_s` s (25) sem ser pego de novo pelo mesmo jaguar.
+## Tamanho proporcional ao carro (do focinho ao quadril até `proporcao` × comprimento do carro) e ao TETO dele:
+## _perfil() mede a lataria de cada carro (mapa de altura tirado da malha) e o jaguar é posto com as patas de
+## trás no fundo do teto, a barriga rente e as da frente na beira do para-brisa, cada pata encostada na lataria.
 ## Modelo: assets/selva/jaguar/jaguar.glb (CC-BY 4.0, Ear.Rodriguez — ver assets/selva/jaguar/creditos.txt).
 ## O arquivo tem uma animação só com tudo; os trechos usados estão abaixo (s). O agachado é feito aqui por cima
 ## da animação (IK de dois ossos em cada perna).
@@ -20,7 +22,10 @@ const ESTICA := Vector2(6.0, 7.1)       # espreguiçada: o corpo estica para a f
 const VOO := 0.8                        # s do galho até o teto do carro
 const GRAVIDADE := 22.0
 
+const RUGIDO := "res://assets/audio/efeitos/rugido_jaguar.ogg"   # rugido "serrado" de onça de verdade (CC-BY, About Zoos)
+
 static var _modelo: Node3D
+static var _som_rugido: AudioStream
 
 var _sub: ComplexoSubida
 var _terreno: Terreno
@@ -50,6 +55,11 @@ var _de: Vector3
 var _vel := Vector3.ZERO    # na queda
 var _ginga := 0.0
 var _ciclo := 0.0           # relógio da animação em laço
+var _z_tras := -0.1         # patas de trás e da frente em pé, à frente do quadril (unidades do bicho: focinho→quadril = 1)
+var _z_frente := 0.6
+var _fila_perfil: Array = []   # carros que ainda não tiveram a lataria medida (um por vez, antes da largada)
+var _imune := {}            # carro (id) → até quando este jaguar não pula nele de novo
+var _voz: AudioStreamPlayer3D
 var _peso := 0.0            # agachado pedido para este quadro (ver _agachar)
 var _agarra := 0.0
 
@@ -69,13 +79,21 @@ func montar(sub: ComplexoSubida, terreno: Terreno, item: Array, cfg: Dictionary)
 	_lat = Vector3(l.x, 0.0, l.z).normalized() * signf(lado)
 	_meia = sub.largura_em(i) * 0.5
 	var afast := float(cfg.get("afastamento", 9.0))   # do eixo do tronco até a beira da pista
+	var poleiro_y := _c.y + float(cfg.get("altura", 8.5))
+	# Lado pedido tem morro mais alto que a pista (a árvore nasceria dentro da pedra): usa o outro lado
+	if _chao(_c + _lat * (_meia + afast)) > _c.y - 4.0 and _chao(_c - _lat * (_meia + afast)) < _c.y - 4.0:
+		_lat = -_lat
+		if _log:
+			print("[JAGUAR] %s %s: morro no lado pedido, árvore do outro lado" % [str(item[0]), str(item[1])])
+	# Árvore do tamanho da altura da pista ali: quanto mais alta, mais grossa — e mais longe da beira
+	var y_f := poleiro_y - 3.5 - minf(_chao(_c + _lat * (_meia + afast)), _c.y)
+	afast = maxf(afast, ArvoreSeca.raio_base(y_f) * 0.5 + 6.0)
 	var pe := _c + _lat * (_meia + afast)
 	pe.y = minf(_chao(pe), _c.y)
-	var poleiro_y := _c.y + float(cfg.get("altura", 8.5))
 	var arv := ArvoreSeca.criar(self, pe, -_lat, poleiro_y, afast + 2.5, 7331 + i, func(x: float, z: float) -> float: return _chao(Vector3(x, 0.0, z)))
 	_poleiro = arv.poleiro
 	if _log:
-		print("[JAGUAR] árvore em %s (pista y %.1f, chão %.1f), poleiro %s" % [str(pe.snapped(Vector3.ONE)), _c.y, pe.y, str(_poleiro.origin.snapped(Vector3.ONE * 0.1))])
+		print("[JAGUAR] %s %s: árvore em %s (pista y %.1f, chão %.1f → %.0f m até o galho, tronco %.1f m de raio), poleiro %s" % [str(item[0]), str(item[1]), str(pe.snapped(Vector3.ONE)), _c.y, pe.y, poleiro_y - pe.y, ArvoreSeca.raio_base(poleiro_y - 3.5 - pe.y), str(_poleiro.origin.snapped(Vector3.ONE * 0.1))])
 	_esc = float(cfg.get("proporcao", 0.4)) * float(cfg.get("carro_m", 4.2))
 	_criar_bicho()
 
@@ -129,10 +147,22 @@ func _criar_bicho() -> void:
 	_up_s = (bs * Vector3.UP).normalized()
 	_fr_s = (bs * Vector3.BACK).normalized()
 	_i_raiz = _osso("Root_M")
+	_z_tras = (_pos_bicho(_osso("Ankle_R")).z + _pos_bicho(_osso("Ankle_L")).z) * 0.5
+	_z_frente = (_pos_bicho(_osso("Wrist_R")).z + _pos_bicho(_osso("Wrist_L")).z) * 0.5
 	_alt_quadril = (_esq.get_bone_global_pose(_i_raiz).origin - _esq.get_bone_global_pose(_osso("Ankle_R")).origin).dot(_up_s)
 	for s in ["R", "L"]:
 		_pernas.append([_osso("Hip_" + s), _osso("Knee_" + s), _osso("Ankle_" + s), false])
 		_pernas.append([_osso("Shoulder_" + s), _osso("Elbow_" + s), _osso("Wrist_" + s), true])
+	# Voz: o rugido sai do próprio bicho (lido direto do .ogg, sem depender da importação)
+	if _som_rugido == null and FileAccess.file_exists(RUGIDO):
+		_som_rugido = AudioStreamOggVorbis.load_from_file(RUGIDO)
+	_voz = AudioStreamPlayer3D.new()
+	_voz.stream = _som_rugido
+	_voz.bus = "Efeitos"
+	_voz.unit_size = 35.0
+	_voz.max_distance = 600.0
+	_voz.volume_db = 6.0
+	_bicho.add_child(_voz)
 	# O agachado entra como modificador do esqueleto: roda depois da animação a cada quadro (mexer nos ossos
 	# direto era desfeito no quadro seguinte)
 	var mod := Agacho.new()
@@ -169,6 +199,7 @@ func _physics_process(delta: float) -> void:
 		return
 	_t += delta
 	_ciclo += delta
+	_medir_carros()
 	var dur := _t - _t0
 	match _estado:
 		"espera":
@@ -187,6 +218,7 @@ func _physics_process(delta: float) -> void:
 				_v.set_meta("jaguar", true)
 				Armadilhas.ultimo_agarrado = _v   # conferência: as vistas gelo_yeti_lado/_frente/_seguir seguem este carro
 				Audio.tocar("efeitos/whoosh.wav", _de, -2.0, 0.8)
+				_rugir()
 				if _log:
 					print("[JAGUAR] saltou em %s (%.1f s)" % [_v.name, _t])
 		"ida":
@@ -195,9 +227,8 @@ func _physics_process(delta: float) -> void:
 				return
 			var u := clampf(dur / VOO, 0.0, 1.0)
 			# No ar ele vai tomando o tamanho proporcional ao carro em que vai cair
-			var esc_carro := float(_cfg.get("proporcao", 0.4)) * _comprimento(_v)
 			var esc0 := float(_cfg.get("proporcao", 0.4)) * float(_cfg.get("carro_m", 4.2))
-			_esc = lerpf(esc0, esc_carro, u)
+			_esc = lerpf(esc0, _tamanho_no(_v), u)
 			var alvo := _teto(_v)
 			var p := _de.lerp(alvo.origin, u) + Vector3.UP * 2.5 * 4.0 * u * (1.0 - u)
 			# Olha para onde voa (inclinado para baixo na descida) e chega já virado como o carro
@@ -211,9 +242,14 @@ func _physics_process(delta: float) -> void:
 				_t0 = _t
 				_ciclo = 0.0
 				_v.yeti(float(_cfg.get("segura_s", 4.0)))
+				# O mesmo carro fica um tempo imune a este jaguar (quem cai da ponte renasce antes da árvore e seria
+				# pego de novo, sem fim)
+				_imune[_v.get_instance_id()] = _t + float(_cfg.get("imune_s", 25.0))
 				Audio.tocar("efeitos/batida_leve_", alvo.origin, -4.0, 0.7)
 				if _log:
 					print("[JAGUAR] pegou %s em %.1f s (tamanho %.2f, carro %.1f m)" % [_v.name, _t, _esc, _comprimento(_v)])
+					var pf_log := _perfil(_v)
+					print("[JAGUAR] teto de %s: z %.2f..%.2f (%.2f m), y %.2f" % [_v.name, pf_log.z_frente, pf_log.z_tras, float(pf_log.z_tras) - float(pf_log.z_frente), pf_log.y_teto])
 		"agarrado":
 			if not _valido(_v) or not _v.direcao_invertida() or dur >= float(_cfg.get("segura_s", 4.0)):
 				_soltar()
@@ -223,7 +259,7 @@ func _physics_process(delta: float) -> void:
 			_laco(PARADO)
 			# Meio agachado, barriga perto do teto, patas da frente agarradas na beira do para-brisa
 			var u := smoothstep(0.0, 0.25, dur)
-			_agachar(u * 0.8, u)
+			_agachar(u, u)
 		"pulo":
 			# Pula para fora da pista e cai até o chão (lá embaixo, se a estrada é ponte)
 			_vel.y -= GRAVIDADE * delta
@@ -260,6 +296,12 @@ func _physics_process(delta: float) -> void:
 				_bicho.visible = true
 				_estado = "espera"
 				_t0 = _t
+
+
+func _rugir() -> void:
+	if _voz and _voz.stream:
+		_voz.pitch_scale = _rng.randf_range(0.92, 1.06)
+		_voz.play()
 
 
 ## Toca a animação em laço dentro do trecho.
@@ -303,13 +345,139 @@ func _soltar() -> void:
 		print("[JAGUAR] pulou para fora em %.1f s" % _t)
 
 
-## Teto do carro (onde o jaguar fica agarrado), olhando para a frente do carro (o modelo olha para +Z; o
-## carro anda para -Z). O quadril fica um pouco atrás do meio para as patas da frente chegarem no para-brisa.
+## Tamanho do jaguar em cima deste carro: as quatro patas cabem no teto (as de trás no fundo, as da frente
+## chegando na beira do para-brisa), sem passar da proporção com o carro inteiro.
+func _tamanho_no(v: Veiculo) -> float:
+	var pf := _perfil(v)
+	var teto := float(pf.z_tras) - float(pf.z_frente)
+	var comp := _comprimento(v)
+	return clampf(0.8 * teto / maxf(_z_frente - _z_tras, 0.2), 0.24 * comp, float(_cfg.get("proporcao", 0.4)) * comp)
+
+
+## Lugar do jaguar no carro (pés): no meio do teto de lado a lado, com as patas de trás a ~12% do fundo do
+## teto, olhando para a frente do carro (o modelo olha para +Z; o carro anda para -Z, então o z do carro
+## cresce para trás).
 func _teto(v: Veiculo) -> Transform3D:
-	var cx := v.caixa_corpo
+	var pf := _perfil(v)
 	var xf := v.global_transform
-	var topo := xf * Vector3(cx.get_center().x, cx.end.y, cx.get_center().z + cx.size.z * 0.08)
-	return Transform3D(xf.basis.orthonormalized() * Basis(Vector3.UP, PI), topo + xf.basis.y.normalized() * 0.02)
+	var z_patas := float(pf.z_tras) - 0.12 * (float(pf.z_tras) - float(pf.z_frente))
+	var z0 := z_patas + _esc * _z_tras
+	var topo := Vector3(pf.x_meio, _topo(pf, pf.x_meio, z_patas), z0)
+	return Transform3D(xf.basis.orthonormalized() * Basis(Vector3.UP, PI), xf * topo)
+
+
+## Mede a lataria dos carros um por vez (cada medida varre a malha do carro), logo no começo, para não pesar
+## na hora do salto.
+func _medir_carros() -> void:
+	if _t < 0.5:
+		return
+	if _fila_perfil.is_empty() and not has_meta("medido"):
+		set_meta("medido", true)
+		_fila_perfil = get_tree().get_nodes_in_group("veiculo")
+	if _fila_perfil.is_empty() or Engine.get_physics_frames() % 6 != 0:
+		return
+	var v := _fila_perfil.pop_back() as Veiculo
+	if v != null and is_instance_valid(v):
+		_perfil(v)
+
+
+## Lataria do carro vista de cima: mapa de altura (no espaço do carro) tirado dos triângulos da malha, e onde
+## fica o teto (z_frente..z_tras, y_teto). Guardado no próprio carro.
+func _perfil(v: Veiculo) -> Dictionary:
+	if v.has_meta("perfil_lataria"):
+		return v.get_meta("perfil_lataria")
+	var cx := v.caixa_corpo
+	var passo := 0.08
+	var nx := int(ceil(cx.size.x / passo)) + 1
+	var nz := int(ceil(cx.size.z / passo)) + 1
+	var tops := PackedFloat32Array()
+	tops.resize(nx * nz)
+	tops.fill(-INF)
+	var y_min := cx.position.y + cx.size.y * 0.35
+	var inv := v.global_transform.affine_inverse()
+	var raiz_malhas: Node = v.modelo if v.modelo else v
+	for no in raiz_malhas.find_children("*", "MeshInstance3D", true, false):
+		var mi := no as MeshInstance3D
+		if mi.mesh == null or not mi.is_visible_in_tree():
+			continue
+		var xm := inv * mi.global_transform
+		var faces := mi.mesh.get_faces()
+		for i in range(0, faces.size() - 2, 3):
+			var a := xm * faces[i]
+			var b := xm * faces[i + 1]
+			var c := xm * faces[i + 2]
+			if maxf(a.y, maxf(b.y, c.y)) < y_min:
+				continue
+			var ix0 := clampi(int((minf(a.x, minf(b.x, c.x)) - cx.position.x) / passo), 0, nx - 1)
+			var ix1 := clampi(int((maxf(a.x, maxf(b.x, c.x)) - cx.position.x) / passo), 0, nx - 1)
+			var iz0 := clampi(int((minf(a.z, minf(b.z, c.z)) - cx.position.z) / passo), 0, nz - 1)
+			var iz1 := clampi(int((maxf(a.z, maxf(b.z, c.z)) - cx.position.z) / passo), 0, nz - 1)
+			var det := (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z)
+			if (ix0 == ix1 and iz0 == iz1) or absf(det) < 0.000001:
+				# pequeno (ou de pé): só os cantos
+				for q: Vector3 in [a, b, c]:
+					var kq := clampi(int((q.z - cx.position.z) / passo), 0, nz - 1) * nx + clampi(int((q.x - cx.position.x) / passo), 0, nx - 1)
+					tops[kq] = maxf(tops[kq], q.y)
+				continue
+			for iz in range(iz0, iz1 + 1):
+				var pz := cx.position.z + (iz + 0.5) * passo
+				for ix in range(ix0, ix1 + 1):
+					var px := cx.position.x + (ix + 0.5) * passo
+					var w1 := ((b.z - c.z) * (px - c.x) + (c.x - b.x) * (pz - c.z)) / det
+					var w2 := ((c.z - a.z) * (px - c.x) + (a.x - c.x) * (pz - c.z)) / det
+					var w3 := 1.0 - w1 - w2
+					if w1 < -0.02 or w2 < -0.02 or w3 < -0.02:
+						continue
+					var k := iz * nx + ix
+					tops[k] = maxf(tops[k], a.y * w1 + b.y * w2 + c.y * w3)
+	# Teto: na faixa do meio do carro, o trecho contínuo em volta do ponto mais alto (até 18 cm abaixo dele)
+	var x_meio := cx.get_center().x
+	var faixa := PackedFloat32Array()
+	faixa.resize(nz)
+	var y_teto := -INF
+	var iz_alto := nz / 2
+	var ixa := clampi(int((x_meio - 0.2 - cx.position.x) / passo), 0, nx - 1)
+	var ixb := clampi(int((x_meio + 0.2 - cx.position.x) / passo), 0, nx - 1)
+	for iz in nz:
+		var m := -INF
+		for ix in range(ixa, ixb + 1):
+			m = maxf(m, tops[iz * nx + ix])
+		faixa[iz] = m
+		if m > y_teto:
+			y_teto = m
+			iz_alto = iz
+	var i_f := iz_alto
+	var i_t := iz_alto
+	while i_f > 0 and faixa[i_f - 1] >= y_teto - 0.18:
+		i_f -= 1
+	while i_t < nz - 1 and faixa[i_t + 1] >= y_teto - 0.18:
+		i_t += 1
+	var z_frente := cx.position.z + i_f * passo
+	var z_tras := cx.position.z + (i_t + 1) * passo
+	if y_teto == -INF or z_tras - z_frente < 0.6 or z_tras - z_frente > cx.size.z * 0.8:
+		# malha estranha (conversível, caminhonete...): teto presumido no meio do carro
+		y_teto = cx.end.y if y_teto == -INF else y_teto
+		z_frente = cx.get_center().z - cx.size.z * 0.12
+		z_tras = cx.get_center().z + cx.size.z * 0.22
+	var pf := {"tops": tops, "nx": nx, "nz": nz, "passo": passo, "x0": cx.position.x, "z0": cx.position.z,
+		"x_meio": x_meio, "y_teto": y_teto, "z_frente": z_frente, "z_tras": z_tras, "y_min": y_min}
+	v.set_meta("perfil_lataria", pf)
+	return pf
+
+
+## Altura da lataria (espaço do carro) no ponto (x, z): o mais alto da célula e das vizinhas (cobre furos da
+## malha e frestas).
+func _topo(pf: Dictionary, x: float, z: float) -> float:
+	var nx: int = pf.nx
+	var nz: int = pf.nz
+	var ix := clampi(int((x - float(pf.x0)) / float(pf.passo)), 0, nx - 1)
+	var iz := clampi(int((z - float(pf.z0)) / float(pf.passo)), 0, nz - 1)
+	var tops: PackedFloat32Array = pf.tops
+	var m := -INF
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			m = maxf(m, tops[clampi(iz + dz, 0, nz - 1) * nx + clampi(ix + dx, 0, nx - 1)])
+	return m if m > -INF else float(pf.y_min)
 
 
 ## Agachado por cima da pose da animação: o corpo desce (`peso` 0..1 → até ~45% da altura do quadril) com os
@@ -326,15 +494,28 @@ func _aplicar_agacho() -> void:
 		return
 	var alvos := []
 	var pes := []
+	# No carro: cada pata vai para a lataria de verdade (as da frente, para a beira do para-brisa)
+	var no_carro := _estado == "agarrado" and _valido(_v)
+	var pf := _perfil(_v) if no_carro else {}
+	var e_c := (_v.global_transform.affine_inverse() * _esq.global_transform) if no_carro else Transform3D.IDENTITY   # esqueleto → carro
 	for perna: Array in _pernas:
 		var g := _esq.get_bone_global_pose(perna[2])
 		var t := g.origin
-		if perna[3]:
+		if no_carro:
+			var pc := e_c * t
+			if perna[3]:
+				# até 8 cm além da beira da frente do teto, sem esticar mais que 0,3 do corpo
+				pc.z = lerpf(pc.z, clampf(float(pf.z_frente) - 0.08, pc.z - 0.3 * _esc, pc.z), agarra)
+			var dx := pc.x - float(pf.x_meio)
+			pc.x = float(pf.x_meio) + signf(dx) * minf(absf(dx), _v.caixa_corpo.size.x * 0.3)
+			pc.y = lerpf(pc.y, _topo(pf, pc.x, pc.z) + 0.05 * _esc, agarra)
+			t = e_c.affine_inverse() * pc
+		elif perna[3]:
 			t += _fr_s * _alt_quadril * 0.45 * agarra - _up_s * _alt_quadril * 0.12 * agarra
 		alvos.append(t)
 		pes.append(g.basis)
 	var raiz := _esq.get_bone_global_pose(_i_raiz)
-	raiz.origin -= _up_s * _alt_quadril * 0.45 * peso
+	raiz.origin -= _up_s * _alt_quadril * (0.58 if no_carro else 0.45) * peso
 	_esq.set_bone_global_pose(_i_raiz, raiz)
 	for k in _pernas.size():
 		var perna: Array = _pernas[k]
@@ -398,6 +579,8 @@ func _alvo() -> Veiculo:
 	for no in get_tree().get_nodes_in_group("veiculo"):
 		var v := no as Veiculo
 		if v == null or v.eliminado or v.fantasma() or not v.visible or v.direcao_invertida() or v.has_meta("jaguar"):
+			continue
+		if _t < float(_imune.get(v.get_instance_id(), 0.0)):
 			continue
 		var q := v.global_position - _c
 		if absf(q.dot(_lat)) > _meia + 2.0 or absf(q.y) > 15.0:

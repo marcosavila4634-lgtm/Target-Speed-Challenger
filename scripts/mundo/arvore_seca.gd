@@ -38,7 +38,10 @@ static func criar(pai: Node3D, pe: Vector3, rumo: Vector3, poleiro_y: float, alc
 	var h_galho := poleiro_y - pe.y
 	var y_f := h_galho - 3.5
 	var alto := y_f + rng.randf_range(13.0, 17.0)
-	var r0 := clampf(y_f / 15.0, 2.6, 4.2)   # quanto mais alta (estrada em ponte), mais grossa
+	# A árvore inteira cresce com a altura da pista (estrada em ponte de 30 a 180 m): tronco, raízes, sapopemas
+	# e copa na mesma proporção (ke = 1 numa árvore de ~55 m até a forquilha)
+	var r0 := raio_base(y_f)
+	var ke := r0 / 3.4
 	var tronco := PackedVector3Array()
 	var raios_t := PackedFloat32Array()
 	var n_t := int(alto / 1.0)
@@ -46,22 +49,22 @@ static func criar(pai: Node3D, pe: Vector3, rumo: Vector3, poleiro_y: float, alc
 		var u := float(k) / n_t
 		var y := -1.5 + u * (alto + 1.5)
 		var uf := clampf(y / y_f, 0.0, 1.0)
-		var desvio := -rumo * sin(uf * PI * 0.8) * 2.2 + lado * sin(uf * PI * 1.7 + 0.6) * 1.6
+		var desvio := (-rumo * sin(uf * PI * 0.8) * 2.2 + lado * sin(uf * PI * 1.7 + 0.6) * 1.6) * ke
 		tronco.append(Vector3(desvio.x, y, desvio.z))
 		var r := lerpf(r0, r0 * 0.5, pow(uf, 0.75))
 		if y > y_f:
 			r = lerpf(r0 * 0.5, r0 * 0.2, clampf((y - y_f) / (alto - y_f), 0.0, 1.0))
-		raios_t.append(r * (1.0 + 0.6 * pow(maxf(0.0, 1.0 - y / 3.0), 2.0)))
+		raios_t.append(r * (1.0 + 0.6 * pow(maxf(0.0, 1.0 - y / (3.0 * ke)), 2.0)))
 	var sapopemas := []
 	for k in 6:
 		sapopemas.append([TAU * k / 6.0 + rng.randf_range(-0.35, 0.35), rng.randf_range(0.9, 1.6)])
-	_tubo(st, tronco, raios_t, 40, ruido, rng.randf(), 0.14, sapopemas, 2.2, rng, true)
+	_tubo(st, tronco, raios_t, 40, ruido, rng.randf(), 0.14, sapopemas, 2.2 * ke, rng, true)
 
 	# --- Raízes expostas: saem das sapopemas, correm rente ao chão e afundam
 	for s: Array in sapopemas:
 		var a: float = s[0]
 		var d := Vector3(cos(a), 0.0, sin(a))
-		var comp := rng.randf_range(8.0, 14.0)
+		var comp := rng.randf_range(8.0, 14.0) * ke
 		var pts := PackedVector3Array()
 		var rs := PackedFloat32Array()
 		var n := 14
@@ -71,8 +74,8 @@ static func criar(pai: Node3D, pe: Vector3, rumo: Vector3, poleiro_y: float, alc
 			var dir := d.rotated(Vector3.UP, torce * u)
 			var q := dir * (r0 * 0.7 + u * comp)
 			var chao := float(altura.call(pe.x + q.x, pe.z + q.z)) - pe.y
-			var r := lerpf(1.1, 0.18, u) * float(s[1]) * 0.8
-			var y := lerpf(1.8, chao + r * 0.35, smoothstep(0.0, 0.35, u)) - smoothstep(0.75, 1.0, u) * r * 1.6
+			var r := lerpf(1.1, 0.18, u) * float(s[1]) * 0.8 * ke
+			var y := lerpf(1.8 * ke, chao + r * 0.35, smoothstep(0.0, 0.35, u)) - smoothstep(0.75, 1.0, u) * r * 1.6
 			pts.append(Vector3(q.x, y, q.z))
 			rs.append(r)
 		_tubo(st, pts, rs, 14, ruido, rng.randf(), 0.1, [], 0.0, rng)
@@ -91,7 +94,7 @@ static func criar(pai: Node3D, pe: Vector3, rumo: Vector3, poleiro_y: float, alc
 		var onda := lado * sin(u * PI * 2.2 + 0.4) * 0.9
 		var p := Vector3(base_g.x, 0.0, base_g.z) + rumo * x + onda
 		galho.append(Vector3(p.x, y, p.z))
-		raios_g.append(lerpf(r0 * 0.38, 0.5, pow(u, 0.8)))
+		raios_g.append(lerpf(minf(r0 * 0.38, 1.8), 0.5, pow(u, 0.8)))
 	_tubo(st, galho, raios_g, 22, ruido, rng.randf(), 0.08, [], 0.0, rng, true)
 	# Poleiro: ~3,5 m antes da ponta, em cima do galho, olhando para a estrada
 	var kp := clampi(int(n_g * (1.0 - 3.5 / alcance)), 1, n_g - 1)
@@ -115,7 +118,7 @@ static func criar(pai: Node3D, pe: Vector3, rumo: Vector3, poleiro_y: float, alc
 			sobe = 1.6
 		var o := _no_tronco(tronco, y)
 		var rt := _raio_tronco(tronco, raios_t, y)
-		var comp := clampf(y_f * rng.randf_range(0.5, 0.65), 20.0, 38.0)   # copa larga, do tamanho da árvore
+		var comp := clampf(y_f * rng.randf_range(0.5, 0.65), 20.0, 75.0)   # copa larga, do tamanho da árvore
 		_galho(st, o, (d + Vector3.UP * sobe).normalized(), comp, rt * rng.randf_range(0.6, 0.75), 0, ruido, rng)
 	# Galhos de baixo, mortos e caídos para os lados (quebram a linha do tronco), e tocos dos que já caíram
 	for k in 3:
@@ -123,13 +126,13 @@ static func criar(pai: Node3D, pe: Vector3, rumo: Vector3, poleiro_y: float, alc
 		var az := az0 + PI + rng.randf_range(-2.2, 2.2)
 		var d := Vector3(cos(az), 0.0, sin(az))
 		var o := _no_tronco(tronco, y)
-		_galho(st, o, (d + Vector3.UP * rng.randf_range(-0.1, 0.35)).normalized(), rng.randf_range(8.0, 13.0), _raio_tronco(tronco, raios_t, y) * 0.32, 1, ruido, rng)
+		_galho(st, o, (d + Vector3.UP * rng.randf_range(-0.1, 0.35)).normalized(), rng.randf_range(8.0, 13.0) * ke, _raio_tronco(tronco, raios_t, y) * 0.32, 1, ruido, rng)
 	for k in 6:
-		var y := rng.randf_range(6.0, y_f * 0.85)
+		var y := rng.randf_range(6.0 * ke, y_f * 0.85)
 		var az := rng.randf() * TAU
 		var o := _no_tronco(tronco, y)
 		var dir := (Vector3(cos(az), 0.0, sin(az)) + Vector3.UP * 0.4).normalized()
-		_galho(st, o, dir, rng.randf_range(2.0, 3.5) + _raio_tronco(tronco, raios_t, y), rng.randf_range(0.4, 0.7), 1, ruido, rng, false)
+		_galho(st, o, dir, rng.randf_range(2.0, 3.5) * ke + _raio_tronco(tronco, raios_t, y), rng.randf_range(0.4, 0.7) * ke, 1, ruido, rng, false)
 
 	st.generate_normals()
 	st.generate_tangents()
@@ -169,6 +172,11 @@ static func criar(pai: Node3D, pe: Vector3, rumo: Vector3, poleiro_y: float, alc
 	return {"no": raiz, "poleiro": poleiro}
 
 
+## Raio do pé do tronco para uma árvore com a forquilha a y_f m do chão.
+static func raio_base(y_f: float) -> float:
+	return clampf(y_f / 16.0, 2.6, 10.0)
+
+
 ## Ponto do eixo do tronco na altura y (local).
 static func _no_tronco(tronco: PackedVector3Array, y: float) -> Vector3:
 	for k in range(1, tronco.size()):
@@ -200,7 +208,7 @@ static func _galho(st: SurfaceTool, o: Vector3, dir: Vector3, comp: float, r: fl
 	for k in n:
 		tranco -= passo
 		if tranco <= 0.0:
-			tranco = rng.randf_range(1.5, 4.0) * (0.5 if nivel >= 2 else 1.0)
+			tranco = rng.randf_range(1.5, 4.0) * (0.5 if nivel >= 2 else 1.0) * maxf(1.0, r / 1.1)   # galho grosso: trancos mais compridos
 			var torto := Vector3(rng.randf_range(-1.0, 1.0), rng.randf_range(-0.6, 0.6), rng.randf_range(-1.0, 1.0)) * (0.3 if nivel == 0 else 0.5)
 			d = (d + torto - d * torto.dot(d)).normalized()
 			# Galho seco pesa: os compridos vão deitando

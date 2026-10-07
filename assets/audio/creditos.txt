@@ -51,6 +51,8 @@ AMBIENTE
   https://opengameart.org/content/free-crowd-cheering-sounds
 - ambiente/publico_gritos.ogg — "Crowd shouting/speaking ambience", StarNinjas — CC0
   https://opengameart.org/content/crowd-shoutingspeaking-ambience
+- efeitos/rugido_jaguar.ogg — "Jaguar Saw", AntumDeluge, de vídeo gravado por About Zoos (https://aboutzoos.info/) — CC-BY 4.0
+  https://opengameart.org/node/132685
 
 INTERFACE
 - interface/*.ogg — "Interface Sounds", Kenney (kenney.nl) — CC0
