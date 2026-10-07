@@ -4025,6 +4025,12 @@
 		},
 		"_sombra_vegetacao": "Até que distância da câmera (m) árvores e plantas projetam sombra; além disso são desenhadas sem sombra (pedido do dono para aliviar a placa: eram 14 dos 20 milhões de triângulos por quadro no Extinction Day). 0 = sombra até o alcance das sombras do sol.",
 		"sombra_vegetacao_distancia": 450,
+		"_alivio_zonas": "Trechos pesados do mapa (por mapa e etapa): enquanto a câmera está a menos de raio m do centro, a sombra do sol alcança só sombra_distancia m e as árvores distantes somem a arvores × o alcance normal; entre raio e raio + borda a mudança é gradual e fora disso o mapa fica como sempre. Serpent's Climb etapa 1 = chegada à plataforma da cobra (o ponto mais pesado do mapa; o driver da placa do dono caía ali). Apagar a entrada desliga.",
+		"alivio_zonas": {
+			"serpents_climb": {
+				"1": { "centro": [-1250, 100, -300], "raio": 550, "borda": 350, "sombra_distancia": 700, "arvores": 0.6 }
+			}
+		},
 		"sombra_suavidade_graus": 0.0,
 		"luz_rebatida": false
 	},

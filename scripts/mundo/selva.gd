@@ -1317,6 +1317,13 @@ func preparar_etapa(indice: int, cfg_etapa: Dictionary) -> void:
 	if virgem:
 		_mata_encosta()
 		if OS.get_environment("TSC_TEMPO") != "": print("[T] %6d ms    etapa: mata da encosta" % Time.get_ticks_msec())
+	# Trecho pesado da etapa (grafico.alivio_zonas): sombras mais curtas e árvores distantes somem mais cedo só ali
+	var zona: Dictionary = (Config.valor("grafico.alivio_zonas", {}) as Dictionary).get(Config.mapa_id, {}).get(str(indice + 1), {})
+	if not zona.is_empty():
+		var alivio := AlivioZona.new()
+		alivio.name = "AlivioZona"
+		_etapa_no.add_child(alivio)
+		alivio.montar(zona)
 	_vento_cfg = cfg_etapa.get("vento", {})
 	if _vento_cfg.is_empty():
 		Veiculo.vento = Vector3.ZERO

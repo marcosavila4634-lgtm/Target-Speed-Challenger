@@ -228,6 +228,11 @@ static func plantar(pai: Node, tipo: Tipo, pontos: Array, bloco: float, alcance:
 		mmi.visibility_range_end_margin = alcance * 0.15
 		mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 		pai.add_child(mmi)
+		if sombra:
+			# Árvores: o bloco que aparece de longe entra no grupo "veg_longe" (AlivioZona encurta o alcance dele nos
+			# trechos pesados do mapa)
+			mmi.add_to_group("veg_longe")
+			mmi.set_meta("alcance", alcance)
 		if not sombra or d_sombra <= 0.0:
 			continue
 		# Sombra só de perto: a distância é medida até o meio do bloco, então soma o raio dele (toda planta a
@@ -238,6 +243,7 @@ static func plantar(pai: Node, tipo: Tipo, pontos: Array, bloco: float, alcance:
 		var corte := d_sombra + caixa.size.length() * 0.5
 		if corte >= alcance:
 			continue
+		mmi.remove_from_group("veg_longe")   # este fica só com o perto; o de longe é o bloco sem sombra abaixo
 		mmi.visibility_range_end = corte
 		mmi.visibility_range_end_margin = 0.0
 		mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED
@@ -249,6 +255,8 @@ static func plantar(pai: Node, tipo: Tipo, pontos: Array, bloco: float, alcance:
 		longe.visibility_range_end = alcance
 		longe.visibility_range_end_margin = alcance * 0.15
 		longe.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+		longe.add_to_group("veg_longe")
+		longe.set_meta("alcance", alcance)
 		pai.add_child(longe)
 
 
