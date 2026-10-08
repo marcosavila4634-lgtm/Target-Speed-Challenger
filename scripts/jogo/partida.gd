@@ -39,6 +39,9 @@ var _rng := RandomNumberGenerator.new()
 ## as vagas estão preenchidas a etapa acaba. _chegadas em ordem de chegada (vivos).
 var _corrida: Dictionary = {}
 var _chegadas: Array[Veiculo] = []
+## regras.corrida.sem_tempo (Serpent's Climb): a etapa não tem limite — o relógio conta para cima e para
+## quando as vagas se completam. tempo_restante guarda o tempo decorrido.
+var _sem_tempo := false
 ## Extinction Day: tempo total da etapa (o meteoro chega conforme ele passa) e a cena do impacto final.
 var _tempo_total_etapa := 1.0
 var _impacto: ImpactoMeteoro
@@ -421,6 +424,10 @@ func _iniciar_etapa_participantes() -> void:
 		tempo_restante = tempo_etapa * float(_cfg_etapa().get("tempo_mult", 1.0))   # etapa mais longa/difícil: mais tempo
 	_tempo_total_etapa = maxf(tempo_restante, 1.0)
 	_corrida = Config.valor("regras.corrida", {})
+	_sem_tempo = bool(_corrida.get("sem_tempo", false))
+	if _sem_tempo:
+		tempo_restante = 0.0
+		_tempo_total_etapa = 1.0
 	_chegadas.clear()
 	_zona_jogador = -1
 	_espectando = false
@@ -505,7 +512,9 @@ func _comecar() -> void:
 	for p in _ativos():
 		p.veiculo.congelar(false)
 		p.controle.ativo = true
-	if not _corrida.is_empty():
+	if not _corrida.is_empty() and _vagas_corrida() == 1:
+		hud.mensagem("SÓ O PRIMEIRO A TOCAR O ALVO PONTUA: %d PONTOS!" % _pontos_chegada(0), Color(1.0, 0.85, 0.4), 4.0)
+	elif not _corrida.is_empty():
 		hud.mensagem("SÓ OS %d PRIMEIROS A TOCAR O ALVO PONTUAM!" % _vagas_corrida(), Color(1.0, 0.85, 0.4), 4.0)
 
 
@@ -796,9 +805,9 @@ func _process(delta: float) -> void:
 			if terreno.dino and terreno.dino.ceu:
 				terreno.dino.ceu.atualizar(1.0 - tempo_restante / _tempo_total_etapa)
 			if not _corrida.is_empty() and _chegadas.size() >= _vagas_corrida():
-				hud.mensagem("OS %d PRIMEIROS CHEGARAM!" % _vagas_corrida(), Color(1.0, 0.85, 0.4), 3.0)
+				hud.mensagem("%s CHEGOU PRIMEIRO!" % _chegadas[0].nome_piloto if _vagas_corrida() == 1 else "OS %d PRIMEIROS CHEGARAM!" % _vagas_corrida(), Color(1.0, 0.85, 0.4), 3.0)
 				_finalizar_etapa()
-			elif tempo_restante <= 0.0:
+			elif not _sem_tempo and tempo_restante <= 0.0:
 				_tempo_esgotado()
 			elif _todos_resolvidos():
 				fase = Fase.ESTABILIZACAO
@@ -882,7 +891,7 @@ func _rastro(delta: float) -> void:
 func _contar_tempo(delta: float) -> void:
 	if CameraJogo.livre:   # câmera livre (F3): o relógio da etapa para
 		return
-	tempo_restante -= delta
+	tempo_restante += delta if _sem_tempo else -delta
 
 
 func _todos_resolvidos() -> bool:
@@ -936,7 +945,7 @@ func _finalizar_etapa() -> void:
 				pts = _pontos_chegada(lugar)
 				texto = "%dº A CHEGAR — %d PONTOS" % [lugar + 1, pts]
 			else:
-				texto = "FORA DOS %d PRIMEIROS — 0 PONTOS" % _vagas_corrida()
+				texto = "NÃO CHEGOU PRIMEIRO — 0 PONTOS" if _vagas_corrida() == 1 else "FORA DOS %d PRIMEIROS — 0 PONTOS" % _vagas_corrida()
 		elif v.travado and v.relogio - v.ultimo_contato_alvo < 1.0:
 			pts = alvo.zona_do_veiculo(v)
 			texto = ("ZONA %d — %d PONTOS" % [pts, pts]) if pts > 0 else "FORA DO ALVO — 0 PONTOS"
@@ -1002,7 +1011,7 @@ func _cena_impacto(resultado: Dictionary) -> void:
 
 
 func _tempo_partida_acabou() -> bool:
-	return tempo_modo == "partida" and tempo_restante <= 0.0
+	return tempo_modo == "partida" and not _sem_tempo and tempo_restante <= 0.0
 
 
 func _proxima() -> void:
@@ -1245,6 +1254,8 @@ func _pontos_chegada(lugar: int) -> int:
 
 
 func _vagas_corrida() -> int:
+	if _corrida.has("vagas"):   # número fixo (Serpent's Climb: 1 = só o primeiro)
+		return maxi(1, int(_corrida.vagas))
 	return maxi(1, ceili(float(_corrida.get("fracao_pontuam", 0.3)) * _ativos().size()))
 
 
@@ -1406,7 +1417,7 @@ func _atualizar_hud(delta: float) -> void:
 		linhas.append({"status": s[0], "cor_status": s[1]})
 	var etapa_txt := "MORTE SÚBITA" if morte_subita else _texto_etapa()
 	var veiculos := participantes.map(func(p): return p.veiculo)
-	hud.atualizar({"etapa_texto": etapa_txt, "tempo": tempo_restante, "equipes": equipes, "linhas": linhas,
+	hud.atualizar({"etapa_texto": etapa_txt, "tempo": tempo_restante, "cronometro": _sem_tempo, "equipes": equipes, "linhas": linhas,
 		"veiculo": camera.veiculo if camera.veiculo else jogador.veiculo, "camera": camera.cam,
 		"alvo_pos": alvo.centro_superior(), "veiculos": veiculos}, delta)
 

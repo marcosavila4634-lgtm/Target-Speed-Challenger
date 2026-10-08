@@ -2328,9 +2328,11 @@
 					"zonas": [[10, 15]]
 				},
 				"regras": {
+					"_corrida": "Pedido do dono (2026-10-08), todas as etapas: um ganhador só e sem limite de tempo. O primeiro a tocar o alvo ganha 50 pontos para a equipe e a etapa acaba (o relógio conta para cima e para).",
 					"corrida": {
-						"fracao_pontuam": 0.3,
-						"pontos": [10, 5, 3]
+						"vagas": 1,
+						"pontos": [50],
+						"sem_tempo": true
 					},
 					"ejetor_sempre": true,
 					"freios_instalados": true

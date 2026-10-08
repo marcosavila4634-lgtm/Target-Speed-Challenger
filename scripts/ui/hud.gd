@@ -287,7 +287,7 @@ func atualizar(info: Dictionary, delta: float) -> void:
 	_etapa.text = info.etapa_texto
 	var t: float = maxf(info.tempo, 0.0)
 	_tempo.text = "%02d:%02d" % [int(t) / 60, int(t) % 60]
-	_tempo.add_theme_color_override("font_color", Estilo.PERIGO if t < 20.0 else Estilo.TEXTO)
+	_tempo.add_theme_color_override("font_color", Estilo.PERIGO if t < 20.0 and not info.get("cronometro", false) else Estilo.TEXTO)
 	for i in _linhas_equipes.size():
 		if i < info.equipes.size():
 			_linhas_equipes[i].b.text = str(info.equipes[i])
