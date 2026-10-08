@@ -296,6 +296,8 @@ func _montar_plataforma_alta(terreno: Terreno) -> void:
 	_no.add_child(plataforma)
 	var origem := Vector3(float(o[0]), float(o[1]), float(o[2]))
 	plataforma.montar(origem, Vector3(float(f[0]), 0.0, float(f[1])), terreno.altura_em(origem.x, origem.z))
+	if cfg.get("espinhos") is Dictionary:   # campo de espinhos em volta do recinto (ninguém contorna por fora)
+		EspinhosSelva.montar(plataforma, terreno, cfg.espinhos)
 
 
 ## Amostra a curva suave (Catmull-Rom) que passa pelos pontos de controle, a cada ~1 m.

@@ -1727,7 +1727,7 @@
 									"saida_largura": 10,
 									"muro_altura": 2.6,
 									"grade_altura": 8.5,
-									"placa": "TEMPLO DO SOL",
+									"espinhos": { "passo": 1.5, "folga": 4 }, "placa": "TEMPLO DO SOL",
 									"entradas": [[1, 50, 12]],
 									"buracos": [[22, -22, 6], [30, 24, 6], [52, 0, 7], [70, -28, 6], [74, 20, 6], [88, -6, 5]],
 									"impulsos": [[34, 34, -35, false], [58, -40, 0, false], [76, 2, 0, false]]
