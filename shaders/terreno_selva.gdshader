@@ -152,12 +152,19 @@ void fragment() {
 		vec3 wl = pow(abs(nw), vec3(4.0));
 		wl /= (wl.x + wl.y + wl.z + 0.0001);
 		vec3 rl = texture(rocha_lad, vec2(p.z, -p.y) / 60.0).rgb * wl.x + texture(rocha_lad, p.xz / 60.0).rgb * wl.y + texture(rocha_lad, vec2(p.x, -p.y) / 60.0 + 0.5).rgb * wl.z;
-		rl = mix(rl, texture(rocha_lad, vec2(along, -h) / 95.0 + 0.3).rgb, 0.3);
+		// Manchas claras/escuras para o ladrilho não repetir igual. (Antes era uma 2ª camada pela coordenada
+		// "along", que muda com a normal: em paredão curvo a rocha virava riscos escorridos.)
+		rl *= 0.8 + 0.4 * ruido_parede(ruido, p, nw, 130.0);
 		rl = mix(rl, vec3(dot(rl, vec3(0.3, 0.59, 0.11))), 0.25) * 0.85;
+		rocha_lad_lum = dot(rl, vec3(0.3, 0.59, 0.11));
+		if (!mata_virgem) {
+			// Paredão liso e grande: musgo em manchas quebra a face toda igual
+			float musgo_l = smoothstep(0.5, 0.74, ruido_parede(ruido, p + 71.0, nw, 55.0));
+			rl = mix(rl, cor_musgo * (0.7 + 1.6 * rocha_lad_lum), musgo_l * 0.45);
+		}
 		// Paredão de qualquer etapa: só a rocha da arte do dono (rochadiferente angulos), nunca o calcário antigo
 		rocha_final = mix(mata_virgem ? rocha_final : rl, rl * (0.85 + 0.3 * n_grande), ingreme);
 		if (!mata_virgem) { rocha_final = rl * (0.85 + 0.3 * n_grande); }
-		rocha_lad_lum = dot(rl, vec3(0.3, 0.59, 0.11));
 		cobre *= 1.0 - ingreme;
 	}
 

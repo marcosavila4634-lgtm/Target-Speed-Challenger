@@ -130,15 +130,15 @@ func _fumaca() -> GPUParticles3D:
 		m.angle_max = 180.0
 		var curva := Curve.new()
 		curva.add_point(Vector2(0, 0.5))
-		curva.add_point(Vector2(1, 3.0))
+		curva.add_point(Vector2(1, 3.8))
 		var ct := CurveTexture.new()
 		ct.curve = curva
 		m.scale_curve = ct
 		var grad := Gradient.new()
 		grad.set_color(0, Color(0.9, 0.45, 0.15, 0.0))
-		grad.add_point(0.08, Color(0.35, 0.22, 0.15, 0.85))
-		grad.add_point(0.4, Color(0.2, 0.19, 0.19, 0.7))
-		grad.set_color(grad.get_point_count() - 1, Color(0.4, 0.37, 0.35, 0.0))
+		grad.add_point(0.08, Color(0.35, 0.22, 0.15, 0.6))
+		grad.add_point(0.4, Color(0.24, 0.21, 0.19, 0.42))   # mais rala e quente: os tufos se fundem em vez de virar bolotas cinza
+		grad.set_color(grad.get_point_count() - 1, Color(0.45, 0.4, 0.35, 0.0))
 		var rampa := GradientTexture1D.new()
 		rampa.gradient = grad
 		m.color_ramp = rampa

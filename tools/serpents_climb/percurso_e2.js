@@ -305,7 +305,9 @@ const percurso = {
   largura_inicio: { largura: 20, comprimento: 170, transicao: 60 },
   checkpoints: { pontos: [['A', mA(V(-1680, 300))], ['A', MACHADOS + 20], ['B', 150], ['B', ilhasB[1] + 30], ['C', 300],
     ['C', mC(V(661, 413))], ['C', mC(V(241, -560))], ['C', mC(V(48, -1102))], ['C', TOCA_M + 120], ['C', mC(V(-914, -1380))],
-    ['C', CUSP[1] + 30], ['C', mC(V(-1493, -794))], ['C', placasE[1] + 30]], fantasma_s: 3, raio: 6.5, altura: 6 },
+    ['C', CUSP[1] + 30], ['C', mC(V(-1493, -794))], ['C', placasE[1] + 30],
+    ['C', -132]],   // último: na reta final, logo antes dos aceleradores (marcado pelo dono 2026-10-08)
+    fantasma_s: 3, raio: 6.5, altura: 6 },
   armadilhas: {
     laminas: [['A', FOGO + 21, 0, 4.4, 'fogo', 3, 14, -0.8], ['A', MACHADOS + 21, 0.5, 4.4, 'rocha', 3, 14, -0.8],
       // (pedido do dono: no lugar das lâminas antigas, sempre a montanha com túnel e machados)
